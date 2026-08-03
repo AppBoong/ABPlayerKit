@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import ABPlayerKit
 @preconcurrency import AVFoundation
+import UIKit
 
 @Suite("Every release path calls detachItem exactly once")
 @MainActor
@@ -210,6 +211,62 @@ struct ABPlayerEventBroadcastTests {
 
         #expect(events.contains(.playbackRejected))
         #expect(!target.calls.contains(.play))
+    }
+
+    @Test("Mute survives attaching and swapping sources")
+    func muteSurvivesSourceSwap() {
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore), target: target)
+        let otherSource = ABMediaSource(url: URL(string: "https://example.com/b.mp4")!)
+
+        player.setMuted(true)
+        player.set(source: source, grade: .current)
+        player.set(source: otherSource, grade: .current)
+
+        #expect(player.configuration.isMuted)
+        #expect(target.calls.filter { $0 == .setMuted(true) }.count == 3)
+        #expect(!target.calls.contains(.setMuted(false)))
+    }
+
+    @Test("Configuration does not report tuning when no item exists")
+    func configurationDoesNotReportUnappliedTuning() {
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore), target: target)
+        var events: [ABPlayerEvent] = []
+        let token = player.addObserver { events.append($0) }
+        defer { token.cancel() }
+
+        player.set(source: source, grade: .instanceOnly)
+        player.configuration.currentTuning = .unrestricted
+
+        #expect(!events.contains { event in
+            if case .tuningApplied = event { return true }
+            return false
+        })
+    }
+
+    @Test("Changing background policy installs and removes observation")
+    func backgroundPolicyReconcilesObservation() async {
+        let center = NotificationCenter()
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(
+            configuration: ABPlayerConfiguration(backgroundPolicy: .ignore),
+            target: target,
+            notificationCenter: center
+        )
+        player.set(source: source, grade: .current)
+        player.play()
+
+        player.configuration.backgroundPolicy = .pause
+        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        await Task.yield()
+        let pauseCount = target.calls.filter { $0 == .pause }.count
+        #expect(pauseCount == 1)
+
+        player.configuration.backgroundPolicy = .ignore
+        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        await Task.yield()
+        #expect(target.calls.filter { $0 == .pause }.count == pauseCount)
     }
 }
 

@@ -56,9 +56,11 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         avPlayerItem = nil
     }
 
-    func applyTuning(_ tuning: ABPlaybackTuning) {
-        guard let avPlayerItem else { return }
+    @discardableResult
+    func applyTuning(_ tuning: ABPlaybackTuning) -> Bool {
+        guard let avPlayerItem else { return false }
         apply(tuning, to: avPlayerItem)
+        return true
     }
 
     func play() {

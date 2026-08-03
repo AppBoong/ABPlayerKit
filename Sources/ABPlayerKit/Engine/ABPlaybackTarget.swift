@@ -47,7 +47,8 @@ protocol ABPlaybackTarget: AnyObject {
     func releasePlayer()
     func attachItem(_ source: ABMediaSource, tuning: ABPlaybackTuning, assetFactory: any ABAssetFactory)
     func detachItem()
-    func applyTuning(_ tuning: ABPlaybackTuning)
+    @discardableResult
+    func applyTuning(_ tuning: ABPlaybackTuning) -> Bool
     func play()
     func pause()
     func setMuted(_ muted: Bool)

@@ -35,6 +35,7 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
     var prerollResult: ABPrerollResult = .success
     var waitsForPrerollCancellation = false
     private(set) var prerollWasCancelled = false
+    private var hasAttachedItem = false
 
     func makePlayer() {
         calls.append(.makePlayer)
@@ -42,26 +43,33 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
 
     func releasePlayer() {
         calls.append(.releasePlayer)
+        hasAttachedItem = false
     }
 
     func attachItem(_ source: ABMediaSource, tuning: ABPlaybackTuning, assetFactory: any ABAssetFactory) {
         calls.append(.attachItem(source, tuning))
+        hasAttachedItem = true
     }
 
     func detachItem() {
         calls.append(.detachItem)
+        hasAttachedItem = false
     }
 
-    func applyTuning(_ tuning: ABPlaybackTuning) {
+    @discardableResult
+    func applyTuning(_ tuning: ABPlaybackTuning) -> Bool {
         calls.append(.applyTuning(tuning))
+        return hasAttachedItem
     }
 
     func play() {
         calls.append(.play)
+        isPlaying = true
     }
 
     func pause() {
         calls.append(.pause)
+        isPlaying = false
     }
 
     func setMuted(_ muted: Bool) {

@@ -9,7 +9,7 @@ public final class ABPlayer {
     public let id = ABPlayerID()
 
     public var configuration: ABPlayerConfiguration {
-        didSet { applyConfigurationChange() }
+        didSet { applyConfigurationChange(from: oldValue) }
     }
 
     public private(set) var grade: ABPlaybackGrade = .released
@@ -28,6 +28,7 @@ public final class ABPlayer {
     public var duration: CMTime? { target.duration }
 
     private let target: any ABPlaybackTarget
+    private let notificationCenter: NotificationCenter
     private let planner = ABGradePlanner()
     private let observerRegistry = ABObserverRegistry()
     private var lastAppliedTuningRole: ABTuningRole = .preload
@@ -41,17 +42,23 @@ public final class ABPlayer {
     public init(configuration: ABPlayerConfiguration = .init()) {
         self.configuration = configuration
         self.target = ABAVPlaybackTarget()
+        self.notificationCenter = .default
         wireTarget()
-        installBackgroundObserverIfNeeded()
+        reconcileBackgroundObserver()
     }
 
     /// Test-only entry point — lets `ABPlayerKitTests` substitute
     /// `ABFakePlaybackTarget` without exposing `ABPlaybackTarget` publicly.
-    init(configuration: ABPlayerConfiguration = .init(), target: any ABPlaybackTarget) {
+    init(
+        configuration: ABPlayerConfiguration = .init(),
+        target: any ABPlaybackTarget,
+        notificationCenter: NotificationCenter = .default
+    ) {
         self.configuration = configuration
         self.target = target
+        self.notificationCenter = notificationCenter
         wireTarget()
-        installBackgroundObserverIfNeeded()
+        reconcileBackgroundObserver()
     }
 
     // MARK: - Grade
@@ -134,7 +141,7 @@ public final class ABPlayer {
     }
 
     public func setMuted(_ muted: Bool) {
-        target.setMuted(muted)
+        configuration.isMuted = muted
     }
 
     // MARK: - Preload control
@@ -216,8 +223,9 @@ public final class ABPlayer {
             case .applyTuning(let role):
                 lastAppliedTuningRole = role
                 let tuning = tuning(for: role)
-                target.applyTuning(tuning)
-                broadcast(.tuningApplied(role, tuning))
+                if target.applyTuning(tuning) {
+                    broadcast(.tuningApplied(role, tuning))
+                }
 
             case .attachItem(let attachedSource):
                 reportedFirstFrameItem = nil
@@ -227,6 +235,7 @@ public final class ABPlayer {
                     tuning: tuning(for: lastAppliedTuningRole),
                     assetFactory: configuration.assetFactory
                 )
+                broadcast(.tuningApplied(lastAppliedTuningRole, tuning(for: lastAppliedTuningRole)))
                 target.setMuted(configuration.isMuted)
                 target.setLooping(configuration.isLooping)
 
@@ -284,18 +293,35 @@ public final class ABPlayer {
         }
     }
 
-    private func applyConfigurationChange() {
+    private func applyConfigurationChange(from previousConfiguration: ABPlayerConfiguration) {
+        if previousConfiguration.backgroundPolicy != configuration.backgroundPolicy {
+            reconcileBackgroundObserver()
+        }
+        if previousConfiguration.isMuted != configuration.isMuted {
+            target.setMuted(configuration.isMuted)
+        }
+        if previousConfiguration.isLooping != configuration.isLooping {
+            target.setLooping(configuration.isLooping)
+        }
+
         guard grade.holdsItem else { return }
         let role: ABTuningRole = grade == .current ? .current : .preload
         lastAppliedTuningRole = role
         let resolvedTuning = tuning(for: role)
-        target.applyTuning(resolvedTuning)
-        broadcast(.tuningApplied(role, resolvedTuning))
+        if target.applyTuning(resolvedTuning) {
+            broadcast(.tuningApplied(role, resolvedTuning))
+        }
     }
 
-    private func installBackgroundObserverIfNeeded() {
-        guard configuration.backgroundPolicy != .ignore else { return }
+    private func reconcileBackgroundObserver() {
+        guard configuration.backgroundPolicy != .ignore else {
+            appStateObserver?.invalidate()
+            appStateObserver = nil
+            return
+        }
+        guard appStateObserver == nil else { return }
         appStateObserver = ABApplicationStateObserver(
+            center: notificationCenter,
             onBackground: { [weak self] in self?.handleDidEnterBackground() },
             onForeground: { [weak self] in self?.handleWillEnterForeground() }
         )
