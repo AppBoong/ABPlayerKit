@@ -10,12 +10,12 @@ public struct ABCacheConfiguration: Sendable, Equatable {
         maximumDiskSize: Int64 = 512 * 1_024 * 1_024,
         maximumEntrySize: Int64 = 64 * 1_024 * 1_024
     ) {
-        self.directory = directory ?? Self.defaultDirectory
+        self.directory = directory ?? Self.makeDefaultDirectory()
         self.maximumDiskSize = maximumDiskSize
         self.maximumEntrySize = maximumEntrySize
     }
 
-    private static var defaultDirectory: URL {
+    private static func makeDefaultDirectory() -> URL {
         let cachesDirectory = FileManager.default.urls(
             for: .cachesDirectory,
             in: .userDomainMask
