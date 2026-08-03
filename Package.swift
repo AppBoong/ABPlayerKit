@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "ABPlayerKitCache", targets: ["ABPlayerKitCache"])
     ],
     targets: [
+        // The shared ABPlayerKit-Package scheme runs every test target below.
         .target(
             name: "ABPlayerKit"
         ),
