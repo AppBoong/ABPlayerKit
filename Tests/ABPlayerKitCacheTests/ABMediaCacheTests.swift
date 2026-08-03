@@ -9,6 +9,7 @@ private final class ABFakeHLSDownloadSession: @unchecked Sendable {
     private let lock = NSLock()
     private var completions: [UUID: @Sendable (ABHLSDownloadResult) -> Void] = [:]
     private(set) var cancellationCount = 0
+    private(set) var invalidationCount = 0
 
     func start(
         id: UUID,
@@ -33,6 +34,12 @@ private final class ABFakeHLSDownloadSession: @unchecked Sendable {
         completions[entry.key] = nil
         lock.unlock()
         entry.value(.success(url))
+    }
+
+    func invalidate() {
+        lock.lock()
+        invalidationCount += 1
+        lock.unlock()
     }
 
     private func cancel(id: UUID) {
@@ -134,5 +141,58 @@ struct ABHLSPrefetcherTests {
 
         #expect(prefetcher.activeTaskCount == 0)
         #expect(fakeSession.cancellationCount == 2)
+    }
+
+    @Test("Invalidation cancels active work and invalidates the download session")
+    func invalidatesSession() {
+        let fakeSession = ABFakeHLSDownloadSession()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let prefetcher = ABHLSPrefetcher(
+            configuration: .init(directory: directory),
+            startDownload: {
+                fakeSession.start(id: $0, source: $1, bitrate: $2, completion: $3)
+            },
+            invalidateDownload: {
+                fakeSession.invalidate()
+            }
+        )
+        prefetcher.prefetch(ABMediaSource(url: URL(string: "https://example.com/a.m3u8")!))
+
+        prefetcher.invalidate()
+
+        #expect(prefetcher.activeTaskCount == 0)
+        #expect(fakeSession.cancellationCount == 1)
+        #expect(fakeSession.invalidationCount == 1)
+    }
+
+    @Test("Persisted HLS locations are home-relative and survive reconstruction")
+    func persistsHomeRelativeLocations() throws {
+        let fakeSession = ABFakeHLSDownloadSession()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let localURL = directory.appendingPathComponent("asset.movpkg", isDirectory: true)
+        try FileManager.default.createDirectory(at: localURL, withIntermediateDirectories: true)
+        let configuration = ABCacheConfiguration(directory: directory)
+        let source = ABMediaSource(url: URL(string: "https://example.com/master.m3u8")!)
+        let prefetcher = ABHLSPrefetcher(configuration: configuration) {
+            fakeSession.start(id: $0, source: $1, bitrate: $2, completion: $3)
+        }
+        prefetcher.prefetch(source)
+        fakeSession.completeFirst(at: localURL)
+
+        let data = try Data(contentsOf: directory.appendingPathComponent("hls-index.json"))
+        let paths = try JSONDecoder().decode([String: String].self, from: data)
+        #expect(paths.values.allSatisfy { !$0.hasPrefix("/") })
+
+        let restored = ABHLSPrefetcher(configuration: configuration) { _, _, _, _ in nil }
+        #expect(restored.localAsset(for: source)?.url == localURL)
+    }
+
+    @Test("Background downloads use the stable package identifier")
+    func stableBackgroundIdentifier() {
+        #expect(ABHLSBackgroundSession.identifier == "ABPlayerKitCache.HLS")
     }
 }

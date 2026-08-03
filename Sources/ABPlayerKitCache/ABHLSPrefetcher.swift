@@ -36,16 +36,21 @@ public struct ABHLSPrefetchHandle: Sendable, Hashable {
     }
 }
 
+// All mutable bookkeeping lives in the lock-protected state object; closures are Sendable.
 public final class ABHLSPrefetcher: @unchecked Sendable {
     private let state: ABHLSPrefetchState
     private let startDownload: ABHLSDownloadStart
+    private let invalidateDownload: @Sendable () -> Void
     private let sessionOwner: AnyObject?
 
     public init(configuration: ABCacheConfiguration = .init()) {
         let state = ABHLSPrefetchState(configuration: configuration)
-        let coordinator = ABHLSDownloadCoordinator()
+        let coordinator = ABHLSDownloadCoordinator.shared
         self.state = state
         self.sessionOwner = coordinator
+        self.invalidateDownload = {
+            coordinator.invalidate()
+        }
         self.startDownload = { id, source, bitrate, completion in
             coordinator.start(
                 id: id,
@@ -56,9 +61,14 @@ public final class ABHLSPrefetcher: @unchecked Sendable {
         }
     }
 
-    init(configuration: ABCacheConfiguration, startDownload: @escaping ABHLSDownloadStart) {
+    init(
+        configuration: ABCacheConfiguration,
+        startDownload: @escaping ABHLSDownloadStart,
+        invalidateDownload: @escaping @Sendable () -> Void = {}
+    ) {
         self.state = ABHLSPrefetchState(configuration: configuration)
         self.startDownload = startDownload
+        self.invalidateDownload = invalidateDownload
         self.sessionOwner = nil
     }
 
@@ -92,6 +102,11 @@ public final class ABHLSPrefetcher: @unchecked Sendable {
         state.cancelAll()
     }
 
+    public func invalidate() {
+        state.cancelAll()
+        invalidateDownload()
+    }
+
     public func localAsset(for source: ABMediaSource) -> AVURLAsset? {
         guard source.kind == .hls,
               let url = state.localURL(for: ABCacheKey.derive(from: source))
@@ -117,10 +132,12 @@ private final class ABHLSPrefetchState: @unchecked Sendable {
     private let lock = NSLock()
     private let fileManager = FileManager.default
     private let indexURL: URL
+    private let homeDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
     private var activeTasks: [UUID: ActiveTask] = [:]
     private var localURLs: [String: URL]
 
     init(configuration: ABCacheConfiguration) {
+        let containerHomeDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
         self.indexURL = configuration.directory.appendingPathComponent("hls-index.json")
         try? fileManager.createDirectory(
             at: configuration.directory,
@@ -129,7 +146,9 @@ private final class ABHLSPrefetchState: @unchecked Sendable {
         )
         if let data = try? Data(contentsOf: indexURL),
            let paths = try? JSONDecoder().decode([String: String].self, from: data) {
-            self.localURLs = paths.mapValues(URL.init(fileURLWithPath:))
+            self.localURLs = paths.compactMapValues { path in
+                Self.localURL(fromPersistedPath: path, homeDirectory: containerHomeDirectory)
+            }
         } else {
             self.localURLs = [:]
         }
@@ -239,7 +258,9 @@ private final class ABHLSPrefetchState: @unchecked Sendable {
     }
 
     private func persistIndexLocked() {
-        let paths = localURLs.mapValues(\.path)
+        let paths = localURLs.compactMapValues {
+            Self.homeRelativePath(for: $0, homeDirectory: homeDirectory)
+        }
         guard let data = try? JSONEncoder().encode(paths) else { return }
         try? data.write(to: indexURL, options: .atomic)
         try? fileManager.setAttributes(
@@ -247,9 +268,35 @@ private final class ABHLSPrefetchState: @unchecked Sendable {
             ofItemAtPath: indexURL.path
         )
     }
+
+    private static func localURL(fromPersistedPath path: String, homeDirectory: URL) -> URL? {
+        if path.hasPrefix("/") {
+            return homeRelativePath(
+                for: URL(fileURLWithPath: path),
+                homeDirectory: homeDirectory
+            ).map {
+                URL(fileURLWithPath: $0, relativeTo: homeDirectory).standardizedFileURL
+            }
+        }
+        return URL(fileURLWithPath: path, relativeTo: homeDirectory).standardizedFileURL
+    }
+
+    private static func homeRelativePath(for url: URL, homeDirectory: URL) -> String? {
+        let homePath = homeDirectory.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(homePath + "/") else { return nil }
+        return String(path.dropFirst(homePath.count + 1))
+    }
 }
 
+enum ABHLSBackgroundSession {
+    static let identifier = "ABPlayerKitCache.HLS"
+}
+
+// AVAssetDownloadURLSession callbacks may arrive concurrently; jobs and session creation are lock-protected.
 private final class ABHLSDownloadCoordinator: NSObject, AVAssetDownloadDelegate, @unchecked Sendable {
+    static let shared = ABHLSDownloadCoordinator()
+
     private struct Job {
         let id: UUID
         let completion: @Sendable (ABHLSDownloadResult) -> Void
@@ -258,16 +305,42 @@ private final class ABHLSDownloadCoordinator: NSObject, AVAssetDownloadDelegate,
 
     private let lock = NSLock()
     private var jobs: [Int: Job] = [:]
-    private lazy var session: AVAssetDownloadURLSession = {
+    private var session: AVAssetDownloadURLSession?
+    private var isInvalidating = false
+
+    func invalidate() {
+        lock.lock()
+        guard let session, !isInvalidating else {
+            lock.unlock()
+            return
+        }
+        isInvalidating = true
+        lock.unlock()
+        session.finishTasksAndInvalidate()
+    }
+
+    private func downloadSession() -> AVAssetDownloadURLSession? {
+        lock.lock()
+        guard !isInvalidating else {
+            lock.unlock()
+            return nil
+        }
+        if let session {
+            lock.unlock()
+            return session
+        }
         let configuration = URLSessionConfiguration.background(
-            withIdentifier: "ABPlayerKitCache.HLS.\(UUID().uuidString)"
+            withIdentifier: ABHLSBackgroundSession.identifier
         )
-        return AVAssetDownloadURLSession(
+        let session = AVAssetDownloadURLSession(
             configuration: configuration,
             assetDownloadDelegate: self,
             delegateQueue: nil
         )
-    }()
+        self.session = session
+        lock.unlock()
+        return session
+    }
 
     func start(
         id: UUID,
@@ -289,7 +362,13 @@ private final class ABHLSDownloadCoordinator: NSObject, AVAssetDownloadDelegate,
                 AVAssetVariantQualifier(predicate: predicate)
             ]
         }
-        let task = session.makeAssetDownloadTask(downloadConfiguration: downloadConfiguration)
+        guard let session = downloadSession() else {
+            completion(.failure)
+            return nil
+        }
+        let task = session.makeAssetDownloadTask(
+            downloadConfiguration: downloadConfiguration
+        )
         lock.lock()
         jobs[task.taskIdentifier] = Job(id: id, completion: completion, location: nil)
         lock.unlock()
@@ -328,6 +407,18 @@ private final class ABHLSDownloadCoordinator: NSObject, AVAssetDownloadDelegate,
         } else {
             job.completion(.failure)
         }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        didBecomeInvalidWithError error: (any Error)?
+    ) {
+        lock.lock()
+        if self.session === session {
+            self.session = nil
+            isInvalidating = false
+        }
+        lock.unlock()
     }
 
     private func store(location: URL, for taskIdentifier: Int) {
