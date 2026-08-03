@@ -4,6 +4,14 @@ import Testing
 @preconcurrency import AVFoundation
 import UIKit
 
+private final class WeakReference<Object: AnyObject> {
+    weak var value: Object?
+
+    init(_ value: Object) {
+        self.value = value
+    }
+}
+
 @Suite("ABDefaultAssetFactory uses public AVFoundation API")
 struct ABDefaultAssetFactoryTests {
     @Test("Custom headers remain stored on the source while core asset creation preserves the URL")
@@ -185,18 +193,21 @@ struct ABPlayerEventBroadcastTests {
     func releaseDoesNotRetainItem() async {
         let configuration = ABPlayerConfiguration(prerollTimeout: 10, backgroundPolicy: .ignore)
         let player = ABPlayer(configuration: configuration)
-        let pendingSource = ABMediaSource(url: URL(string: "https://example.invalid/pending.mp4")!)
+        let pendingSource = ABMediaSource(url: URL(fileURLWithPath: "/private/tmp/abplayerkit-pending.mp4"))
 
         player.set(source: pendingSource, grade: .preloaded)
-        weak var releasedItem = player.avPlayerItem
-        #expect(releasedItem != nil)
+        let releasedItem = WeakReference(player.avPlayerItem!)
+        #expect(releasedItem.value != nil)
 
         player.release()
-        for _ in 0..<20 where releasedItem != nil {
+        for _ in 0..<20 where releasedItem.value != nil {
             await Task.yield()
         }
+        if releasedItem.value != nil {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
 
-        #expect(releasedItem == nil)
+        #expect(releasedItem.value == nil)
     }
 
     @Test("Requesting a held grade with no source clamps to .instanceOnly")

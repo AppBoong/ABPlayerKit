@@ -135,6 +135,7 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         private var continuation: CheckedContinuation<ReadyWaitResult, Never>?
         private var result: ReadyWaitResult?
         private var timeoutTask: Task<Void, Never>?
+        private var invalidateObservation: (() -> Void)?
 
         func install(_ continuation: CheckedContinuation<ReadyWaitResult, Never>) {
             lock.lock()
@@ -158,6 +159,17 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             }
         }
 
+        func installObservationInvalidator(_ invalidate: @escaping () -> Void) {
+            lock.lock()
+            if result == nil {
+                invalidateObservation = invalidate
+                lock.unlock()
+            } else {
+                lock.unlock()
+                invalidate()
+            }
+        }
+
         func resolve(_ result: ReadyWaitResult) {
             lock.lock()
             guard self.result == nil else {
@@ -169,9 +181,12 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             self.continuation = nil
             let timeoutTask = timeoutTask
             self.timeoutTask = nil
+            let invalidateObservation = invalidateObservation
+            self.invalidateObservation = nil
             lock.unlock()
 
             timeoutTask?.cancel()
+            invalidateObservation?()
             continuation?.resume(returning: result)
         }
     }
@@ -197,7 +212,7 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
                     @unknown default: break
                     }
                 }
-                observations.add { statusObservation.invalidate() }
+                state.installObservationInvalidator { statusObservation.invalidate() }
 
                 let timeoutTask = Task {
                     do {
