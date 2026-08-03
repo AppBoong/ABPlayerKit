@@ -341,6 +341,19 @@ struct ABPlayerViewLifecycleTests {
         #expect((view.layer as? AVPlayerLayer)?.player == nil)
     }
 
+    @Test("Direct video gravity survives a grade transition")
+    func directVideoGravitySurvivesGradeTransition() {
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore), target: target)
+        let view = ABPlayerView()
+        view.player = player
+        view.videoGravity = .resizeAspect
+
+        player.set(source: source, grade: .current)
+
+        #expect(view.videoGravity == .resizeAspect)
+    }
+
     @Test("pauseAndDetachLayer detaches in background and reattaches in foreground")
     func backgroundPolicyDetachesAndReattachesLayer() async {
         let center = NotificationCenter()

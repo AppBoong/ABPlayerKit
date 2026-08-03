@@ -80,6 +80,7 @@ public final class ABPlayerView: UIView {
                 break
             }
         }
+        videoGravity = newPlayer.configuration.videoGravity
         layerAttachmentToken = newPlayer.addLayerAttachmentObserver { [weak self, weak newPlayer] _ in
             guard let self, self.player === newPlayer else { return }
             self.rebindPlayerLayer()
@@ -91,7 +92,6 @@ public final class ABPlayerView: UIView {
         detector.invalidate()
         let attachedPlayer = player?.isLayerAttachmentEnabled == true ? player : nil
         playerLayer.player = attachedPlayer?.avPlayer
-        videoGravity = player?.configuration.videoGravity ?? .resizeAspectFill
         detector.observe(layer: playerLayer, item: attachedPlayer?.avPlayerItem)
         applyAdaptiveGravityIfNeeded()
     }
