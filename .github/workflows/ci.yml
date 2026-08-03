@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -16,10 +17,19 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 30
     env:
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      PINNED_DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
       DESTINATION: platform=iOS Simulator,name=iPhone 16 Pro
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve toolchain
+        run: |
+          if test -d "$PINNED_DEVELOPER_DIR"; then
+            resolved_developer_dir="$PINNED_DEVELOPER_DIR"
+          else
+            resolved_developer_dir="$(xcode-select -p)"
+          fi
+          echo "DEVELOPER_DIR=$resolved_developer_dir" >> "$GITHUB_ENV"
 
       - name: Show toolchain
         run: xcodebuild -version
@@ -33,6 +43,17 @@ jobs:
           GCC_TREAT_WARNINGS_AS_ERRORS=YES
           EXTRACT_APP_INTENTS_METADATA=NO
           build test
+
+      - name: Build documentation
+        run: >-
+          xcodebuild
+          -scheme ABPlayerKit-Package
+          -destination "$DESTINATION"
+          SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+          GCC_TREAT_WARNINGS_AS_ERRORS=YES
+          DOCC_WARNINGS_AS_ERRORS=YES
+          EXTRACT_APP_INTENTS_METADATA=NO
+          docbuild
 
       - name: Build demo with warnings as errors
         run: >-
