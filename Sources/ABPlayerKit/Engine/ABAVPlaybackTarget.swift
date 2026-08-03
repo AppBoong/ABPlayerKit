@@ -77,11 +77,20 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         self.isLooping = isLooping
     }
 
-    func preroll(rate: Float, timeout: TimeInterval) async -> Bool {
-        guard let avPlayer, let avPlayerItem else { return false }
-        let ready = await waitUntilReady(item: avPlayerItem, timeout: timeout)
-        guard ready else { return false }
-        return await avPlayer.preroll(atRate: rate)
+    func preroll(rate: Float, timeout: TimeInterval) async -> ABPrerollResult {
+        guard let avPlayer, let avPlayerItem else { return .failed }
+        switch await waitUntilReady(item: avPlayerItem, timeout: timeout) {
+        case .ready:
+            let succeeded = await avPlayer.preroll(atRate: rate)
+            guard !Task.isCancelled else { return .cancelled }
+            return succeeded ? .success : .failed
+        case .timedOut:
+            return .timedOut
+        case .failed:
+            return .failed
+        case .cancelled:
+            return .cancelled
+        }
     }
 
     func seekToStart() async {
@@ -108,52 +117,98 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         #endif
     }
 
-    /// Guards a `CheckedContinuation` so it resumes exactly once even
-    /// though both the KVO callback and the timeout `Task` race to resume
-    /// it. A dedicated `@unchecked Sendable` box (rather than a captured
-    /// local closure) avoids capturing non-`Sendable` state in the
-    /// `@Sendable` closures `Task { ... }` requires.
-    private final class ContinuationBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var resumed = false
-        private let continuation: CheckedContinuation<Bool, Never>
+    private enum ReadyWaitResult: Sendable {
+        case ready
+        case timedOut
+        case failed
+        case cancelled
+    }
 
-        init(_ continuation: CheckedContinuation<Bool, Never>) {
-            self.continuation = continuation
+    /// Coordinates KVO, timeout, and task cancellation without letting any
+    /// path resume the continuation twice. Cancellation may arrive before
+    /// the continuation is installed, so the resolved result is retained
+    /// until installation completes.
+    private final class ReadyWaitState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<ReadyWaitResult, Never>?
+        private var result: ReadyWaitResult?
+        private var timeoutTask: Task<Void, Never>?
+
+        func install(_ continuation: CheckedContinuation<ReadyWaitResult, Never>) {
+            lock.lock()
+            if let result {
+                lock.unlock()
+                continuation.resume(returning: result)
+            } else {
+                self.continuation = continuation
+                lock.unlock()
+            }
         }
 
-        func resume(_ value: Bool) {
+        func installTimeoutTask(_ task: Task<Void, Never>) {
             lock.lock()
-            defer { lock.unlock() }
-            guard !resumed else { return }
-            resumed = true
-            continuation.resume(returning: value)
+            if result == nil {
+                timeoutTask = task
+                lock.unlock()
+            } else {
+                lock.unlock()
+                task.cancel()
+            }
+        }
+
+        func resolve(_ result: ReadyWaitResult) {
+            lock.lock()
+            guard self.result == nil else {
+                lock.unlock()
+                return
+            }
+            self.result = result
+            let continuation = continuation
+            self.continuation = nil
+            let timeoutTask = timeoutTask
+            self.timeoutTask = nil
+            lock.unlock()
+
+            timeoutTask?.cancel()
+            continuation?.resume(returning: result)
         }
     }
 
-    private func waitUntilReady(item: AVPlayerItem, timeout: TimeInterval) async -> Bool {
-        if item.status == .readyToPlay { return true }
-        if item.status == .failed { return false }
+    private func waitUntilReady(item: AVPlayerItem, timeout: TimeInterval) async -> ReadyWaitResult {
+        if item.status == .readyToPlay { return .ready }
+        if item.status == .failed { return .failed }
 
-        return await withCheckedContinuation { continuation in
-            let box = ContinuationBox(continuation)
+        let state = ReadyWaitState()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                state.install(continuation)
+                guard !Task.isCancelled else {
+                    state.resolve(.cancelled)
+                    return
+                }
 
-            let statusObservation = item.observe(\.status, options: [.new]) { item, _ in
-                Task { @MainActor in
+                let statusObservation = item.observe(\.status, options: [.new]) { item, _ in
                     switch item.status {
-                    case .readyToPlay: box.resume(true)
-                    case .failed: box.resume(false)
+                    case .readyToPlay: state.resolve(.ready)
+                    case .failed: state.resolve(.failed)
                     case .unknown: break
                     @unknown default: break
                     }
                 }
-            }
-            observations.add { statusObservation.invalidate() }
+                observations.add { statusObservation.invalidate() }
 
-            Task {
-                try? await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
-                box.resume(item.status == .readyToPlay)
+                let timeoutTask = Task {
+                    do {
+                        try await Task.sleep(for: .seconds(max(0, timeout)))
+                    } catch {
+                        return
+                    }
+                    state.resolve(.timedOut)
+                }
+                state.installTimeoutTask(timeoutTask)
             }
+        } onCancel: {
+            state.resolve(.cancelled)
         }
     }
 

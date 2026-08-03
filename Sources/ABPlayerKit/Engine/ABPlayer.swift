@@ -145,8 +145,9 @@ public final class ABPlayer {
     }
 
     public func cancelPreload() {
-        prerollTask?.cancel()
-        prerollTask = nil
+        guard let prerollTask else { return }
+        prerollTask.cancel()
+        self.prerollTask = nil
         broadcast(.preloadCancelled)
     }
 
@@ -261,10 +262,25 @@ public final class ABPlayer {
         prerollTask?.cancel()
         let timeout = configuration.prerollTimeout
         prerollTask = Task { [weak self, target] in
-            let success = await target.preroll(rate: rate, timeout: timeout)
+            let result = await target.preroll(rate: rate, timeout: timeout)
             guard !Task.isCancelled else { return }
             self?.prerollTask = nil
-            self?.broadcast(.prerollCompleted(success: success))
+            switch result {
+            case .success:
+                self?.broadcast(.prerollCompleted(success: true))
+            case .timedOut:
+                let error = ABPlayerError.prerollTimedOut(after: timeout)
+                self?.lastError = error
+                self?.broadcast(.failed(error))
+                self?.broadcast(.prerollCompleted(success: false))
+            case .failed:
+                let error = ABPlayerError.prerollFailed
+                self?.lastError = error
+                self?.broadcast(.failed(error))
+                self?.broadcast(.prerollCompleted(success: false))
+            case .cancelled:
+                break
+            }
         }
     }
 

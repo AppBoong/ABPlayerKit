@@ -12,6 +12,13 @@ enum ABTargetEvent: Sendable, Equatable {
     case failed(ABPlayerError)
 }
 
+enum ABPrerollResult: Sendable, Equatable {
+    case success
+    case timedOut
+    case failed
+    case cancelled
+}
+
 /// The one seam between `ABPlayer` and real `AVFoundation` calls. Kept
 /// `internal` — consumers reach real playback through `ABPlayer`'s public
 /// surface, never through this protocol (`@testable import` is how tests
@@ -46,8 +53,9 @@ protocol ABPlaybackTarget: AnyObject {
     func setMuted(_ muted: Bool)
     func setLooping(_ isLooping: Bool)
     /// Waits for `status == .readyToPlay` (or `prerollTimeout` to elapse),
-    /// then `preroll(atRate:)`. Returns whether preroll succeeded.
-    func preroll(rate: Float, timeout: TimeInterval) async -> Bool
+    /// then `preroll(atRate:)`. Reports timeout, failure, and cancellation
+    /// separately so `ABPlayer` can surface the correct public event.
+    func preroll(rate: Float, timeout: TimeInterval) async -> ABPrerollResult
     func seekToStart() async
     func seek(to time: CMTime) async
 }

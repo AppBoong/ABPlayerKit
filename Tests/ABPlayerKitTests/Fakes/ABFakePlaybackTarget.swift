@@ -32,7 +32,9 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
     var duration: CMTime?
 
     /// Controls what `preroll(rate:timeout:)` returns.
-    var prerollResult = true
+    var prerollResult: ABPrerollResult = .success
+    var waitsForPrerollCancellation = false
+    private(set) var prerollWasCancelled = false
 
     func makePlayer() {
         calls.append(.makePlayer)
@@ -70,8 +72,15 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
         calls.append(.setLooping(isLooping))
     }
 
-    func preroll(rate: Float, timeout: TimeInterval) async -> Bool {
+    func preroll(rate: Float, timeout: TimeInterval) async -> ABPrerollResult {
         calls.append(.preroll(rate: rate))
+        if waitsForPrerollCancellation {
+            while !Task.isCancelled {
+                await Task.yield()
+            }
+            prerollWasCancelled = true
+            return .cancelled
+        }
         return prerollResult
     }
 

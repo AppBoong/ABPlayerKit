@@ -6,7 +6,6 @@ import Foundation
 public enum ABPlayerError: Error, Sendable, Equatable {
     /// `AVPlayerItem.error` stringified for `Equatable`/`Sendable` safety.
     case itemFailed(description: String)
-    case assetNotPlayable
     case prerollTimedOut(after: TimeInterval)
     case prerollFailed
     case invalidGradeForSource(requested: ABPlaybackGrade)

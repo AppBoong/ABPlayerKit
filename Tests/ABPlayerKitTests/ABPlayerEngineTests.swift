@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import ABPlayerKit
+@preconcurrency import AVFoundation
 
 @Suite("Every release path calls detachItem exactly once")
 @MainActor
@@ -97,6 +98,88 @@ struct ABPlayerEventBroadcastTests {
         #expect(events.contains(.gradeChanged(from: .released, to: .current)))
         #expect(events.contains(.sourceChanged(source)))
         #expect(events.contains(.tuningApplied(.current, .displayCapped)))
+    }
+
+    @Test("Cancelling preload stops the readiness wait and emits once")
+    func cancelPreloadStopsWait() async {
+        let target = ABFakePlaybackTarget()
+        target.waitsForPrerollCancellation = true
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore), target: target)
+        var events: [ABPlayerEvent] = []
+        let token = player.addObserver { events.append($0) }
+        defer { token.cancel() }
+
+        player.set(source: source, grade: .preloaded)
+        while !target.calls.contains(.preroll(rate: 1.0)) {
+            await Task.yield()
+        }
+
+        player.cancelPreload()
+        while !target.prerollWasCancelled {
+            await Task.yield()
+        }
+        player.cancelPreload()
+
+        #expect(events.filter { $0 == .preloadCancelled }.count == 1)
+    }
+
+    @Test("Preroll timeout updates lastError and emits failure")
+    func prerollTimeoutEmitsFailure() async {
+        let target = ABFakePlaybackTarget()
+        target.prerollResult = .timedOut
+        let timeout: TimeInterval = 0.25
+        let configuration = ABPlayerConfiguration(prerollTimeout: timeout, backgroundPolicy: .ignore)
+        let player = ABPlayer(configuration: configuration, target: target)
+        var events: [ABPlayerEvent] = []
+        let token = player.addObserver { events.append($0) }
+        defer { token.cancel() }
+
+        player.set(source: source, grade: .preloaded)
+        while player.lastError == nil {
+            await Task.yield()
+        }
+
+        let expectedError = ABPlayerError.prerollTimedOut(after: timeout)
+        #expect(player.lastError == expectedError)
+        #expect(events.contains(.failed(expectedError)))
+        #expect(events.contains(.prerollCompleted(success: false)))
+    }
+
+    @Test("Preroll failure updates lastError and emits failure")
+    func prerollFailureEmitsFailure() async {
+        let target = ABFakePlaybackTarget()
+        target.prerollResult = .failed
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore), target: target)
+        var events: [ABPlayerEvent] = []
+        let token = player.addObserver { events.append($0) }
+        defer { token.cancel() }
+
+        player.set(source: source, grade: .preloaded)
+        while player.lastError == nil {
+            await Task.yield()
+        }
+
+        #expect(player.lastError == .prerollFailed)
+        #expect(events.contains(.failed(.prerollFailed)))
+        #expect(events.contains(.prerollCompleted(success: false)))
+    }
+
+    @Test("Release cancels readiness waiting without retaining the item")
+    func releaseDoesNotRetainItem() async {
+        let configuration = ABPlayerConfiguration(prerollTimeout: 10, backgroundPolicy: .ignore)
+        let player = ABPlayer(configuration: configuration)
+        let pendingSource = ABMediaSource(url: URL(string: "https://example.invalid/pending.mp4")!)
+
+        player.set(source: pendingSource, grade: .preloaded)
+        weak var releasedItem = player.avPlayerItem
+        #expect(releasedItem != nil)
+
+        player.release()
+        for _ in 0..<20 where releasedItem != nil {
+            await Task.yield()
+        }
+
+        #expect(releasedItem == nil)
     }
 
     @Test("Requesting a held grade with no source clamps to .instanceOnly")
