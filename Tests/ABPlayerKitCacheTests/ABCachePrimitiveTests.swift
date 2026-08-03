@@ -34,9 +34,10 @@ struct ABByteRangeTests {
         #expect(ABByteRange.parse(" Bytes = 500- ") == ABByteRange(lowerBound: 500, upperBound: nil))
     }
 
-    @Test("Rejects suffix, reversed, negative, and multipart ranges")
+    @Test("Parses suffix ranges and rejects invalid edge cases")
     func rejectsUnsupportedRanges() {
-        #expect(ABByteRange.parse("bytes=-500") == nil)
+        #expect(ABByteRange.parse("bytes=-500")?.suffixLength == 500)
+        #expect(ABByteRange.parse("bytes=-0") == nil)
         #expect(ABByteRange.parse("bytes=500-400") == nil)
         #expect(ABByteRange.parse("bytes=-1-20") == nil)
         #expect(ABByteRange.parse("bytes=0-10,20-30") == nil)
