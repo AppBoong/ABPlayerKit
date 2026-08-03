@@ -31,10 +31,10 @@ public final class ABPlayer {
     private let notificationCenter: NotificationCenter
     private let planner = ABGradePlanner()
     private let observerRegistry = ABObserverRegistry()
+    private let layerAttachmentObserverRegistry = ABLayerAttachmentObserverRegistry()
     private var lastAppliedTuningRole: ABTuningRole = .preload
     private var prerollTask: Task<Void, Never>?
     private var reportedFirstFrameItem: ObjectIdentifier?
-    private var layerAttachmentHandlers: [UUID: @MainActor (Bool) -> Void] = [:]
     private(set) var isLayerAttachmentEnabled = true
 
     private var appStateObserver: ABApplicationStateObserver?
@@ -182,14 +182,10 @@ public final class ABPlayer {
         observerRegistry.add { _, event in handler(event) }
     }
 
-    func addLayerAttachmentObserver(_ handler: @escaping @MainActor (Bool) -> Void) -> ABObservationToken {
-        let id = UUID()
-        layerAttachmentHandlers[id] = handler
-        return ABObservationToken { [weak self] in
-            Task { @MainActor in
-                self?.layerAttachmentHandlers[id] = nil
-            }
-        }
+    func addLayerAttachmentObserver(
+        _ handler: @escaping @MainActor @Sendable (Bool) -> Void
+    ) -> ABObservationToken {
+        layerAttachmentObserverRegistry.add(handler)
     }
 
     // MARK: - Internal (used by ABPlayerView for first-frame reporting)
@@ -406,8 +402,6 @@ public final class ABPlayer {
     private func setLayerAttachmentEnabled(_ enabled: Bool) {
         guard isLayerAttachmentEnabled != enabled else { return }
         isLayerAttachmentEnabled = enabled
-        for handler in layerAttachmentHandlers.values {
-            handler(enabled)
-        }
+        layerAttachmentObserverRegistry.broadcast(enabled)
     }
 }

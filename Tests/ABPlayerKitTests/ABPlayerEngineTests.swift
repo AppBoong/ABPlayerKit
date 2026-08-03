@@ -407,6 +407,20 @@ struct ABObservationTokenLifecycleTests {
         #expect(receivedCount == countAfterFirstEvent)
     }
 
+    @Test("Cancelling a layer observer removes it synchronously")
+    func layerObserverCancellationIsSynchronous() async {
+        let registry = ABLayerAttachmentObserverRegistry()
+        var receivedCount = 0
+        let token = registry.add { _ in receivedCount += 1 }
+
+        await Task.detached {
+            token.cancel()
+        }.value
+        registry.broadcast(true)
+
+        #expect(receivedCount == 0)
+    }
+
     @Test("Letting a token deinit auto-unsubscribes")
     func deinitAutoUnsubscribes() {
         let target = ABFakePlaybackTarget()
