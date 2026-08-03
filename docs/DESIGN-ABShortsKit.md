@@ -1,6 +1,6 @@
 # 설계서 — ABShortsKit (Phase 1)
 
-> 대상: `github.com/AppBoong/ABShortsKit` · iOS 16+ · Swift 5.9+ · MIT
+> 대상: `github.com/AppBoong/ABShortsKit` · iOS 17+ · Swift 6 언어 모드 · MIT (Q7 확정 반영)
 > 의존: `ABPlayerKit` (SPM, `.upToNextMinor(from: "1.0.0")`)
 > 참조 구현: `ohdasiyoung-ios` Shorts feature (ManageVideoPlayersUseCase / ShortsFeedView / ShortsReducer)
 
@@ -248,6 +248,14 @@ public enum ABDeactivationPolicy: Sendable, Equatable {
   case releaseAll           // 전량 반납
 }
 
+/// Q8 확정 — 되돌아가기 이어보기 정책
+public enum ABResumePolicy: Sendable, Equatable {
+  /// 위치 기억 안 함. 강등 시 위치 유지, 윈도우 이탈 후 복귀는 0초부터
+  case none
+  /// 최근 capacity개 인덱스의 재생 위치를 기억하고 복귀 시 복원 (LRU). 기본값
+  case rememberWindow(capacity: Int)
+}
+
 public struct ABShortsFeedConfiguration: Sendable {
   public var window: ABWindowConfiguration          // .default
   public var player: ABPlayerConfiguration          // ABPlayerKit. isLooping 기본 true로 오버라이드
@@ -257,6 +265,9 @@ public struct ABShortsFeedConfiguration: Sendable {
   public var flingVelocityThreshold: CGFloat        // 2.0 (pt/ms)
   public var proMotionBoost: Bool                   // false (Info.plist 요구사항 있으므로 옵트인)
   public var deactivationPolicy: ABDeactivationPolicy
+  /// Q8 확정: 인덱스별 재생 위치 기억·복원. 기본 .rememberWindow — 강등/해제 직전 위치 저장,
+  /// current 승격 시 첫 프레임 표시 전에 seek 복원. 복원된 재생은 메트릭에 resumed로 구분 집계된다.
+  public var resumePolicy: ABResumePolicy           // .rememberWindow(capacity: 50)
   public var paginationThreshold: Int               // 3
   public var poolCapacity: Int?                     // nil = instanceRing 크기와 동일
   /// 포스터 이미지 공급 — 라이브러리는 URLSession을 쓰지 않는다
@@ -304,20 +315,19 @@ public final class ABShortsFeedController: UIViewController {
 ### 5.4 SwiftUI 래퍼
 
 ```swift
-public struct ABShortsFeed<Overlay: View>: UIViewControllerRepresentable {
+public struct ABShortsFeed: UIViewControllerRepresentable {
   public init(
     items: [ABShortsItem],
     currentIndex: Binding<Int>,
     configuration: ABShortsFeedConfiguration = .init(),
     onNeedMoreItems: @escaping () -> Void = {},
-    @ViewBuilder overlay: @escaping (ABShortsItem, Int, Bool) -> Overlay
+    /// Q6 확정: 오버레이는 UIView만. SwiftUI 오버레이가 필요하면 소비자가 직접 UIHostingController를 감싸 반환한다.
+    overlayProvider: ((ABShortsItem, Int) -> UIView?)? = nil
   )
 }
-/// 오버레이가 없을 때
-public extension ABShortsFeed where Overlay == EmptyView { init(...) }
 ```
 
-**오버레이 호스팅 주의(원본이 실측으로 확인한 함정 승계):** SwiftUI 오버레이는 셀당 `UIHostingController`를 자식으로 붙이고 `contentView`에 오토레이아웃으로 고정하며, `view.backgroundColor = .clear` + `safeAreaRegions = []`(iOS 16.4+는 `.ignoresSafeArea()`)를 강제한다. 원본에서 SwiftUI 호스팅 계층이 스크롤 중 safe area 변화로 셀과 따로 움직인 문제가 있었으므로, **영상 표면(`ABPlayerView`)은 절대 호스팅 계층 안에 넣지 않고** 항상 `contentView`의 최하단 UIKit 뷰로 고정한다. (→ OPEN-QUESTIONS Q6)
+**Q6 확정 — 오버레이는 UIKit `UIView` 전용.** 원본이 실측으로 확인한 "SwiftUI 호스팅 계층이 스크롤 중 셀과 따로 움직이는" 문제의 재발 위험을 라이브러리가 떠안지 않는다. SwiftUI 소비자를 위한 `UIHostingController` 래핑 예제 코드를 README/데모에 제공한다(호스팅 시 `view.backgroundColor = .clear` + safe area 무시 필수 — 문서화). **영상 표면(`ABPlayerView`)은 항상 `contentView`의 최하단 UIKit 뷰로 고정한다.**
 
 ## 6. 셀 바인딩과 플레이어 소유권
 

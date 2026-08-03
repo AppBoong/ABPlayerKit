@@ -117,15 +117,20 @@
 
 ---
 
-## 결정 요청 요약
+## ✅ 확정 결정 (사용자 승인, 2026-08-03)
 
-| # | 쟁점 | 추천 |
-|---|---|---|
-| Q1 | HLS 캐싱 v1 범위 | **A** — MP4 투명 캐싱 + HLS 명시 프리페치, 투명 HLS는 v2 |
-| Q2 | 프리로드/재생 기본 튜닝값 | **B(부분)** — current에 `preferredMaximumResolution` 상한 추가, 벤치마크 전제 |
-| Q3 | 이벤트 API 형태 | **A** — 옵저버 + 토큰 |
-| Q4 | AVAudioSession 소유권 | **C** — 기본 미관리 + 옵트인 자동 적용 |
-| Q5 | 백그라운드 기본 정책 | **A** — `.pause` 기본, `.pauseAndDetachLayer` 권장 옵션 |
-| Q6 | 오버레이 주입 방식 | **C** — UIKit + SwiftUI 양쪽 + 히치율 측정 |
-| Q7 | 언어 모드/최소 버전 | **A** — iOS 16 + Swift 5.9 + strict concurrency 경고 0 게이트 |
-| Q8 | 강등 시 위치·이어보기 | **A** — 위치 유지, 이탈 후 복귀는 0초, 이어보기 미제공 |
+| # | 쟁점 | 확정 | 비고 |
+|---|---|---|---|
+| Q1 | HLS 캐싱 v1 범위 | **A** — MP4 투명 캐싱 + HLS 명시 프리페치(AVAssetDownloadTask), 투명 HLS(리버스 프록시)는 v2 | 추천안 채택 |
+| Q2 | 프리로드/재생 기본 튜닝값 | **B** — current 기본에 `preferredMaximumResolution` = 화면 크기 상한 추가. Phase 5에서 A/B 벤치마크 | 추천안 채택 |
+| Q3 | 이벤트 API 형태 | **A** — 다중 옵저버 + `ABObservationToken` | 추천안 채택 |
+| Q4 | AVAudioSession 소유권 | **C** — 기본 `.unmanaged` + 설정으로 자동 적용 옵트인(이전 카테고리 복원 포함), README 명시 | 추천안 채택 |
+| Q5 | 백그라운드 기본 정책 | **A** — `.pause` 기본, `.pauseAndDetachLayer` 권장 옵션 문서화 | 추천안 채택 |
+| Q6 | 오버레이 주입 방식 | **A** — **UIKit `UIView` 오버레이만 지원.** SwiftUI 소비자는 직접 `UIHostingController` 래핑. 원본이 겪은 호스팅 어긋남 위험을 라이브러리가 떠안지 않음 | 추천(C)과 다른 사용자 결정 |
+| Q7 | 언어 모드/최소 버전 | **B** — **iOS 17+ · Swift 6 언어 모드.** `@Observable` 사용 가능해짐(단 Q3 결정에 따라 이벤트는 옵저버+토큰 유지). PLANNING.md 갱신됨 | 추천(A)과 다른 사용자 결정 — Phase 0의 iOS 16+를 변경 |
+| Q8 | 강등 시 위치·이어보기 | **C** — **라이브러리가 인덱스별 재생 위치를 기억·복원 (`ABResumePolicy`).** 복원 seek이 TTFF에 미치는 영향은 메트릭에서 `resumed` 여부로 구분 집계해 관리 | 추천(A)과 다른 사용자 결정 |
+
+### 결정이 설계에 미치는 영향
+- **Q7**: Package.swift `platforms: [.iOS(.v17)]`, `swiftLanguageModes: [.v6]`. AVFoundation 경계에 `@preconcurrency` 필요 지점 예상. TTFF 시계로 `ContinuousClock` 검토 가능.
+- **Q6**: `ABShortsFeed`(SwiftUI 래퍼)의 `@ViewBuilder overlay` 파라미터 제거 → 오버레이는 `UIView` 반환 클로저로 통일.
+- **Q8**: `ABShortsKit`에 `ABResumePolicy { .none, .rememberWindow(capacity: Int) }` 추가. 위치 저장 시점 = 강등/해제 직전, 복원 시점 = current 승격 시 첫 프레임 표시 전 seek. `.none`이 기본값이 아니라 **`.rememberWindow`가 기본** (사용자 의도 반영). 메트릭 `ABMetricSample`에 `resumedFromTime: CFTimeInterval?` 필드 추가.

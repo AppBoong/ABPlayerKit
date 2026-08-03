@@ -1,6 +1,6 @@
 # 설계서 — ABPlayerKit (Phase 1)
 
-> 대상: `github.com/AppBoong/ABPlayerKit` · iOS 16+ · Swift 5.9+ · MIT
+> 대상: `github.com/AppBoong/ABPlayerKit` · iOS 17+ · Swift 6 언어 모드 · MIT (Q7 확정 반영)
 > 기준 문서: `docs/PLANNING.md` §6 설계 기본 스탠스
 > 참조 구현: `ohdasiyoung-ios` (ShortsPlayerView / ShortsReducer / 감사문서 §3 16개 발견)
 
@@ -41,7 +41,7 @@ ABPlayerKit/
 // Package.swift (요지)
 let package = Package(
   name: "ABPlayerKit",
-  platforms: [.iOS(.v16)],
+  platforms: [.iOS(.v17)],   // Q7: iOS 17+ · Swift 6 언어 모드 (swiftLanguageModes: [.v6])
   products: [
     .library(name: "ABPlayerKit", targets: ["ABPlayerKit"]),
     .library(name: "ABPlayerKitMetrics", targets: ["ABPlayerKitMetrics"]),
@@ -55,7 +55,7 @@ let package = Package(
     // ...
   ]
 )
-// strict = [.enableExperimentalFeature("StrictConcurrency"), .enableUpcomingFeature("InferSendableFromCaptures")]
+// Swift 6 언어 모드가 기본 — strict concurrency는 언어 모드에 포함. AVFoundation 경계에 @preconcurrency 필요 지점 예상.
 ```
 
 **결정 — SwiftUI 래퍼는 코어와 같은 타겟.** `UIViewRepresentable` 구현은 40줄 미만이고 SwiftUI는 iOS 16에서 링크 비용이 사실상 없다. 별도 타겟으로 쪼개면 소비자가 두 모듈을 import해야 하는 비용이 이득보다 크다. (숏츠 쪽도 동일 방침 — 일관성)
@@ -214,6 +214,13 @@ public struct ABPlaybackTuning: Sendable, Equatable {
     preferredPeakBitRate: 2_000_000, preferredForwardBufferDuration: 5,
     preferredMaximumResolution: .zero, automaticallyWaitsToMinimizeStalling: true)
 
+  /// Q2 확정 — current 기본값. 화면 픽셀 크기로 preferredMaximumResolution 상한 (체감 손실 없이 과잉 렌디션 차단).
+  /// 화면 크기는 적용 시점에 UIScreen(nativeBounds) 기준으로 해석된다.
+  public static let displayCapped = ABPlaybackTuning(
+    preferredPeakBitRate: 0, preferredForwardBufferDuration: 0,
+    preferredMaximumResolution: .displaySize,   // sentinel — 적용 시 화면 크기로 치환
+    automaticallyWaitsToMinimizeStalling: true)
+
   /// 대역폭 상한을 렌디션 선택으로 거는 대안 프리셋 (셀룰러 지향)
   public static let resolutionCapped = ABPlaybackTuning(
     preferredPeakBitRate: 2_000_000, preferredForwardBufferDuration: 5,
@@ -223,7 +230,7 @@ public struct ABPlaybackTuning: Sendable, Equatable {
 
 public struct ABPlayerConfiguration: Sendable, Equatable {
   public var preloadTuning: ABPlaybackTuning       // 기본 .conservativePreload
-  public var currentTuning: ABPlaybackTuning       // 기본 .unrestricted
+  public var currentTuning: ABPlaybackTuning       // 기본 .displayCapped (Q2 확정: maxResolution=화면 픽셀 크기, 그 외 무제한)
   public var isLooping: Bool                       // 기본 false
   public var isMuted: Bool                         // 기본 false
   public var prerollRate: Float?                   // 기본 1.0. nil이면 preroll 안 함

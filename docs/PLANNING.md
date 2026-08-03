@@ -15,7 +15,7 @@
 | 형태 | SPM 라이브러리 × 2 (독립 레포 2개) |
 | 플레이어 라이브러리 | **ABPlayerKit** — `github.com/AppBoong/ABPlayerKit` |
 | 숏츠 라이브러리 | **ABShortsKit** — `github.com/AppBoong/ABShortsKit` (ABPlayerKit을 SPM 의존) |
-| 최소 지원 | iOS 16+ |
+| 최소 지원 | iOS 17+ · Swift 6 언어 모드 (Phase 1 쟁점 Q7에서 iOS 16+ → 17+로 변경 승인, 2026-08-03) |
 | 기술 스택 | UIKit 코어 + SwiftUI 래퍼 (`UIViewControllerRepresentable`) |
 | 계정 | AppBoong / powerhotdog21@gmail.com, SSH: `github-AppBoong` 별칭 |
 
