@@ -3,18 +3,18 @@ import ABPlayerKit
 import UniformTypeIdentifiers
 
 struct ABCachedMetadata: Sendable, Equatable {
-    let contentLength: Int64
+    let contentLength: Int64?
     let contentType: String
 }
 
 struct ABCachedResource: Sendable, Equatable {
     let data: Data
-    let contentLength: Int64
+    let contentLength: Int64?
     let contentType: String
     let isEndOfResource: Bool
 }
 
-// Reader counts are accessed synchronously from actor and delegate contexts under the lock.
+// Reader counts are accessed across actor reentrancy while protected by the lock.
 private final class ABCacheReaderRegistry: @unchecked Sendable {
     private let lock = NSLock()
     private var counts: [String: Int] = [:]
@@ -45,7 +45,7 @@ private final class ABCacheReaderRegistry: @unchecked Sendable {
 
 actor ABCacheStore {
     private struct RemoteMetadata: Sendable {
-        let contentLength: Int64
+        let contentLength: Int64?
         let contentType: String
     }
 
@@ -64,12 +64,16 @@ actor ABCacheStore {
     nonisolated private let readerRegistry = ABCacheReaderRegistry()
     private var index: ABCacheIndex
     private var metadataCache: [String: RemoteMetadata] = [:]
+    private var metadataCacheOrder: [String] = []
     private var fills: [String: Task<Void, Never>] = [:]
     private var fillResponses: [String: ABHTTPResponse] = [:]
     private var fillErrors: [String: StoreError] = [:]
     private var progressWaiters: [String: [UUID: CheckedContinuation<Void, Never>]] = [:]
     private var indexIsDirty = false
     private var indexFlushTask: Task<Void, Never>?
+    private var recordedEvictionShortfallCount = 0
+
+    private let metadataCacheLimit = 32
 
     init(
         configuration: ABCacheConfiguration,
@@ -117,22 +121,22 @@ actor ABCacheStore {
         )
     }
 
-    nonisolated func retainReader(for source: ABMediaSource) {
-        readerRegistry.retain(ABCacheKey.derive(from: source))
-    }
-
-    nonisolated func releaseReader(for source: ABMediaSource) {
-        readerRegistry.release(ABCacheKey.derive(from: source))
-    }
-
     func totalSize() -> Int64 {
         index.totalSize
+    }
+
+    func evictionShortfallCount() -> Int {
+        recordedEvictionShortfallCount
+    }
+
+    func metadataCacheCount() -> Int {
+        metadataCache.count
     }
 
     func remove(_ source: ABMediaSource) throws {
         let key = ABCacheKey.derive(from: source)
         cancelFill(for: key)
-        metadataCache[key] = nil
+        removeCachedMetadata(for: key)
         if let entry = index.remove(key: key) {
             try? fileManager.removeItem(at: fileURL(for: entry))
             markIndexDirty()
@@ -148,6 +152,8 @@ actor ABCacheStore {
         fillResponses.removeAll()
         fillErrors.removeAll()
         metadataCache.removeAll()
+        metadataCacheOrder.removeAll()
+        recordedEvictionShortfallCount = 0
         resumeAllWaiters()
         if fileManager.fileExists(atPath: dataDirectory.path) {
             try fileManager.removeItem(at: dataDirectory)
@@ -169,14 +175,14 @@ actor ABCacheStore {
            let contentType = entry.contentType {
             return ABCachedMetadata(contentLength: contentLength, contentType: contentType)
         }
-        if let metadata = metadataCache[key] {
+        if let metadata = cachedMetadata(for: key) {
             return ABCachedMetadata(
                 contentLength: metadata.contentLength,
                 contentType: metadata.contentType
             )
         }
         let metadata = try await remoteMetadata(for: source)
-        metadataCache[key] = metadata
+        cacheMetadata(metadata, for: key)
         return ABCachedMetadata(
             contentLength: metadata.contentLength,
             contentType: metadata.contentType
@@ -189,18 +195,22 @@ actor ABCacheStore {
         defer { readerRegistry.release(key) }
 
         let metadata = try await resolvedMetadata(for: source, key: key)
-        if metadata.contentLength > cacheableEntryLimit {
+        guard let contentLength = metadata.contentLength else {
+            removeCachedEntry(for: key)
+            return try await rawPassthrough(source, range: range, metadata: metadata)
+        }
+        if contentLength > cacheableEntryLimit {
             removeCachedEntry(for: key)
             return try await passthrough(source, range: range, metadata: metadata)
         }
 
-        guard let resolvedRange = range.resolved(contentLength: metadata.contentLength) else {
+        guard let resolvedRange = range.resolved(contentLength: contentLength) else {
             throw StoreError.invalidResponse
         }
-        if resolvedRange.lowerBound >= metadata.contentLength {
+        if resolvedRange.lowerBound >= contentLength {
             return ABCachedResource(
                 data: Data(),
-                contentLength: metadata.contentLength,
+                contentLength: contentLength,
                 contentType: metadata.contentType,
                 isEndOfResource: true
             )
@@ -223,7 +233,7 @@ actor ABCacheStore {
             if index.entries[key]?.isComplete == true {
                 return ABCachedResource(
                     data: Data(),
-                    contentLength: metadata.contentLength,
+                    contentLength: contentLength,
                     contentType: metadata.contentType,
                     isEndOfResource: true
                 )
@@ -247,11 +257,11 @@ actor ABCacheStore {
            let contentType = entry.contentType {
             return RemoteMetadata(contentLength: contentLength, contentType: contentType)
         }
-        if let metadata = metadataCache[key] {
+        if let metadata = cachedMetadata(for: key) {
             return metadata
         }
         let metadata = try await remoteMetadata(for: source)
-        metadataCache[key] = metadata
+        cacheMetadata(metadata, for: key)
         return metadata
     }
 
@@ -334,6 +344,7 @@ actor ABCacheStore {
         entry.isComplete = false
         entry.lastAccessedAt = Date()
         index.upsert(entry)
+        removeCachedMetadata(for: key)
         fillResponses[key] = response
         markIndexDirty()
         resumeWaiters(for: key)
@@ -401,7 +412,8 @@ actor ABCacheStore {
         range: ABByteRange,
         metadata: RemoteMetadata
     ) async throws -> ABCachedResource {
-        guard let resolvedRange = range.resolved(contentLength: metadata.contentLength) else {
+        guard let contentLength = metadata.contentLength,
+              let resolvedRange = range.resolved(contentLength: contentLength) else {
             throw StoreError.invalidResponse
         }
         var request = request(for: source)
@@ -412,8 +424,8 @@ actor ABCacheStore {
         }
 
         let requestedUpperBound = Swift.min(
-            resolvedRange.upperBound ?? (metadata.contentLength - 1),
-            metadata.contentLength - 1
+            resolvedRange.upperBound ?? (contentLength - 1),
+            contentLength - 1
         )
         let expectedCount = Int(requestedUpperBound - resolvedRange.lowerBound + 1)
         let data: Data
@@ -432,9 +444,52 @@ actor ABCacheStore {
 
         return ABCachedResource(
             data: data,
-            contentLength: metadata.contentLength,
+            contentLength: contentLength,
             contentType: Self.contentType(from: response, fallback: metadata.contentType),
-            isEndOfResource: requestedUpperBound == metadata.contentLength - 1
+            isEndOfResource: requestedUpperBound == contentLength - 1
+        )
+    }
+
+    private func rawPassthrough(
+        _ source: ABMediaSource,
+        range: ABByteRange,
+        metadata: RemoteMetadata
+    ) async throws -> ABCachedResource {
+        var request = request(for: source)
+        request.setValue(range.headerValue, forHTTPHeaderField: "Range")
+        let (receivedData, response) = try await httpFetcher.data(for: request)
+        guard (200...299).contains(response.statusCode) else {
+            throw StoreError.invalidResponse
+        }
+
+        let expectedCount = range.upperBound.map {
+            Int($0 - range.lowerBound + 1)
+        }
+        let data: Data
+        if response.statusCode == 200, range.lowerBound > 0 {
+            guard range.lowerBound < Int64(receivedData.count) else {
+                throw StoreError.shortRead
+            }
+            let upperBound = range.upperBound.map {
+                Swift.min(Int64(receivedData.count) - 1, $0)
+            } ?? (Int64(receivedData.count) - 1)
+            data = receivedData.subdata(
+                in: Int(range.lowerBound)..<Int(upperBound + 1)
+            )
+        } else if let expectedCount {
+            data = receivedData.prefix(expectedCount)
+        } else {
+            data = receivedData
+        }
+        guard !data.isEmpty,
+              expectedCount.map({ data.count == $0 }) != false
+        else { throw StoreError.shortRead }
+
+        return ABCachedResource(
+            data: data,
+            contentLength: Self.totalLength(from: response),
+            contentType: Self.contentType(from: response, fallback: metadata.contentType),
+            isEndOfResource: true
         )
     }
 
@@ -460,9 +515,12 @@ actor ABCacheStore {
         range: ABByteRange,
         metadata: RemoteMetadata
     ) throws -> ABCachedResource {
+        guard let contentLength = metadata.contentLength else {
+            throw StoreError.invalidResponse
+        }
         let requestedUpperBound = Swift.min(
-            range.upperBound ?? (metadata.contentLength - 1),
-            metadata.contentLength - 1
+            range.upperBound ?? (contentLength - 1),
+            contentLength - 1
         )
         let upperBound = Swift.min(requestedUpperBound, entry.size - 1)
         guard upperBound >= range.lowerBound else { throw StoreError.shortRead }
@@ -475,9 +533,9 @@ actor ABCacheStore {
         guard data.count == count else { throw StoreError.shortRead }
         return ABCachedResource(
             data: data,
-            contentLength: metadata.contentLength,
+            contentLength: contentLength,
             contentType: entry.contentType ?? metadata.contentType,
-            isEndOfResource: upperBound == metadata.contentLength - 1
+            isEndOfResource: upperBound == contentLength - 1
         )
     }
 
@@ -546,7 +604,32 @@ actor ABCacheStore {
         if !evicted.isEmpty {
             markIndexDirty()
         }
+        if index.totalSize > configuration.maximumDiskSize {
+            recordedEvictionShortfallCount += 1
+        }
         return !evicted.isEmpty
+    }
+
+    private func cachedMetadata(for key: String) -> RemoteMetadata? {
+        guard let metadata = metadataCache[key] else { return nil }
+        metadataCacheOrder.removeAll { $0 == key }
+        metadataCacheOrder.append(key)
+        return metadata
+    }
+
+    private func cacheMetadata(_ metadata: RemoteMetadata, for key: String) {
+        metadataCache[key] = metadata
+        metadataCacheOrder.removeAll { $0 == key }
+        metadataCacheOrder.append(key)
+        while metadataCacheOrder.count > metadataCacheLimit {
+            let evictedKey = metadataCacheOrder.removeFirst()
+            metadataCache[evictedKey] = nil
+        }
+    }
+
+    private func removeCachedMetadata(for key: String) {
+        metadataCache[key] = nil
+        metadataCacheOrder.removeAll { $0 == key }
     }
 
     private func markIndexDirty() {
@@ -594,12 +677,9 @@ actor ABCacheStore {
         from response: ABHTTPResponse,
         source: ABMediaSource
     ) -> RemoteMetadata? {
-        guard (200...299).contains(response.statusCode),
-              let contentLength = totalLength(from: response),
-              contentLength > 0
-        else { return nil }
+        guard (200...299).contains(response.statusCode) else { return nil }
         return RemoteMetadata(
-            contentLength: contentLength,
+            contentLength: totalLength(from: response),
             contentType: contentType(from: response, fallback: fallbackContentType(for: source))
         )
     }
@@ -610,7 +690,7 @@ actor ABCacheStore {
            let value = Int64(total) {
             return value
         }
-        return response.expectedContentLength
+        return response.statusCode == 206 ? nil : response.expectedContentLength
     }
 
     private static func contentType(from response: ABHTTPResponse, fallback: String) -> String {

@@ -21,7 +21,6 @@ final class ABResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate, @
     init(source: ABMediaSource, store: ABCacheStore) {
         self.source = source
         self.store = store
-        store.retainReader(for: source)
     }
 
     deinit {
@@ -32,7 +31,6 @@ final class ABResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate, @
         for task in retainedTasks {
             task.cancel()
         }
-        store.releaseReader(for: source)
     }
 
     func resourceLoader(
@@ -50,8 +48,12 @@ final class ABResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate, @
                 guard !Task.isCancelled, !request.isCancelled else { return }
                 if let contentInformationRequest = request.contentInformationRequest {
                     contentInformationRequest.contentType = metadata.contentType
-                    contentInformationRequest.contentLength = metadata.contentLength
-                    contentInformationRequest.isByteRangeAccessSupported = true
+                    if let contentLength = metadata.contentLength {
+                        contentInformationRequest.contentLength = contentLength
+                        contentInformationRequest.isByteRangeAccessSupported = true
+                    } else {
+                        contentInformationRequest.isByteRangeAccessSupported = false
+                    }
                 }
 
                 guard let dataRequest = request.dataRequest else {
@@ -65,9 +67,19 @@ final class ABResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate, @
                 } else {
                     upperBound = nil
                 }
+                guard let contentLength = metadata.contentLength else {
+                    let resource = try await store.load(
+                        source,
+                        range: ABByteRange(lowerBound: currentOffset, upperBound: upperBound)
+                    )
+                    guard !Task.isCancelled, !request.isCancelled else { return }
+                    dataRequest.respond(with: resource.data)
+                    request.finishLoading()
+                    return
+                }
                 let requiredEndOffset = Swift.min(
-                    upperBound ?? (metadata.contentLength - 1),
-                    metadata.contentLength - 1
+                    upperBound ?? (contentLength - 1),
+                    contentLength - 1
                 )
 
                 while currentOffset <= requiredEndOffset {

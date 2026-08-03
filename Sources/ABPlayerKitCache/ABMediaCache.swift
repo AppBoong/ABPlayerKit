@@ -19,6 +19,10 @@ public final class ABMediaCache: Sendable {
         await store.totalSize()
     }
 
+    public func evictionShortfallCount() async -> Int {
+        await store.evictionShortfallCount()
+    }
+
     public func remove(_ source: ABMediaSource) async {
         try? await store.remove(source)
     }

@@ -55,8 +55,225 @@ private final class ABFakeHTTPFetcher: ABHTTPFetching, @unchecked Sendable {
     }
 }
 
+private final class ABControlledHTTPFetcher: ABHTTPFetching, @unchecked Sendable {
+    typealias Continuation = AsyncThrowingStream<ABHTTPFetchEvent, any Error>.Continuation
+
+    private let lock = NSLock()
+    private var dataReplies: [ABFakeHTTPFetcher.DataReply]
+    private var initialStreamEvents: [[ABHTTPFetchEvent]]
+    private var continuations: [Continuation] = []
+
+    init(
+        dataReplies: [ABFakeHTTPFetcher.DataReply],
+        initialStreamEvents: [[ABHTTPFetchEvent]]
+    ) {
+        self.dataReplies = dataReplies
+        self.initialStreamEvents = initialStreamEvents
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, ABHTTPResponse) {
+        guard let reply = takeDataReply() else { throw URLError(.resourceUnavailable) }
+        return (reply.data, reply.response)
+    }
+
+    func stream(for request: URLRequest) -> AsyncThrowingStream<ABHTTPFetchEvent, any Error> {
+        AsyncThrowingStream { continuation in
+            let events = register(continuation)
+            for event in events {
+                continuation.yield(event)
+            }
+        }
+    }
+
+    func finishStreams(with tails: [Data] = []) {
+        lock.lock()
+        let continuations = self.continuations
+        self.continuations.removeAll()
+        lock.unlock()
+        for (index, continuation) in continuations.enumerated() {
+            if tails.indices.contains(index), !tails[index].isEmpty {
+                continuation.yield(.data(tails[index]))
+            }
+            continuation.finish()
+        }
+    }
+
+    private func takeDataReply() -> ABFakeHTTPFetcher.DataReply? {
+        lock.lock()
+        let reply = dataReplies.isEmpty ? nil : dataReplies.removeFirst()
+        lock.unlock()
+        return reply
+    }
+
+    private func register(_ continuation: Continuation) -> [ABHTTPFetchEvent] {
+        lock.lock()
+        continuations.append(continuation)
+        let events = initialStreamEvents.isEmpty ? [] : initialStreamEvents.removeFirst()
+        lock.unlock()
+        return events
+    }
+}
+
 @Suite("ABCacheStore scenarios")
 struct ABCacheStoreTests {
+    @Test("Unknown content length bypasses caching and serves the raw range")
+    func unknownLengthPassesThrough() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("chunked.mp4")
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [
+                .init(
+                    data: Data(),
+                    response: .init(
+                        statusCode: 200,
+                        expectedContentLength: nil,
+                        mimeType: "video/mp4"
+                    )
+                ),
+                .init(
+                    data: Data("data".utf8),
+                    response: .init(
+                        statusCode: 206,
+                        expectedContentLength: 4,
+                        mimeType: "video/mp4"
+                    )
+                )
+            ],
+            streamReplies: []
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory),
+            httpFetcher: fetcher
+        )
+
+        let metadata = try await store.metadata(for: source)
+        let resource = try await store.load(
+            source,
+            range: ABByteRange(lowerBound: 0, upperBound: 3)
+        )
+
+        #expect(metadata.contentLength == nil)
+        #expect(resource.data == Data("data".utf8))
+        #expect(await store.totalSize() == 0)
+        #expect(fetcher.requests.last?.value(forHTTPHeaderField: "Range") == "bytes=0-3")
+    }
+
+    @Test("Load returns an available prefix while the fill tail is withheld")
+    func returnsPrefixBeforeFillCompletes() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("progressive.mp4")
+        let fetcher = ABControlledHTTPFetcher(
+            dataReplies: [metadataReply(length: 6)],
+            initialStreamEvents: [[
+                .response(.init(
+                    statusCode: 200,
+                    expectedContentLength: 6,
+                    mimeType: "video/mp4"
+                )),
+                .data(Data("abc".utf8))
+            ]]
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory),
+            httpFetcher: fetcher
+        )
+
+        let prefix = try await store.load(
+            source,
+            range: ABByteRange(lowerBound: 0, upperBound: 5)
+        )
+
+        #expect(prefix.data == Data("abc".utf8))
+        #expect(!prefix.isEndOfResource)
+        fetcher.finishStreams(with: [Data("def".utf8)])
+        let tail = try await store.load(
+            source,
+            range: ABByteRange(lowerBound: 3, upperBound: 5)
+        )
+        #expect(tail.data == Data("def".utf8))
+    }
+
+    @Test("Metadata lookup never starts a progressive fill")
+    func metadataDoesNotStartFill() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("metadata-only.mp4")
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [metadataReply(length: 10)],
+            streamReplies: [[.data(Data("unexpected".utf8))]]
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory),
+            httpFetcher: fetcher
+        )
+
+        let metadata = try await store.metadata(for: source)
+
+        #expect(metadata.contentLength == 10)
+        #expect(fetcher.requests.count == 1)
+        #expect(fetcher.requests.first?.httpMethod == "HEAD")
+        #expect(await store.totalSize() == 0)
+    }
+
+    @Test("Metadata cache retains only its bounded LRU capacity")
+    func boundsMetadataCache() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: (0..<40).map { _ in metadataReply(length: 10) },
+            streamReplies: []
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory),
+            httpFetcher: fetcher
+        )
+
+        for index in 0..<40 {
+            _ = try await store.metadata(for: mediaSource("metadata-\(index).mp4"))
+        }
+
+        #expect(await store.metadataCacheCount() == 32)
+    }
+
+    @Test("In-flight fills record an observable eviction shortfall")
+    func recordsEvictionShortfall() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let firstSource = mediaSource("active-a.mp4")
+        let secondSource = mediaSource("active-b.mp4")
+        let response = ABHTTPResponse(
+            statusCode: 200,
+            expectedContentLength: 8,
+            mimeType: "video/mp4"
+        )
+        let fetcher = ABControlledHTTPFetcher(
+            dataReplies: [metadataReply(length: 8), metadataReply(length: 8)],
+            initialStreamEvents: [
+                [.response(response), .data(Data("aaaaaaaa".utf8))],
+                [.response(response), .data(Data("bbbbbbbb".utf8))]
+            ]
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory, maximumDiskSize: 10, maximumEntrySize: 10),
+            httpFetcher: fetcher
+        )
+
+        _ = try await store.load(
+            firstSource,
+            range: ABByteRange(lowerBound: 0, upperBound: 7)
+        )
+        _ = try await store.load(
+            secondSource,
+            range: ABByteRange(lowerBound: 0, upperBound: 7)
+        )
+
+        #expect(await store.totalSize() == 16)
+        #expect(await store.evictionShortfallCount() > 0)
+        fetcher.finishStreams()
+    }
+
     @Test("A partial entry resumes with a 206 response")
     func resumesPartialEntry() async throws {
         let directory = temporaryDirectory()
