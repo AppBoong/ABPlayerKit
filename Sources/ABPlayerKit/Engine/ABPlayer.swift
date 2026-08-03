@@ -176,7 +176,9 @@ public final class ABPlayer {
         }
     }
 
-    public func addObserver(_ handler: @escaping @MainActor (ABPlayerEvent) -> Void) -> ABObservationToken {
+    public func addObserver(
+        _ handler: @escaping @MainActor @Sendable (ABPlayerEvent) -> Void
+    ) -> ABObservationToken {
         observerRegistry.add { _, event in handler(event) }
     }
 
