@@ -6,4 +6,5 @@ DerivedData/
 .swiftpm/configuration/registries.json
 .netrc
 *.xcodeproj
+!Examples/ABPlayerKitDemo/ABPlayerKitDemo.xcodeproj/
 .index-build/
