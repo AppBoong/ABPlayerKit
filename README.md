@@ -5,6 +5,7 @@
 ![iOS 17+](https://img.shields.io/badge/iOS-17%2B-000000?logo=apple)
 ![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)
 ![MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+[![CI](https://github.com/AppBoong/ABPlayerKit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AppBoong/ABPlayerKit/actions/workflows/ci.yml)
 
 ABPlayerKit is a thin, measurable wrapper around `AVPlayer`. It makes playback resource ownership explicit with a four-grade state machine and defines time to first frame (TTFF) precisely: the first frame is displayed only when `AVPlayerLayer.isReadyForDisplay` **and** `AVPlayerItem.status == .readyToPlay` are both true for the current item.
 
@@ -30,7 +31,7 @@ Or add it to `Package.swift`:
 dependencies: [
     .package(
         url: "https://github.com/AppBoong/ABPlayerKit.git",
-        branch: "main"
+        from: "0.1.0"
     )
 ],
 targets: [
@@ -46,7 +47,7 @@ targets: [
 ]
 ```
 
-Use a released version requirement instead of `main` when consuming a tagged release.
+For unreleased development, replace `from: "0.1.0"` with `branch: "main"`. Applications should prefer the version requirement shown above.
 
 ## Quick Start
 
@@ -140,14 +141,14 @@ The core target owns the playback state machine, UIKit view, SwiftUI wrapper, tu
 | `.preloaded` | Player + item, preload tuning | Prepare nearby media without allowing `play()` |
 | `.current` | Player + item, current tuning | Visible media; playback controls are accepted |
 
-Every release path detaches the current item. Moving between `.preloaded` and `.current` reapplies the matching tuning role, so demotion is the exact inverse of promotion.
+Every release path that holds an item routes through `detachItem`. Moving between `.preloaded` and `.current` reapplies the matching tuning role, so demotion is the exact inverse of promotion.
 
 Events support multiple independent consumers:
 
 ```swift
 let token = player.addObserver { event in
     if case .firstFrameDisplayed(let timestamp) = event {
-        // timestamp is captured at the readiness callback boundary
+        print("First frame displayed at \(timestamp)")
     }
 }
 
@@ -160,24 +161,50 @@ token.cancel()
 Metrics code is absent from an app unless the `ABPlayerKitMetrics` product is linked. `ABMetricsRecorder` attaches through an observation token, and sinks decide where events go: memory, JSON Lines on an internal serial queue, or OSLog.
 
 ```swift
+import ABPlayerKit
 import ABPlayerKitMetrics
 
-let sink = ABInMemoryMetricsSink()
-let recorder = ABMetricsRecorder(sink: sink)
-let metricsToken = recorder.attach(to: player)
+@MainActor
+final class PlaybackSession {
+    let player = ABPlayer()
 
-let startedAt = ABMonotonicClock().now
-player.set(source: source, grade: .current)
-recorder.beginTTFF(for: player, at: startedAt)
-player.play()
+    private let sink: ABInMemoryMetricsSink
+    private let recorder: ABMetricsRecorder
+    private var tokens: Set<ABObservationToken> = []
 
-let samples = sink.events.compactMap { event -> ABMetricSample? in
-    guard case .ttff(let sample) = event else { return nil }
-    return sample
+    init() {
+        let sink = ABInMemoryMetricsSink()
+        self.sink = sink
+        self.recorder = ABMetricsRecorder(sink: sink)
+
+        recorder.attach(to: player).store(in: &tokens)
+        player.addObserver { [weak self] event in
+            guard case .firstFrameDisplayed = event else { return }
+            Task { @MainActor [weak self] in
+                self?.refreshStatistics()
+            }
+        }.store(in: &tokens)
+    }
+
+    func play(_ source: ABMediaSource) {
+        let startedAt = ABMonotonicClock().now
+        player.set(source: source, grade: .current)
+        recorder.beginTTFF(for: player, at: startedAt)
+        player.play()
+    }
+
+    private func refreshStatistics() {
+        let samples = sink.events.compactMap { event -> ABMetricSample? in
+            guard case .ttff(let sample) = event else { return nil }
+            return sample
+        }
+        let statistics = ABPlaybackStatistics.aggregate(samples)
+        print(statistics.p50, statistics.p95, statistics.hitRate)
+    }
 }
-let statistics = ABPlaybackStatistics.aggregate(samples)
-print(statistics.p50, statistics.p95, statistics.hitRate)
 ```
+
+Store `PlaybackSession` as a property of the screen or coordinator for the entire measurement. The sink, recorder, and observation tokens must all outlive the asynchronous first-frame event.
 
 An abandoned TTFF sample remains in the denominator of `hitRate` and `abandonRate`; it is never silently discarded from the measurement.
 
@@ -220,6 +247,7 @@ ABPlayerKit models preload and current playback as two distinct tuning roles. Ke
 |---|---:|---:|---|---|
 | `.conservativePreload` | 2 Mbps | 5 seconds (soft AVFoundation hint) | Uncapped | `preloadTuning` |
 | `.displayCapped` | Unlimited | Automatic | Current display pixel size | Default `currentTuning` |
+| `.resolutionCapped` | 2 Mbps | 5 seconds | 960×540 | Cellular-oriented current tuning |
 | `.unrestricted` | Unlimited | Automatic | Uncapped | Explicit opt-in when no cap is desired |
 
 ```swift

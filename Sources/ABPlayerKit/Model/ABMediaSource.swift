@@ -15,8 +15,12 @@ public struct ABMediaSource: Sendable, Hashable {
     /// Phase 3.
     public var httpHeaders: [String: String]
 
-    /// - Parameter kind: Explicit kind. When `nil`, inferred from the URL's
-    ///   extension: `.m3u8` → `.hls`, anything else → `.progressive`.
+    /// - Parameters:
+    ///   - url: The remote or local media URL.
+    ///   - kind: Explicit kind. When `nil`, inferred from the URL's extension:
+    ///     `.m3u8` → `.hls`, anything else → `.progressive`.
+    ///   - httpHeaders: HTTP headers retained with the source and applied by
+    ///     supporting asset factories such as `ABPlayerKitCache`.
     public init(url: URL, kind: Kind? = nil, httpHeaders: [String: String] = [:]) {
         self.url = url
         self.kind = kind ?? Self.inferredKind(for: url)

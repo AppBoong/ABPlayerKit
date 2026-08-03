@@ -5,6 +5,7 @@
 ![iOS 17+](https://img.shields.io/badge/iOS-17%2B-000000?logo=apple)
 ![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)
 ![MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+[![CI](https://github.com/AppBoong/ABPlayerKit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AppBoong/ABPlayerKit/actions/workflows/ci.yml)
 
 ABPlayerKit은 `AVPlayer`를 얇게 감싸면서 측정 가능성을 제공하는 래퍼입니다. 네 단계 재생 등급 상태 머신으로 재생 자원 소유권을 명시하고, 첫 프레임 표시 시간(TTFF)을 정확히 정의합니다. 현재 아이템에 대해 `AVPlayerLayer.isReadyForDisplay`와 `AVPlayerItem.status == .readyToPlay`가 **모두** 참일 때만 첫 프레임이 표시된 것으로 판단합니다.
 
@@ -30,7 +31,7 @@ https://github.com/AppBoong/ABPlayerKit.git
 dependencies: [
     .package(
         url: "https://github.com/AppBoong/ABPlayerKit.git",
-        branch: "main"
+        from: "0.1.0"
     )
 ],
 targets: [
@@ -46,7 +47,7 @@ targets: [
 ]
 ```
 
-태그 릴리스를 사용할 때는 `main` 대신 릴리스 버전 조건을 지정하세요.
+릴리스 전 개발 버전을 사용하려면 `from: "0.1.0"`을 `branch: "main"`으로 바꾸세요. 애플리케이션에서는 위의 버전 조건 사용을 권장합니다.
 
 ## 빠른 시작
 
@@ -140,14 +141,14 @@ struct VideoScreen: View {
 | `.preloaded` | 플레이어 + 아이템, 프리로드 튜닝 | `play()`를 허용하지 않고 인접 미디어 준비 |
 | `.current` | 플레이어 + 아이템, 현재 재생 튜닝 | 화면에 보이는 미디어이며 재생 제어 허용 |
 
-모든 해제 경로는 현재 아이템을 분리합니다. `.preloaded`와 `.current` 사이를 이동할 때 대응하는 튜닝 역할을 다시 적용하므로 강등은 승격의 정확한 역연산입니다.
+아이템을 보유한 모든 해제 경로는 `detachItem`을 거칩니다. `.preloaded`와 `.current` 사이를 이동할 때 대응하는 튜닝 역할을 다시 적용하므로 강등은 승격의 정확한 역연산입니다.
 
 이벤트에는 여러 소비자가 독립적으로 연결할 수 있습니다.
 
 ```swift
 let token = player.addObserver { event in
     if case .firstFrameDisplayed(let timestamp) = event {
-        // timestamp는 준비 상태 콜백 경계에서 캡처됩니다.
+        print("첫 프레임 표시 시각: \(timestamp)")
     }
 }
 
@@ -160,24 +161,50 @@ token.cancel()
 `ABPlayerKitMetrics` 제품을 링크하지 않으면 메트릭 코드는 앱에 포함되지 않습니다. `ABMetricsRecorder`는 관찰 토큰으로 연결되고, sink가 이벤트의 목적지를 결정합니다. 메모리, 내부 직렬 큐를 사용하는 JSON Lines, OSLog 구현을 제공합니다.
 
 ```swift
+import ABPlayerKit
 import ABPlayerKitMetrics
 
-let sink = ABInMemoryMetricsSink()
-let recorder = ABMetricsRecorder(sink: sink)
-let metricsToken = recorder.attach(to: player)
+@MainActor
+final class PlaybackSession {
+    let player = ABPlayer()
 
-let startedAt = ABMonotonicClock().now
-player.set(source: source, grade: .current)
-recorder.beginTTFF(for: player, at: startedAt)
-player.play()
+    private let sink: ABInMemoryMetricsSink
+    private let recorder: ABMetricsRecorder
+    private var tokens: Set<ABObservationToken> = []
 
-let samples = sink.events.compactMap { event -> ABMetricSample? in
-    guard case .ttff(let sample) = event else { return nil }
-    return sample
+    init() {
+        let sink = ABInMemoryMetricsSink()
+        self.sink = sink
+        self.recorder = ABMetricsRecorder(sink: sink)
+
+        recorder.attach(to: player).store(in: &tokens)
+        player.addObserver { [weak self] event in
+            guard case .firstFrameDisplayed = event else { return }
+            Task { @MainActor [weak self] in
+                self?.refreshStatistics()
+            }
+        }.store(in: &tokens)
+    }
+
+    func play(_ source: ABMediaSource) {
+        let startedAt = ABMonotonicClock().now
+        player.set(source: source, grade: .current)
+        recorder.beginTTFF(for: player, at: startedAt)
+        player.play()
+    }
+
+    private func refreshStatistics() {
+        let samples = sink.events.compactMap { event -> ABMetricSample? in
+            guard case .ttff(let sample) = event else { return nil }
+            return sample
+        }
+        let statistics = ABPlaybackStatistics.aggregate(samples)
+        print(statistics.p50, statistics.p95, statistics.hitRate)
+    }
 }
-let statistics = ABPlaybackStatistics.aggregate(samples)
-print(statistics.p50, statistics.p95, statistics.hitRate)
 ```
+
+`PlaybackSession`은 측정이 끝날 때까지 화면이나 코디네이터의 프로퍼티로 보관하세요. sink, recorder, 관찰 토큰은 모두 비동기 첫 프레임 이벤트보다 오래 유지되어야 합니다.
 
 중도 이탈한 TTFF 표본은 `hitRate`와 `abandonRate`의 분모에 남습니다. 측정에서 조용히 제외하지 않습니다.
 
@@ -220,6 +247,7 @@ ABPlayerKit은 프리로드와 현재 재생을 서로 다른 두 튜닝 역할�
 |---|---:|---:|---|---|
 | `.conservativePreload` | 2 Mbps | 5초(AVFoundation의 soft hint) | 제한 없음 | `preloadTuning` |
 | `.displayCapped` | 무제한 | 자동 | 현재 디스플레이 픽셀 크기 | 기본 `currentTuning` |
+| `.resolutionCapped` | 2 Mbps | 5초 | 960×540 | 셀룰러용 `currentTuning` |
 | `.unrestricted` | 무제한 | 자동 | 제한 없음 | 제한이 필요 없을 때 명시적으로 선택 |
 
 ```swift
