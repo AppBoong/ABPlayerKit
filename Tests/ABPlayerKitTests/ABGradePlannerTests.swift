@@ -18,14 +18,17 @@ struct ABGradePlannerTransitionTests {
         for sourceChanged in [false, true] {
             let actions = planner.actions(from: from, to: to, source: source, sourceChanged: sourceChanged)
 
-            // I1 (forward direction + uniqueness): dropping below holdsItem
-            // always detaches exactly once; detachItem never appears more
-            // than once regardless of the transition.
+            // I1, as a true global biconditional: .detachItem appears
+            // exactly once if and only if the grade drops below
+            // .holdsItem. Reattaching at the same item-holding grade never
+            // needs a .detachItem — .attachItem's replaceCurrentItem(with:)
+            // already replaces whatever item (if any) was attached.
             let detachCount = actions.filter { $0 == .detachItem }.count
-            #expect(detachCount <= 1, "from: \(from) to: \(to) sourceChanged: \(sourceChanged)")
-            if from.holdsItem && !to.holdsItem {
-                #expect(detachCount == 1, "from: \(from) to: \(to) sourceChanged: \(sourceChanged)")
-            }
+            let shouldDetach = from.holdsItem && !to.holdsItem
+            #expect(
+                detachCount == (shouldDetach ? 1 : 0),
+                "from: \(from) to: \(to) sourceChanged: \(sourceChanged)"
+            )
 
             // I3 (scoped to the table's literal cells: only .preloaded has
             // outstanding preload work to cancel).

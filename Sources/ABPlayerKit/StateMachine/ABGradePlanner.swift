@@ -11,8 +11,19 @@
 ///   `replaceCurrentItem`).
 /// - The `current → current` cell is missing from the table (the row only
 ///   has 3 data cells). Treated the same as the other diagonal cells:
-///   identity when `sourceChanged == false`, detach+reattach when
+///   identity when `sourceChanged == false`, re-attach when
 ///   `sourceChanged == true`.
+/// - Every "stay at the same item-holding grade but the source changed"
+///   cell (`preloaded → preloaded`, `preloaded → current`,
+///   `current → preloaded`, `current → current`, all with
+///   `sourceChanged == true`) re-attaches via `.attachItem` alone, **without**
+///   a preceding `.detachItem` — even though the table's prose spells out
+///   "detachItem→attachItem" for the `preloaded → preloaded` cell.
+///   `.attachItem` means `replaceCurrentItem(with:)`, which does not require
+///   passing `nil` first, so the extra detach is unnecessary. Dropping it
+///   uniformly is what makes I1 a true global biconditional (`.detachItem`
+///   appears if and only if `from.holdsItem && !to.holdsItem`) instead of a
+///   one-directional rule with the table's literal cell as an exception.
 /// - I3 ("to < .preloaded ⇒ .cancelPreload") is scoped to `from == .preloaded`
 ///   transitions, matching the table exactly (the `current` row's cells
 ///   never mention `.cancelPreload`, since nothing is preloading once a
@@ -66,7 +77,11 @@ public struct ABGradePlanner: Sendable {
         case (.preloaded, .current):
             var result: [ABGradeAction] = [.cancelPreload, .applyTuning(.current)]
             if sourceChanged, let source {
-                result.append(.detachItem)
+                // No .detachItem: .attachItem itself replaces whatever item
+                // is currently attached (replaceCurrentItem(with:) doesn't
+                // require going through nil first). Keeping .detachItem out
+                // here is what keeps I1 a true global biconditional — see
+                // the type-level doc comment.
                 result.append(.attachItem(source))
             }
             return result
@@ -80,7 +95,6 @@ public struct ABGradePlanner: Sendable {
         case (.current, .preloaded):
             var result: [ABGradeAction] = [.pause, .applyTuning(.preload)]
             if sourceChanged, let source {
-                result.append(.detachItem)
                 result.append(.attachItem(source))
                 result.append(.armPreroll)
             }
@@ -90,8 +104,8 @@ public struct ABGradePlanner: Sendable {
             return result
 
         case (.current, .current):
-            guard sourceChanged else { return [] }
-            return [.pause] + attach(.current, source: source, armPreroll: false)
+            guard sourceChanged, let source else { return [] }
+            return [.pause, .applyTuning(.current), .attachItem(source)]
         }
     }
 
