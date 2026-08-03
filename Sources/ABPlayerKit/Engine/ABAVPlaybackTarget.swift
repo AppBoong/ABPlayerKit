@@ -181,7 +181,7 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             object: item,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 if self?.isLooping == true {
                     Task { await self?.seekToStart() }
                 }
@@ -195,7 +195,7 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             object: item,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 self?.onEvent?(.playbackStalled)
             }
         }

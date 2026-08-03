@@ -5,7 +5,7 @@ import UIKit
 /// `ABPlayer` instance. No global/static observers (DESIGN-ABPlayerKit.md
 /// §10, weakness #12) — each instance owns and tears down its own tokens.
 @MainActor
-public final class ABApplicationStateObserver {
+final class ABApplicationStateObserver {
     // `nonisolated(unsafe)`: NotificationCenter observer tokens are opaque,
     // thread-safe-to-hold reference types; `removeObserver` itself is safe
     // to call from any thread. This lets `deinit` (always nonisolated) tear
@@ -13,10 +13,10 @@ public final class ABApplicationStateObserver {
     private nonisolated(unsafe) var tokens: [NSObjectProtocol] = []
     private let center: NotificationCenter
 
-    public init(
+    init(
         center: NotificationCenter = .default,
-        onBackground: @escaping @MainActor () -> Void,
-        onForeground: @escaping @MainActor () -> Void
+        onBackground: @escaping @MainActor @Sendable () -> Void,
+        onForeground: @escaping @MainActor @Sendable () -> Void
     ) {
         self.center = center
         tokens.append(
@@ -25,7 +25,7 @@ public final class ABApplicationStateObserver {
                 object: nil,
                 queue: .main
             ) { _ in
-                MainActor.assumeIsolated { onBackground() }
+                Task { @MainActor in onBackground() }
             }
         )
         tokens.append(
@@ -34,12 +34,12 @@ public final class ABApplicationStateObserver {
                 object: nil,
                 queue: .main
             ) { _ in
-                MainActor.assumeIsolated { onForeground() }
+                Task { @MainActor in onForeground() }
             }
         )
     }
 
-    public func invalidate() {
+    func invalidate() {
         for token in tokens {
             center.removeObserver(token)
         }

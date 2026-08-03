@@ -41,6 +41,6 @@ public final class ABObservationToken: @unchecked Sendable, Hashable {
     }
 
     deinit {
-        onCancel?()
+        cancel()
     }
 }

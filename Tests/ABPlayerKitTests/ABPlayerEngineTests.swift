@@ -197,4 +197,16 @@ struct ABObservationTokenLifecycleTests {
         #expect(secondCount > countAfterFirstSet, "still-subscribed observer must receive the second batch")
         secondToken.cancel()
     }
+
+    @Test("Letting a token deinit off-main does not trap")
+    func deinitOffMainDoesNotTrap() async {
+        await Task.detached {
+            var token: ABObservationToken? = await MainActor.run {
+                let registry = ABObserverRegistry()
+                return registry.add { _, _ in }
+            }
+            #expect(token != nil)
+            token = nil
+        }.value
+    }
 }
