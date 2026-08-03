@@ -47,13 +47,7 @@ public final class ABMetricsRecorder {
     }
 
     public func abandonTTFF(for player: ABPlayer) {
-        guard let start = ttffStarts.removeValue(forKey: player.id) else { return }
-        sink.record(.ttff(ABMetricSample(
-            playerID: player.id,
-            startedAt: start.startedAt,
-            outcome: .abandoned,
-            resumedFromTime: start.resumedFromTime
-        )))
+        recordAbandonedTTFF(for: player.id)
     }
 
     private func handle(_ event: ABPlayerEvent, from player: ABPlayer) {
@@ -69,9 +63,12 @@ public final class ABMetricsRecorder {
             )))
         case .playbackStalled:
             sink.record(.stall(playerID: player.id, at: clock.now))
-        case .gradeChanged(_, .preloaded):
+        case .gradeChanged(let from, .preloaded) where from < .preloaded:
             sink.record(.preloadStarted(playerID: player.id, at: clock.now))
+        case .gradeChanged(let from, let to) where from.holdsItem && !to.holdsItem:
+            recordAbandonedTTFF(for: player.id)
         case .itemDetached(let reason):
+            recordAbandonedTTFF(for: player.id)
             sink.record(.itemDetached(
                 playerID: player.id,
                 reason: reason,
@@ -82,6 +79,16 @@ public final class ABMetricsRecorder {
         default:
             break
         }
+    }
+
+    private func recordAbandonedTTFF(for playerID: ABPlayerID) {
+        guard let start = ttffStarts.removeValue(forKey: playerID) else { return }
+        sink.record(.ttff(ABMetricSample(
+            playerID: playerID,
+            startedAt: start.startedAt,
+            outcome: .abandoned,
+            resumedFromTime: start.resumedFromTime
+        )))
     }
 
     private func accessSnapshot(for item: AVPlayerItem?) -> ABAccessSnapshot? {

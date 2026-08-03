@@ -141,4 +141,48 @@ struct ABMetricsRecorderTests {
             resumedFromTime: 7
         ))])
     }
+
+    @Test("Item detachment abandons and clears a pending TTFF measurement")
+    func itemDetachmentAbandonsPendingTTFF() {
+        let sink = ABInMemoryMetricsSink()
+        let recorder = ABMetricsRecorder(sink: sink, clock: ABFakeClock(now: 50))
+        let player = ABPlayer(configuration: .init(backgroundPolicy: .ignore))
+        let token = recorder.attach(to: player)
+        player.set(source: source, grade: .current)
+
+        recorder.beginTTFF(for: player, resumedFromTime: 11)
+        player.release()
+        recorder.abandonTTFF(for: player)
+
+        let samples = sink.events.compactMap { event -> ABMetricSample? in
+            guard case .ttff(let sample) = event else { return nil }
+            return sample
+        }
+        #expect(samples == [ABMetricSample(
+            playerID: player.id,
+            startedAt: 50,
+            outcome: .abandoned,
+            resumedFromTime: 11
+        )])
+        token.cancel()
+    }
+
+    @Test("Preload starts are recorded only on upward transitions")
+    func recordsPreloadOnlyOnUpwardTransition() {
+        let sink = ABInMemoryMetricsSink()
+        let recorder = ABMetricsRecorder(sink: sink, clock: ABFakeClock(now: 60))
+        let player = ABPlayer(configuration: .init(backgroundPolicy: .ignore))
+        let token = recorder.attach(to: player)
+
+        player.set(source: source, grade: .preloaded)
+        player.set(source: source, grade: .current)
+        player.set(source: source, grade: .preloaded)
+
+        let preloadEvents = sink.events.filter {
+            if case .preloadStarted = $0 { return true }
+            return false
+        }
+        #expect(preloadEvents.count == 1)
+        token.cancel()
+    }
 }
