@@ -79,7 +79,24 @@
 | 모듈구조 | 레포당 SPM 멀티 타겟 (코어/메트릭/캐시, 피드/SwiftUI) — 선택적 채택 |
 | 테스트 | swift-testing. 순수 로직 100% 목표, AVPlayer 경계는 protocol fake + 데모 벤치마크 |
 
-## 7. 참조
+## 7. 개발 컨벤션 (Phase 1에서 추가 확정)
+
+### 커밋
+- **Conventional Commits + 영어 메시지 필수**: `feat:` `fix:` `docs:` `test:` `chore:` `style:` `refactor:` `perf:` `ci:`
+- 실무 단위 커밋: 하나의 논리 변경 = 하나의 커밋. 예: `feat: add ABGradePlanner with full transition table`, `test: cover fling scroll preload cancellation`
+- 본문은 필요 시 왜(why)를 서술. PR 없이 main 직push 시에도 동일 규칙
+
+### 테스트 조직
+- swift-testing `@Suite`를 **시나리오 단위**로 조직 (Given-When-Then 네이밍)
+- 예: `@Suite("Fast fling cancels intermediate preloads")`, `@Suite("Background transition restores playback state")`, `@Suite("Data trim releases orphaned players")`
+- 순수 로직 100% 커버 + 경계는 fake + 실동작은 데모 벤치마크
+
+### 포트폴리오 품질 게이트 (audit 시 확인 항목)
+- README: 사용 예제, 설계 근거(왜 이 추상화인가), 벤치마크 수치, 아키텍처 다이어그램
+- Examples/: 클론 후 즉시 실행 가능한 데모 앱
+- 추상화 원칙 준수: protocol은 테스트 경계 5개만, DI 컨테이너 없음, 타겟 분리 근거 문서화
+
+## 8. 참조
 
 - 원본 구현: `/Users/nhn/Documents/GitHub/ohdasiyoung-ios` (Shorts feature)
   - 핵심: `ShortsPlayerView.swift`, `ShortsReducer.swift`(VideoPlayerWrapper, applyWindowStrategy), `ManageVideoPlayersUseCase.swift`, `ShortsFeedView.swift`
