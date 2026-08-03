@@ -14,6 +14,7 @@ struct ABCachedResource: Sendable, Equatable {
     let isEndOfResource: Bool
 }
 
+// Reader counts are accessed synchronously from actor and delegate contexts under the lock.
 private final class ABCacheReaderRegistry: @unchecked Sendable {
     private let lock = NSLock()
     private var counts: [String: Int] = [:]

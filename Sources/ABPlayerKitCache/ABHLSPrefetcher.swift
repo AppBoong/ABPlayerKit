@@ -123,6 +123,7 @@ public final class ABHLSPrefetcher: @unchecked Sendable {
     }
 }
 
+// Prefetch task and location maps are shared only through lock-protected methods.
 private final class ABHLSPrefetchState: @unchecked Sendable {
     private struct ActiveTask {
         let key: String
