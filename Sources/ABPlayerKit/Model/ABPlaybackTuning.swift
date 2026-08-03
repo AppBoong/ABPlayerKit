@@ -46,11 +46,13 @@ public struct ABPlaybackTuning: Sendable, Equatable {
 
     /// The `.current` default. Caps `preferredMaximumResolution` to the
     /// screen's pixel size (no perceptible quality loss, blocks over-rendition)
-    /// via the `.displaySize` sentinel, resolved at apply time.
+    /// via `displaySizeSentinel`, resolved at apply time.
+    public static let displaySizeSentinel = CGSize(width: -1, height: -1)
+
     public static let displayCapped = ABPlaybackTuning(
         preferredPeakBitRate: 0,
         preferredForwardBufferDuration: 0,
-        preferredMaximumResolution: .displaySize,
+        preferredMaximumResolution: displaySizeSentinel,
         automaticallyWaitsToMinimizeStalling: true
     )
 
@@ -63,20 +65,13 @@ public struct ABPlaybackTuning: Sendable, Equatable {
         automaticallyWaitsToMinimizeStalling: true
     )
 
-    /// Returns a copy with the `.displaySize` sentinel (if present) replaced
+    /// Returns a copy with `displaySizeSentinel` (if present) replaced
     /// by `displaySize`. Pure — the caller supplies the actual screen size so
     /// this type stays free of `UIKit`.
     public func resolved(displaySize: CGSize) -> ABPlaybackTuning {
-        guard preferredMaximumResolution == .displaySize else { return self }
+        guard preferredMaximumResolution == Self.displaySizeSentinel else { return self }
         var copy = self
         copy.preferredMaximumResolution = displaySize
         return copy
     }
-}
-
-extension CGSize {
-    /// Sentinel value meaning "cap to the screen's native pixel size at apply
-    /// time" — never a real resolution, so it can't collide with a legitimate
-    /// cap. Resolved by `ABPlaybackTuning.resolved(displaySize:)`.
-    public static let displaySize = CGSize(width: -1, height: -1)
 }

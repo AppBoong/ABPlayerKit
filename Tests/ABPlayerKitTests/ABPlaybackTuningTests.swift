@@ -21,6 +21,7 @@ struct ABPlaybackTuningRoundTripTests {
 
     @Test("displaySize sentinel resolves to the supplied screen size")
     func sentinelResolution() {
+        #expect(ABPlaybackTuning.displayCapped.preferredMaximumResolution == ABPlaybackTuning.displaySizeSentinel)
         let resolved = ABPlaybackTuning.displayCapped.resolved(displaySize: CGSize(width: 1080, height: 1920))
         #expect(resolved.preferredMaximumResolution == CGSize(width: 1080, height: 1920))
         #expect(resolved.preferredPeakBitRate == ABPlaybackTuning.displayCapped.preferredPeakBitRate)
