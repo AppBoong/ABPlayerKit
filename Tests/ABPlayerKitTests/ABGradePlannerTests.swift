@@ -135,7 +135,7 @@ struct ABGradePlannerTransitionTests {
         #expect(actions == [.pause, .detachItem, .teardownObservers, .releasePlayer])
     }
 
-    @Test("preloaded to preloaded with a source change detaches and reattaches")
+    @Test("preloaded to preloaded with a source change reattaches without detach")
     func preloadedToPreloadedSourceChanged() {
         let actions = planner.actions(from: .preloaded, to: .preloaded, source: source, sourceChanged: true)
         #expect(actions == [.cancelPreload, .pause, .applyTuning(.preload), .attachItem(source), .armPreroll])

@@ -1,22 +1,45 @@
 import CoreGraphics
+import Foundation
 import Testing
 @testable import ABPlayerKit
 
 @Suite("ABPlaybackTuning promote/demote round trip is symmetric")
+@MainActor
 struct ABPlaybackTuningRoundTripTests {
-    @Test("Promoting then demoting a configuration's tuning returns the original preload tuning")
+    @Test("Promoting then demoting applies current and restores the exact preload tuning")
     func promoteThenDemoteRoundTrip() {
-        let configuration = ABPlayerConfiguration()
+        let preloadTuning = ABPlaybackTuning(
+            preferredPeakBitRate: 1_250_000,
+            preferredForwardBufferDuration: 3,
+            preferredMaximumResolution: CGSize(width: 640, height: 360),
+            automaticallyWaitsToMinimizeStalling: false
+        )
+        let currentTuning = ABPlaybackTuning(
+            preferredPeakBitRate: 4_500_000,
+            preferredForwardBufferDuration: 8,
+            preferredMaximumResolution: CGSize(width: 1920, height: 1080),
+            automaticallyWaitsToMinimizeStalling: true
+        )
+        let configuration = ABPlayerConfiguration(
+            preloadTuning: preloadTuning,
+            currentTuning: currentTuning,
+            prerollRate: nil,
+            backgroundPolicy: .ignore
+        )
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(configuration: configuration, target: target)
+        let source = ABMediaSource(url: URL(string: "https://example.com/video.mp4")!)
 
-        // Promotion applies .currentTuning; demotion applies .preloadTuning.
-        // Since both directions read from the very same configuration
-        // fields, the round trip is an identity by construction.
-        let afterPromote = configuration.currentTuning
-        let afterDemote = configuration.preloadTuning
+        player.set(source: source, grade: .preloaded)
+        player.promote(to: .current)
+        player.promote(to: .preloaded)
 
-        #expect(afterDemote == .conservativePreload)
-        #expect(afterPromote == .displayCapped)
-        #expect(afterDemote == configuration.preloadTuning)
+        let appliedTunings = target.calls.compactMap { call -> ABPlaybackTuning? in
+            guard case .applyTuning(let tuning) = call else { return nil }
+            return tuning
+        }
+        #expect(appliedTunings == [preloadTuning, currentTuning, preloadTuning])
+        #expect(appliedTunings.last == configuration.preloadTuning)
     }
 
     @Test("displaySize sentinel resolves to the supplied screen size")
