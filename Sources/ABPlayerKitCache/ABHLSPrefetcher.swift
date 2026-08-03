@@ -320,14 +320,8 @@ private final class ABHLSDownloadCoordinator: NSObject, AVAssetDownloadDelegate,
         session.finishTasksAndInvalidate()
     }
 
-    private func downloadSession() -> AVAssetDownloadURLSession? {
-        lock.lock()
-        guard !isInvalidating else {
-            lock.unlock()
-            return nil
-        }
+    private func downloadSessionLocked() -> AVAssetDownloadURLSession {
         if let session {
-            lock.unlock()
             return session
         }
         let configuration = URLSessionConfiguration.background(
@@ -339,7 +333,6 @@ private final class ABHLSDownloadCoordinator: NSObject, AVAssetDownloadDelegate,
             delegateQueue: nil
         )
         self.session = session
-        lock.unlock()
         return session
     }
 
@@ -363,14 +356,16 @@ private final class ABHLSDownloadCoordinator: NSObject, AVAssetDownloadDelegate,
                 AVAssetVariantQualifier(predicate: predicate)
             ]
         }
-        guard let session = downloadSession() else {
+        lock.lock()
+        guard !isInvalidating else {
+            lock.unlock()
             completion(.failure)
             return nil
         }
+        let session = downloadSessionLocked()
         let task = session.makeAssetDownloadTask(
             downloadConfiguration: downloadConfiguration
         )
-        lock.lock()
         jobs[task.taskIdentifier] = Job(id: id, completion: completion, location: nil)
         lock.unlock()
         task.resume()
