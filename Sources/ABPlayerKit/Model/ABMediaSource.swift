@@ -10,6 +10,9 @@ public struct ABMediaSource: Sendable, Hashable {
 
     public let url: URL
     public let kind: Kind
+    /// Stored for forward compatibility but not applied by the Phase 2 core.
+    /// Header support arrives through the Cache target's resource loader in
+    /// Phase 3.
     public var httpHeaders: [String: String]
 
     /// - Parameter kind: Explicit kind. When `nil`, inferred from the URL's

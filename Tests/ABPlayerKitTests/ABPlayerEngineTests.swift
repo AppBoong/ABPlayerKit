@@ -4,6 +4,22 @@ import Testing
 @preconcurrency import AVFoundation
 import UIKit
 
+@Suite("ABDefaultAssetFactory uses public AVFoundation API")
+struct ABDefaultAssetFactoryTests {
+    @Test("Custom headers remain stored on the source while core asset creation preserves the URL")
+    func headersAreDeferredToCacheTarget() {
+        let source = ABMediaSource(
+            url: URL(string: "https://example.com/video.mp4")!,
+            httpHeaders: ["Authorization": "Bearer token"]
+        )
+
+        let asset = ABDefaultAssetFactory().makeAsset(for: source)
+
+        #expect(source.httpHeaders == ["Authorization": "Bearer token"])
+        #expect(asset.url == source.url)
+    }
+}
+
 @Suite("Every release path calls detachItem exactly once")
 @MainActor
 struct ABPlayerReleasePathTests {
