@@ -8,7 +8,8 @@ let package = Package(
     ],
     products: [
         .library(name: "ABPlayerKit", targets: ["ABPlayerKit"]),
-        .library(name: "ABPlayerKitMetrics", targets: ["ABPlayerKitMetrics"])
+        .library(name: "ABPlayerKitMetrics", targets: ["ABPlayerKitMetrics"]),
+        .library(name: "ABPlayerKitCache", targets: ["ABPlayerKitCache"])
     ],
     targets: [
         .target(
@@ -18,6 +19,10 @@ let package = Package(
             name: "ABPlayerKitMetrics",
             dependencies: ["ABPlayerKit"]
         ),
+        .target(
+            name: "ABPlayerKitCache",
+            dependencies: ["ABPlayerKit"]
+        ),
         .testTarget(
             name: "ABPlayerKitTests",
             dependencies: ["ABPlayerKit"]
@@ -25,6 +30,10 @@ let package = Package(
         .testTarget(
             name: "ABPlayerKitMetricsTests",
             dependencies: ["ABPlayerKitMetrics", "ABPlayerKit"]
+        ),
+        .testTarget(
+            name: "ABPlayerKitCacheTests",
+            dependencies: ["ABPlayerKitCache", "ABPlayerKit"]
         )
     ],
     swiftLanguageModes: [.v6]
