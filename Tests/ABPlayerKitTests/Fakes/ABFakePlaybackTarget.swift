@@ -39,11 +39,14 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
 
     func makePlayer() {
         calls.append(.makePlayer)
+        avPlayer = AVPlayer()
     }
 
     func releasePlayer() {
         calls.append(.releasePlayer)
         hasAttachedItem = false
+        avPlayerItem = nil
+        avPlayer = nil
     }
 
     func attachItem(_ source: ABMediaSource, tuning: ABPlaybackTuning, assetFactory: any ABAssetFactory) {

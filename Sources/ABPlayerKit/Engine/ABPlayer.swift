@@ -34,6 +34,8 @@ public final class ABPlayer {
     private var lastAppliedTuningRole: ABTuningRole = .preload
     private var prerollTask: Task<Void, Never>?
     private var reportedFirstFrameItem: ObjectIdentifier?
+    private var layerAttachmentHandlers: [UUID: @MainActor (Bool) -> Void] = [:]
+    private(set) var isLayerAttachmentEnabled = true
 
     private var appStateObserver: ABApplicationStateObserver?
     private var gradeBeforeBackground: ABPlaybackGrade?
@@ -68,6 +70,14 @@ public final class ABPlayer {
     /// `.instanceOnly` and reported via `.invalidGradeForSource` — never a
     /// throw or a crash.
     public func set(source newSource: ABMediaSource?, grade requestedGrade: ABPlaybackGrade) {
+        set(source: newSource, grade: requestedGrade, detachReason: nil)
+    }
+
+    private func set(
+        source newSource: ABMediaSource?,
+        grade requestedGrade: ABPlaybackGrade,
+        detachReason explicitDetachReason: ABDetachReason?
+    ) {
         var resolvedGrade = requestedGrade
         if requestedGrade.holdsItem && newSource == nil {
             resolvedGrade = .instanceOnly
@@ -87,9 +97,9 @@ public final class ABPlayer {
             rewindOnDemotion: configuration.rewindOnDemotion
         )
 
-        let detachReason: ABDetachReason = resolvedGrade == .released
+        let detachReason = explicitDetachReason ?? (resolvedGrade == .released
             ? .release
-            : (resolvedGrade < previousGrade ? .demotion : .sourceChanged)
+            : (resolvedGrade < previousGrade ? .demotion : .sourceChanged))
 
         source = newSource
         grade = resolvedGrade
@@ -168,6 +178,16 @@ public final class ABPlayer {
 
     public func addObserver(_ handler: @escaping @MainActor (ABPlayerEvent) -> Void) -> ABObservationToken {
         observerRegistry.add { _, event in handler(event) }
+    }
+
+    func addLayerAttachmentObserver(_ handler: @escaping @MainActor (Bool) -> Void) -> ABObservationToken {
+        let id = UUID()
+        layerAttachmentHandlers[id] = handler
+        return ABObservationToken { [weak self] in
+            Task { @MainActor in
+                self?.layerAttachmentHandlers[id] = nil
+            }
+        }
     }
 
     // MARK: - Internal (used by ABPlayerView for first-frame reporting)
@@ -295,6 +315,10 @@ public final class ABPlayer {
 
     private func applyConfigurationChange(from previousConfiguration: ABPlayerConfiguration) {
         if previousConfiguration.backgroundPolicy != configuration.backgroundPolicy {
+            if previousConfiguration.backgroundPolicy == .pauseAndDetachLayer,
+               configuration.backgroundPolicy != .pauseAndDetachLayer {
+                setLayerAttachmentEnabled(true)
+            }
             reconcileBackgroundObserver()
         }
         if previousConfiguration.isMuted != configuration.isMuted {
@@ -327,26 +351,25 @@ public final class ABPlayer {
         )
     }
 
-    /// `.pauseAndDetachLayer` is handled identically to `.pause` at the
-    /// engine level (YAGNI for this phase): actually detaching
-    /// `AVPlayerLayer.player` requires coordination with whichever
-    /// `ABPlayerView` currently displays this player, which `ABPlayer`
-    /// does not reference. A future phase can have `ABPlayerView` observe
-    /// this policy directly if the decoder-release behavior proves
-    /// necessary in practice.
     private func handleDidEnterBackground() {
         switch configuration.backgroundPolicy {
         case .ignore:
             return
-        case .pause, .pauseAndDetachLayer:
+        case .pause:
             wasPlayingBeforeBackground = isPlaying
             if grade == .current {
                 target.pause()
             }
+        case .pauseAndDetachLayer:
+            wasPlayingBeforeBackground = isPlaying
+            if grade == .current {
+                target.pause()
+            }
+            setLayerAttachmentEnabled(false)
         case .demoteToInstance:
             gradeBeforeBackground = grade
             if grade.holdsItem {
-                promote(to: .instanceOnly)
+                set(source: source, grade: .instanceOnly, detachReason: .backgroundPolicy)
             }
         }
     }
@@ -355,7 +378,13 @@ public final class ABPlayer {
         switch configuration.backgroundPolicy {
         case .ignore:
             return
-        case .pause, .pauseAndDetachLayer:
+        case .pause:
+            if grade == .current && wasPlayingBeforeBackground {
+                target.play()
+            }
+            wasPlayingBeforeBackground = false
+        case .pauseAndDetachLayer:
+            setLayerAttachmentEnabled(true)
             if grade == .current && wasPlayingBeforeBackground {
                 target.play()
             }
@@ -370,5 +399,13 @@ public final class ABPlayer {
 
     private func broadcast(_ event: ABPlayerEvent) {
         observerRegistry.broadcast(event, from: self)
+    }
+
+    private func setLayerAttachmentEnabled(_ enabled: Bool) {
+        guard isLayerAttachmentEnabled != enabled else { return }
+        isLayerAttachmentEnabled = enabled
+        for handler in layerAttachmentHandlers.values {
+            handler(enabled)
+        }
     }
 }

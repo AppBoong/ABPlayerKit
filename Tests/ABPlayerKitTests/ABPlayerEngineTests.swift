@@ -268,6 +268,80 @@ struct ABPlayerEventBroadcastTests {
         await Task.yield()
         #expect(target.calls.filter { $0 == .pause }.count == pauseCount)
     }
+
+    @Test("Background demotion reports the background policy detach reason")
+    func backgroundDemotionReportsPolicyReason() async {
+        let center = NotificationCenter()
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(
+            configuration: ABPlayerConfiguration(backgroundPolicy: .demoteToInstance),
+            target: target,
+            notificationCenter: center
+        )
+        var events: [ABPlayerEvent] = []
+        let token = player.addObserver { events.append($0) }
+        defer { token.cancel() }
+        player.set(source: source, grade: .current)
+
+        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        while !events.contains(.itemDetached(reason: .backgroundPolicy)) {
+            await Task.yield()
+        }
+
+        #expect(player.grade == .instanceOnly)
+        #expect(events.contains(.itemDetached(reason: .backgroundPolicy)))
+    }
+}
+
+@Suite("ABPlayerView follows player lifecycle")
+@MainActor
+struct ABPlayerViewLifecycleTests {
+    private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)
+
+    @Test("Assigning the view before promotion rebinds the created player")
+    func rebindsAfterGradeChange() {
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore), target: target)
+        let view = ABPlayerView()
+        view.player = player
+
+        #expect((view.layer as? AVPlayerLayer)?.player == nil)
+        player.set(source: source, grade: .current)
+
+        #expect((view.layer as? AVPlayerLayer)?.player === target.avPlayer)
+
+        player.release()
+        #expect((view.layer as? AVPlayerLayer)?.player == nil)
+    }
+
+    @Test("pauseAndDetachLayer detaches in background and reattaches in foreground")
+    func backgroundPolicyDetachesAndReattachesLayer() async {
+        let center = NotificationCenter()
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(
+            configuration: ABPlayerConfiguration(backgroundPolicy: .pauseAndDetachLayer),
+            target: target,
+            notificationCenter: center
+        )
+        let view = ABPlayerView()
+        view.player = player
+        player.set(source: source, grade: .current)
+        player.play()
+        #expect((view.layer as? AVPlayerLayer)?.player === target.avPlayer)
+
+        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        while (view.layer as? AVPlayerLayer)?.player != nil {
+            await Task.yield()
+        }
+        #expect((view.layer as? AVPlayerLayer)?.player == nil)
+
+        center.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        while (view.layer as? AVPlayerLayer)?.player == nil {
+            await Task.yield()
+        }
+        #expect((view.layer as? AVPlayerLayer)?.player === target.avPlayer)
+        #expect(target.calls.contains(.play))
+    }
 }
 
 @Suite("ABObservationToken lifecycle")

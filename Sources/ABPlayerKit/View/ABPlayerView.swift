@@ -21,6 +21,9 @@ public final class ABPlayerView: UIView {
         didSet { attach(player) }
     }
 
+    private var playerObservationToken: ABObservationToken?
+    private var layerAttachmentToken: ABObservationToken?
+
     /// Setting this applies the change inside a `CATransaction` with
     /// implicit animations disabled, so a gravity change never animates.
     public var videoGravity: AVLayerVideoGravity {
@@ -56,10 +59,40 @@ public final class ABPlayerView: UIView {
     }
 
     private func attach(_ newPlayer: ABPlayer?) {
+        playerObservationToken?.cancel()
+        playerObservationToken = nil
+        layerAttachmentToken?.cancel()
+        layerAttachmentToken = nil
         detector.invalidate()
-        playerLayer.player = newPlayer?.avPlayer
-        videoGravity = newPlayer?.configuration.videoGravity ?? .resizeAspectFill
-        detector.observe(layer: playerLayer, item: newPlayer?.avPlayerItem)
+        playerLayer.player = nil
+
+        guard let newPlayer else {
+            videoGravity = .resizeAspectFill
+            return
+        }
+
+        playerObservationToken = newPlayer.addObserver { [weak self, weak newPlayer] event in
+            guard let self, self.player === newPlayer else { return }
+            switch event {
+            case .gradeChanged, .sourceChanged, .itemDetached:
+                self.rebindPlayerLayer()
+            default:
+                break
+            }
+        }
+        layerAttachmentToken = newPlayer.addLayerAttachmentObserver { [weak self, weak newPlayer] _ in
+            guard let self, self.player === newPlayer else { return }
+            self.rebindPlayerLayer()
+        }
+        rebindPlayerLayer()
+    }
+
+    private func rebindPlayerLayer() {
+        detector.invalidate()
+        let attachedPlayer = player?.isLayerAttachmentEnabled == true ? player : nil
+        playerLayer.player = attachedPlayer?.avPlayer
+        videoGravity = player?.configuration.videoGravity ?? .resizeAspectFill
+        detector.observe(layer: playerLayer, item: attachedPlayer?.avPlayerItem)
         applyAdaptiveGravityIfNeeded()
     }
 
