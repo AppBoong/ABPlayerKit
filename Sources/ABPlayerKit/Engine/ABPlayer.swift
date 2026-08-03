@@ -258,8 +258,8 @@ public final class ABPlayer {
                 target.setLooping(configuration.isLooping)
 
             case .detachItem:
-                target.detachItem()
                 broadcast(.itemDetached(reason: detachReason))
+                target.detachItem()
 
             case .armPreroll:
                 if let rate = configuration.prerollRate {
