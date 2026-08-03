@@ -28,6 +28,7 @@ public final class ABMediaCache: Sendable {
     }
 }
 
+// Factory mutation is protected by its lock and AVFoundation uses one shared serial delegate queue.
 private final class ABCacheAssetFactory: ABAssetFactory, @unchecked Sendable {
     private struct RetainedDelegate {
         weak var asset: AVURLAsset?
@@ -36,6 +37,7 @@ private final class ABCacheAssetFactory: ABAssetFactory, @unchecked Sendable {
 
     private let store: ABCacheStore
     private let hlsPrefetcher: ABHLSPrefetcher?
+    private let delegateQueue = DispatchQueue(label: "ABPlayerKitCache.ResourceLoader")
     private let lock = NSLock()
     private var retainedDelegates: [RetainedDelegate] = []
 
@@ -57,8 +59,7 @@ private final class ABCacheAssetFactory: ABAssetFactory, @unchecked Sendable {
 
         let asset = AVURLAsset(url: cacheURL)
         let delegate = ABResourceLoaderDelegate(source: source, store: store)
-        let queue = DispatchQueue(label: "ABPlayerKitCache.ResourceLoader.\(ABCacheKey.derive(from: source))")
-        asset.resourceLoader.setDelegate(delegate, queue: queue)
+        asset.resourceLoader.setDelegate(delegate, queue: delegateQueue)
 
         lock.lock()
         retainedDelegates.removeAll { $0.asset == nil }

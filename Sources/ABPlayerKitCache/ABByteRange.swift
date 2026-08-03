@@ -42,39 +42,6 @@ struct ABByteRange: Sendable, Equatable {
         return ABByteRange(lowerBound: lowerBound, upperBound: upperBound)
     }
 
-    static func merge(_ ranges: [ABByteRange]) -> [ABByteRange] {
-        let suffixRanges = ranges.filter { $0.suffixLength != nil }
-            .sorted { $0.suffixLength! < $1.suffixLength! }
-        let sortedRanges = ranges.filter { $0.suffixLength == nil }.sorted {
-            if $0.lowerBound == $1.lowerBound {
-                return ($0.upperBound ?? .max) < ($1.upperBound ?? .max)
-            }
-            return $0.lowerBound < $1.lowerBound
-        }
-        guard var current = sortedRanges.first else { return suffixRanges }
-
-        var merged: [ABByteRange] = []
-        for range in sortedRanges.dropFirst() {
-            guard let currentUpperBound = current.upperBound else { continue }
-            let touchesCurrent = range.lowerBound <= currentUpperBound
-                || (currentUpperBound < .max && range.lowerBound == currentUpperBound + 1)
-            if touchesCurrent {
-                let upperBound: Int64?
-                if range.upperBound == nil {
-                    upperBound = nil
-                } else {
-                    upperBound = Swift.max(currentUpperBound, range.upperBound!)
-                }
-                current = ABByteRange(lowerBound: current.lowerBound, upperBound: upperBound)
-            } else {
-                merged.append(current)
-                current = range
-            }
-        }
-        merged.append(current)
-        return merged + suffixRanges
-    }
-
     func resolved(contentLength: Int64) -> ABByteRange? {
         guard let suffixLength else { return self }
         guard contentLength > 0 else { return nil }

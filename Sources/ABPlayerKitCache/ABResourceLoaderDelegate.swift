@@ -2,7 +2,9 @@ import ABPlayerKit
 @preconcurrency import AVFoundation
 import Foundation
 
+// AVFoundation invokes this delegate on the configured serial queue; mutable task state is lock-protected.
 final class ABResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate, @unchecked Sendable {
+    // AVAssetResourceLoadingRequest is confined to the delegate task and AVFoundation's serial callback queue.
     private final class LoadingRequestBox: @unchecked Sendable {
         let request: AVAssetResourceLoadingRequest
 
@@ -19,6 +21,18 @@ final class ABResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate, @
     init(source: ABMediaSource, store: ABCacheStore) {
         self.source = source
         self.store = store
+        store.retainReader(for: source)
+    }
+
+    deinit {
+        lock.lock()
+        let retainedTasks = Array(tasks.values)
+        tasks.removeAll()
+        lock.unlock()
+        for task in retainedTasks {
+            task.cancel()
+        }
+        store.releaseReader(for: source)
     }
 
     func resourceLoader(
@@ -32,29 +46,45 @@ final class ABResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate, @
             defer { self?.removeTask(identifier) }
             do {
                 let request = requestBox.request
-                let dataRequest = request.dataRequest
-                let lowerBound = dataRequest?.currentOffset ?? 0
+                let metadata = try await store.metadata(for: source)
+                guard !Task.isCancelled, !request.isCancelled else { return }
+                if let contentInformationRequest = request.contentInformationRequest {
+                    contentInformationRequest.contentType = metadata.contentType
+                    contentInformationRequest.contentLength = metadata.contentLength
+                    contentInformationRequest.isByteRangeAccessSupported = true
+                }
+
+                guard let dataRequest = request.dataRequest else {
+                    request.finishLoading()
+                    return
+                }
+                var currentOffset = dataRequest.currentOffset
                 let upperBound: Int64?
-                if let dataRequest, !dataRequest.requestsAllDataToEndOfResource {
-                    upperBound = lowerBound + Int64(dataRequest.requestedLength) - 1
+                if !dataRequest.requestsAllDataToEndOfResource {
+                    upperBound = currentOffset + Int64(dataRequest.requestedLength) - 1
                 } else {
                     upperBound = nil
                 }
-                let resource = try await store.load(
-                    source,
-                    range: ABByteRange(lowerBound: lowerBound, upperBound: upperBound)
+                let requiredEndOffset = Swift.min(
+                    upperBound ?? (metadata.contentLength - 1),
+                    metadata.contentLength - 1
                 )
-                guard !Task.isCancelled, !request.isCancelled else { return }
-                if let contentInformationRequest = request.contentInformationRequest {
-                    let allowedTypes = contentInformationRequest.allowedContentTypes ?? []
-                    contentInformationRequest.contentType = allowedTypes.isEmpty
-                        || allowedTypes.contains(resource.contentType)
-                        ? resource.contentType
-                        : allowedTypes[0]
-                    contentInformationRequest.contentLength = resource.contentLength
-                    contentInformationRequest.isByteRangeAccessSupported = true
+
+                while currentOffset <= requiredEndOffset {
+                    let resource = try await store.load(
+                        source,
+                        range: ABByteRange(
+                            lowerBound: currentOffset,
+                            upperBound: requiredEndOffset
+                        )
+                    )
+                    guard !Task.isCancelled, !request.isCancelled else { return }
+                    guard !resource.data.isEmpty else {
+                        throw ABCacheStore.StoreError.shortRead
+                    }
+                    dataRequest.respond(with: resource.data)
+                    currentOffset += Int64(resource.data.count)
                 }
-                dataRequest?.respond(with: resource.data)
                 request.finishLoading()
             } catch {
                 guard !Task.isCancelled, !requestBox.request.isCancelled else { return }

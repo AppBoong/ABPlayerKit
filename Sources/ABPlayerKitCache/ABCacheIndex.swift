@@ -52,7 +52,10 @@ struct ABCacheIndex: Codable, Sendable, Equatable {
         entries[key]?.lastAccessedAt = date
     }
 
-    mutating func evictLRU(to maximumSize: Int64) -> [Entry] {
+    mutating func evictLRU(
+        to maximumSize: Int64,
+        excluding excludedKeys: Set<String> = []
+    ) -> [Entry] {
         let targetSize = Swift.max(0, maximumSize)
         guard totalSize > targetSize else { return [] }
 
@@ -64,7 +67,7 @@ struct ABCacheIndex: Codable, Sendable, Equatable {
         }
         var evicted: [Entry] = []
         var remainingSize = totalSize
-        for entry in oldestFirst where remainingSize > targetSize {
+        for entry in oldestFirst where remainingSize > targetSize && !excludedKeys.contains(entry.key) {
             entries[entry.key] = nil
             remainingSize -= entry.size
             evicted.append(entry)

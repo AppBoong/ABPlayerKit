@@ -26,7 +26,7 @@ struct ABCacheKeyTests {
     }
 }
 
-@Suite("ABByteRange parsing and merging")
+@Suite("ABByteRange parsing")
 struct ABByteRangeTests {
     @Test("Parses bounded and open-ended single ranges")
     func parsesRanges() {
@@ -44,21 +44,6 @@ struct ABByteRangeTests {
         #expect(ABByteRange.parse("items=0-10") == nil)
     }
 
-    @Test("Merges overlapping and adjacent ranges")
-    func mergesRanges() {
-        let ranges = [
-            ABByteRange(lowerBound: 20, upperBound: 29),
-            ABByteRange(lowerBound: 0, upperBound: 9),
-            ABByteRange(lowerBound: 8, upperBound: 19),
-            ABByteRange(lowerBound: 40, upperBound: nil),
-            ABByteRange(lowerBound: 35, upperBound: 39)
-        ]
-
-        #expect(ABByteRange.merge(ranges) == [
-            ABByteRange(lowerBound: 0, upperBound: 29),
-            ABByteRange(lowerBound: 35, upperBound: nil)
-        ])
-    }
 }
 
 @Suite("ABCacheIndex LRU and persistence")
@@ -77,6 +62,21 @@ struct ABCacheIndexTests {
 
         #expect(evicted.map(\.key) == ["old"])
         #expect(index.totalSize == 50)
+    }
+
+    @Test("Eviction skips entries with active readers")
+    func excludesActiveReaders() {
+        let base = Date(timeIntervalSince1970: 1_000)
+        var index = ABCacheIndex(entries: [
+            "active": .init(key: "active", size: 40, lastAccessedAt: base),
+            "next": .init(key: "next", size: 30, lastAccessedAt: base.addingTimeInterval(1)),
+            "new": .init(key: "new", size: 20, lastAccessedAt: base.addingTimeInterval(2))
+        ])
+
+        let evicted = index.evictLRU(to: 60, excluding: ["active"])
+
+        #expect(evicted.map(\.key) == ["next"])
+        #expect(Set(index.entries.keys) == ["active", "new"])
     }
 
     @Test("Codable round-trip preserves all entry metadata")
