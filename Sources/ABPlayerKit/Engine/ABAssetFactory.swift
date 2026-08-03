@@ -13,10 +13,13 @@ public struct ABDefaultAssetFactory: ABAssetFactory, Sendable {
     public func makeAsset(for source: ABMediaSource) -> AVURLAsset {
         var options: [String: Any] = [:]
         if !source.httpHeaders.isEmpty {
-            // Official AVFoundation options key — not the unofficial
-            // `AVURLAssetOptionsKeyHTTPHeaderFields`-style strings some code
-            // uses.
-            options[AVURLAssetHTTPHeaderFieldsKey] = source.httpHeaders
+            // "AVURLAssetHTTPHeaderFieldsKey" is AVFoundation's documented
+            // options-dictionary key for custom HTTP headers. It's declared
+            // as a plain `NSString * const` in the Objective-C headers and
+            // never got a Swift-visible symbol, so referencing it by its
+            // literal string (rather than a private/undocumented header
+            // field trick) is the official, documented path.
+            options["AVURLAssetHTTPHeaderFieldsKey"] = source.httpHeaders
         }
         return AVURLAsset(url: source.url, options: options)
     }

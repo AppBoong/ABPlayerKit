@@ -6,7 +6,11 @@ import UIKit
 /// §10, weakness #12) — each instance owns and tears down its own tokens.
 @MainActor
 public final class ABApplicationStateObserver {
-    private var tokens: [NSObjectProtocol] = []
+    // `nonisolated(unsafe)`: NotificationCenter observer tokens are opaque,
+    // thread-safe-to-hold reference types; `removeObserver` itself is safe
+    // to call from any thread. This lets `deinit` (always nonisolated) tear
+    // them down without requiring `[any NSObjectProtocol]` to be `Sendable`.
+    private nonisolated(unsafe) var tokens: [NSObjectProtocol] = []
     private let center: NotificationCenter
 
     public init(
