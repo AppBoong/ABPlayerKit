@@ -25,8 +25,9 @@ struct PlaybackScreen: View {
 
                     GroupBox("Playback grade") {
                         Picker("Grade", selection: gradeBinding) {
-                            Text("Preloaded").tag(ABPlaybackGrade.preloaded)
-                            Text("Current").tag(ABPlaybackGrade.current)
+                            ForEach(ABPlaybackGrade.allCases, id: \.rawValue) { grade in
+                                Text(grade.shortLabel).tag(grade)
+                            }
                         }
                         .pickerStyle(.segmented)
 
@@ -41,17 +42,41 @@ struct PlaybackScreen: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .padding(.top, 8)
+
+                        Divider()
+                            .padding(.vertical, 4)
+
+                        HStack {
+                            Button("Arm preroll") {
+                                model.armPreroll()
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button("Cancel preload", role: .destructive) {
+                                model.cancelPreload()
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        .disabled(model.grade != .preloaded)
+
+                        Text("Preroll controls are available only in Preloaded. Completion and cancellation appear in Latest event.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
 
                     GroupBox("Live configuration") {
                         VStack(spacing: 12) {
                             Toggle("Muted", isOn: mutedBinding)
                             Toggle("Loop playback", isOn: loopingBinding)
-                            Picker("Tuning", selection: tuningBinding) {
+                            LabeledContent("Preload tuning", value: "Conservative (fixed)")
+                            Picker("Current tuning", selection: tuningBinding) {
                                 ForEach(DemoTuningPreset.allCases) { preset in
                                     Text(preset.title).tag(preset)
                                 }
                             }
+                            Text("Preloaded always uses .conservativePreload. This picker changes only currentTuning, making promotion and demotion apply distinct roles.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
                         }
                     }
 

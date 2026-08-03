@@ -12,7 +12,7 @@ struct MetricsScreen: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    Text("TTFF begins when playback is promoted to current and is abandoned when it is demoted. Successful samples feed the latency percentiles; abandoned samples remain in rate denominators.")
+                    Text("TTFF uses a timestamp captured before each user action that enters Current. Successful samples feed the latency percentiles; abandoned samples remain in rate denominators. resumedFromTime stays nil because this demo does not perform a restore seek; set it only when a real restore seek is part of the measured work.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
 
@@ -31,7 +31,7 @@ struct MetricsScreen: View {
                     }
 
                     GroupBox("Try it") {
-                        Text("Switch between Preloaded and Current on the Playback tab. Promote after preloading for a hit, or demote before the first frame to record an abandonment.")
+                        Text("Preloaded is pinned to conservativePreload while the Current tuning picker controls the landing role. Promote after preloading for a hit, or leave Current before the first frame to record an abandonment.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }

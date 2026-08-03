@@ -56,6 +56,7 @@ enum HLSPrefetchState: Equatable {
     case downloading
     case available
     case cancelled
+    case failed
 
     var title: String {
         switch self {
@@ -63,23 +64,73 @@ enum HLSPrefetchState: Equatable {
         case .downloading: "Downloading…"
         case .available: "Available offline"
         case .cancelled: "Cancelled"
+        case .failed: "Download failed"
         }
+    }
+}
+
+private final class HLSPrefetchLifetime: @unchecked Sendable {
+    private let lock = NSLock()
+    private var handle: ABHLSPrefetchHandle?
+    private var resultTask: Task<Void, Never>?
+
+    func replace(handle: ABHLSPrefetchHandle, resultTask: Task<Void, Never>) {
+        lock.lock()
+        let previousHandle = self.handle
+        let previousTask = self.resultTask
+        self.handle = handle
+        self.resultTask = resultTask
+        lock.unlock()
+        previousTask?.cancel()
+        previousHandle?.cancel()
+    }
+
+    func clear(ifMatching handle: ABHLSPrefetchHandle) {
+        lock.lock()
+        if self.handle == handle {
+            self.handle = nil
+            resultTask = nil
+        }
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        let handle = self.handle
+        let resultTask = self.resultTask
+        self.handle = nil
+        self.resultTask = nil
+        lock.unlock()
+        resultTask?.cancel()
+        handle?.cancel()
+    }
+
+    deinit {
+        cancel()
     }
 }
 
 @MainActor
 @Observable
 final class DemoModel {
+    private enum AssetFactoryMode {
+        case standard
+        case cached
+    }
+
     let player: ABPlayer
 
+    private let clock = ABMonotonicClock()
     private let metricsSink: ABInMemoryMetricsSink
     private let metricsRecorder: ABMetricsRecorder
     private let mediaCache: ABMediaCache?
     private let hlsPrefetcher: ABHLSPrefetcher
+    private let defaultAssetFactory: any ABAssetFactory
+    private let cacheAssetFactory: (any ABAssetFactory)?
+    private let prefetchLifetime = HLSPrefetchLifetime()
     private var metricsToken: ABObservationToken?
     private var eventToken: ABObservationToken?
-    private var prefetchHandle: ABHLSPrefetchHandle?
-    private var prefetchMonitorTask: Task<Void, Never>?
+    private var installedFactoryMode = AssetFactoryMode.standard
     private var usesPrefetchedHLS = false
 
     var selectedMedia = DemoMedia.hls
@@ -100,18 +151,26 @@ final class DemoModel {
         let metricsSink = ABInMemoryMetricsSink()
         let metricsRecorder = ABMetricsRecorder(sink: metricsSink)
         let hlsPrefetcher = ABHLSPrefetcher()
+        let defaultAssetFactory = ABDefaultAssetFactory()
+        let mediaCache: ABMediaCache?
+        let cacheError: String?
+
+        do {
+            mediaCache = try ABMediaCache()
+            cacheError = nil
+        } catch {
+            mediaCache = nil
+            cacheError = error.localizedDescription
+        }
 
         self.player = player
         self.metricsSink = metricsSink
         self.metricsRecorder = metricsRecorder
+        self.mediaCache = mediaCache
         self.hlsPrefetcher = hlsPrefetcher
-
-        do {
-            self.mediaCache = try ABMediaCache()
-        } catch {
-            self.mediaCache = nil
-            self.cacheError = error.localizedDescription
-        }
+        self.defaultAssetFactory = defaultAssetFactory
+        self.cacheAssetFactory = mediaCache?.makeAssetFactory(hlsPrefetcher: hlsPrefetcher)
+        self.cacheError = cacheError
 
         metricsToken = metricsRecorder.attach(to: player)
         eventToken = player.addObserver { [weak self] event in
@@ -119,14 +178,15 @@ final class DemoModel {
             self.handle(event)
         }
 
-        var configuration = player.configuration
-        configuration.backgroundPolicy = .pause
-        player.configuration = configuration
         player.set(source: selectedMedia.source, grade: grade)
 
         if hlsPrefetcher.localAsset(for: DemoMedia.hls.source) != nil {
             prefetchState = .available
         }
+    }
+
+    deinit {
+        prefetchLifetime.cancel()
     }
 
     var cacheSizeLabel: String {
@@ -138,42 +198,41 @@ final class DemoModel {
     }
 
     func selectMedia(_ media: DemoMedia) {
+        let startedAt = clock.now
         guard media != selectedMedia || usesPrefetchedHLS else { return }
         abandonPendingTTFF()
         selectedMedia = media
         usesPrefetchedHLS = false
-        applyAssetFactory()
-        player.set(source: media.source, grade: grade)
-        resumeCurrentPlaybackIfNeeded()
+        transitionToSelectedSource(startedAt: startedAt)
     }
 
     func setGrade(_ newGrade: ABPlaybackGrade) {
-        guard newGrade != grade else { return }
-        if grade == .current {
-            abandonPendingTTFF()
-        }
-        if newGrade == .current {
-            metricsRecorder.beginTTFF(
-                for: player,
-                resumedFromTime: validCurrentTime
-            )
-        }
-        grade = newGrade
-        player.promote(to: newGrade)
-        if newGrade == .current {
-            player.play()
-        }
-        refreshStatistics()
+        let startedAt = clock.now
+        transitionGrade(to: newGrade, startedAt: startedAt)
+    }
+
+    func armPreroll() {
+        guard grade == .preloaded else { return }
+        latestEvent = "Preroll armed"
+        player.startPreroll()
+    }
+
+    func cancelPreload() {
+        guard grade == .preloaded else { return }
+        player.cancelPreload()
     }
 
     func setMuted(_ muted: Bool) {
+        guard muted != isMuted else { return }
         isMuted = muted
         player.setMuted(muted)
     }
 
     func setLooping(_ looping: Bool) {
+        guard looping != isLooping else { return }
         isLooping = looping
         var configuration = player.configuration
+        guard configuration.isLooping != looping else { return }
         configuration.isLooping = looping
         player.configuration = configuration
     }
@@ -181,14 +240,19 @@ final class DemoModel {
     func setTuning(_ preset: DemoTuningPreset) {
         selectedTuning = preset
         var configuration = player.configuration
-        configuration.preloadTuning = preset.tuning
+        let preloadTuning = ABPlaybackTuning.conservativePreload
+        guard configuration.preloadTuning != preloadTuning
+                || configuration.currentTuning != preset.tuning
+        else { return }
+        configuration.preloadTuning = preloadTuning
         configuration.currentTuning = preset.tuning
         player.configuration = configuration
     }
 
     func togglePlayback() {
+        let startedAt = clock.now
         guard grade == .current else {
-            setGrade(.current)
+            transitionGrade(to: .current, startedAt: startedAt)
             return
         }
         if isPlaying {
@@ -199,18 +263,20 @@ final class DemoModel {
     }
 
     func setCacheEnabled(_ enabled: Bool) {
-        guard mediaCache != nil else { return }
+        let startedAt = clock.now
+        guard mediaCache != nil, enabled != cacheEnabled else { return }
         cacheEnabled = enabled
         guard selectedMedia == .mp4 else { return }
-        reloadCurrentSource()
+        reloadCurrentSource(startedAt: startedAt)
     }
 
     func replayMP4() {
+        let startedAt = clock.now
         guard mediaCache != nil else { return }
         cacheEnabled = true
         selectedMedia = .mp4
         usesPrefetchedHLS = false
-        reloadCurrentSource(forceCurrent: true)
+        reloadCurrentSource(startedAt: startedAt, forceCurrent: true)
     }
 
     func removeAllCachedMedia() async {
@@ -227,75 +293,115 @@ final class DemoModel {
     }
 
     func startHLSPrefetch() {
-        prefetchHandle?.cancel()
-        prefetchMonitorTask?.cancel()
         prefetchState = .downloading
-        prefetchHandle = hlsPrefetcher.prefetch(DemoMedia.hls.source)
-        prefetchMonitorTask = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self else { return }
-                if self.hlsPrefetcher.localAsset(for: DemoMedia.hls.source) != nil {
-                    self.prefetchState = .available
-                    self.prefetchHandle = nil
-                    return
-                }
-                try? await Task.sleep(for: .seconds(1))
+        let handle = hlsPrefetcher.prefetch(DemoMedia.hls.source)
+        let resultTask = Task { [weak self] in
+            await Task.yield()
+            let result = await handle.result
+            guard !Task.isCancelled, let self else { return }
+            self.prefetchLifetime.clear(ifMatching: handle)
+            switch result {
+            case .completed:
+                self.prefetchState = self.hlsPrefetcher.localAsset(for: DemoMedia.hls.source) == nil
+                    ? .failed
+                    : .available
+            case .cancelled:
+                self.prefetchState = .cancelled
+            case .failed:
+                self.prefetchState = .failed
             }
         }
+        prefetchLifetime.replace(handle: handle, resultTask: resultTask)
     }
 
     func cancelHLSPrefetch() {
-        prefetchHandle?.cancel()
-        prefetchHandle = nil
-        prefetchMonitorTask?.cancel()
-        prefetchMonitorTask = nil
+        prefetchLifetime.cancel()
         prefetchState = .cancelled
     }
 
     func playPrefetchedHLS() {
-        guard hlsPrefetcher.localAsset(for: DemoMedia.hls.source) != nil else { return }
+        let startedAt = clock.now
+        guard cacheAssetFactory != nil,
+              hlsPrefetcher.localAsset(for: DemoMedia.hls.source) != nil
+        else { return }
         selectedMedia = .hls
         usesPrefetchedHLS = true
-        reloadCurrentSource(forceCurrent: true)
+        reloadCurrentSource(startedAt: startedAt, forceCurrent: true)
     }
 
-    private var validCurrentTime: CFTimeInterval? {
-        let seconds = player.currentTime.seconds
-        return seconds.isFinite && seconds > 0 ? seconds : nil
+    private func transitionGrade(to newGrade: ABPlaybackGrade, startedAt: CFTimeInterval) {
+        guard newGrade != grade else { return }
+        if grade == .current {
+            abandonPendingTTFF()
+        }
+        grade = newGrade
+        let source = newGrade == .released ? nil : selectedMedia.source
+        player.set(source: source, grade: newGrade)
+        resumeCurrentPlaybackIfNeeded(startedAt: startedAt)
     }
 
-    private func reloadCurrentSource(forceCurrent: Bool = false) {
+    private func transitionToSelectedSource(startedAt: CFTimeInterval) {
+        let targetGrade = grade
+        let desiredFactoryMode = desiredFactoryModeForSelection
+        if desiredFactoryMode != installedFactoryMode {
+            player.release()
+            installAssetFactory(desiredFactoryMode)
+        }
+        grade = targetGrade
+        guard targetGrade != .released else { return }
+        player.set(source: selectedMedia.source, grade: targetGrade)
+        resumeCurrentPlaybackIfNeeded(startedAt: startedAt)
+    }
+
+    private func reloadCurrentSource(
+        startedAt: CFTimeInterval,
+        forceCurrent: Bool = false
+    ) {
+        let targetGrade = forceCurrent ? ABPlaybackGrade.current : grade
         abandonPendingTTFF()
         player.release()
-        applyAssetFactory()
-        if forceCurrent {
-            grade = .current
-        }
-        player.set(source: selectedMedia.source, grade: grade)
-        resumeCurrentPlaybackIfNeeded()
+        installAssetFactory(desiredFactoryModeForSelection)
+        grade = targetGrade
+        guard targetGrade != .released else { return }
+        player.set(source: selectedMedia.source, grade: targetGrade)
+        resumeCurrentPlaybackIfNeeded(startedAt: startedAt)
     }
 
-    private func applyAssetFactory() {
+    private var desiredFactoryModeForSelection: AssetFactoryMode {
+        guard cacheAssetFactory != nil else { return .standard }
+        if usesPrefetchedHLS || (selectedMedia == .mp4 && cacheEnabled) {
+            return .cached
+        }
+        return .standard
+    }
+
+    private func installAssetFactory(_ mode: AssetFactoryMode) {
+        guard mode != installedFactoryMode else { return }
+        precondition(!player.grade.holdsItem)
         var configuration = player.configuration
-        if let mediaCache, cacheEnabled || usesPrefetchedHLS {
-            configuration.assetFactory = mediaCache.makeAssetFactory(
-                hlsPrefetcher: usesPrefetchedHLS ? hlsPrefetcher : nil
-            )
-        } else {
-            configuration.assetFactory = ABDefaultAssetFactory()
+        switch mode {
+        case .standard:
+            configuration.assetFactory = defaultAssetFactory
+        case .cached:
+            guard let cacheAssetFactory else { return }
+            configuration.assetFactory = cacheAssetFactory
         }
         player.configuration = configuration
+        installedFactoryMode = mode
     }
 
-    private func resumeCurrentPlaybackIfNeeded() {
+    private func resumeCurrentPlaybackIfNeeded(startedAt: CFTimeInterval) {
         guard grade == .current else { return }
-        metricsRecorder.beginTTFF(for: player, resumedFromTime: validCurrentTime)
+        metricsRecorder.beginTTFF(
+            for: player,
+            at: startedAt,
+            resumedFromTime: nil
+        )
         player.play()
     }
 
     private func abandonPendingTTFF() {
         metricsRecorder.abandonTTFF(for: player)
-        refreshStatistics()
     }
 
     private func refreshCacheSize() async {
@@ -309,9 +415,15 @@ final class DemoModel {
             isPlaying = status == .playing
         case .gradeChanged(_, let newGrade):
             grade = newGrade
+        case .firstFrameDisplayed, .itemDetached:
+            scheduleStatisticsRefresh()
         default:
             break
         }
+    }
+
+    private func scheduleStatisticsRefresh() {
+        // Observer invocation order is unspecified, so let ABMetricsRecorder write first.
         Task { [weak self] in
             await Task.yield()
             self?.refreshStatistics()
@@ -354,6 +466,15 @@ extension ABPlaybackGrade {
         case .released: "Released"
         case .instanceOnly: "Instance only"
         case .preloaded: "Preloaded"
+        case .current: "Current"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .released: "Released"
+        case .instanceOnly: "Instance"
+        case .preloaded: "Preload"
         case .current: "Current"
         }
     }

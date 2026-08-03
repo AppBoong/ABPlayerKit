@@ -44,7 +44,7 @@ struct CacheScreen: View {
                     Button("Play local HLS download") {
                         model.playPrefetchedHLS()
                     }
-                    .disabled(model.prefetchState != .available)
+                    .disabled(model.prefetchState != .available || !model.cacheIsAvailable)
 
                     Text("HLS uses explicit AVAssetDownloadURLSession prefetching. It is never intercepted by the transparent MP4 cache.")
                         .font(.footnote)
