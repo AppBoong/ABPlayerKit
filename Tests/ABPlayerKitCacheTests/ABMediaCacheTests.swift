@@ -36,6 +36,17 @@ private final class ABFakeHLSDownloadSession: @unchecked Sendable {
         entry.value(.success(url))
     }
 
+    func failFirst() {
+        lock.lock()
+        guard let entry = completions.first else {
+            lock.unlock()
+            return
+        }
+        completions[entry.key] = nil
+        lock.unlock()
+        entry.value(.failure)
+    }
+
     func invalidate() {
         lock.lock()
         invalidationCount += 1
@@ -90,7 +101,7 @@ struct ABMediaCacheTests {
 @Suite("ABHLSPrefetcher bookkeeping")
 struct ABHLSPrefetcherTests {
     @Test("Handle cancellation removes and cancels its fake download")
-    func handleCancellation() {
+    func handleCancellation() async {
         let fakeSession = ABFakeHLSDownloadSession()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -106,6 +117,7 @@ struct ABHLSPrefetcherTests {
 
         #expect(prefetcher.activeTaskCount == 0)
         #expect(fakeSession.cancellationCount == 1)
+        #expect(await handle.result == .cancelled)
     }
 
     @Test("Completed downloads become local assets and can be removed")
@@ -121,13 +133,32 @@ struct ABHLSPrefetcherTests {
         }
         let source = ABMediaSource(url: URL(string: "https://example.com/master.m3u8")!)
 
-        prefetcher.prefetch(source)
+        let handle = prefetcher.prefetch(source)
         fakeSession.completeFirst(at: localURL)
 
+        #expect(await handle.result == .completed)
         #expect(prefetcher.localAsset(for: source)?.url == localURL)
         await prefetcher.remove(source)
         #expect(prefetcher.localAsset(for: source) == nil)
         #expect(!FileManager.default.fileExists(atPath: localURL.path))
+    }
+
+    @Test("Failed downloads complete the awaitable result")
+    func failedResult() async {
+        let fakeSession = ABFakeHLSDownloadSession()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let prefetcher = ABHLSPrefetcher(configuration: .init(directory: directory)) {
+            fakeSession.start(id: $0, source: $1, bitrate: $2, completion: $3)
+        }
+        let source = ABMediaSource(url: URL(string: "https://example.com/master.m3u8")!)
+
+        let handle = prefetcher.prefetch(source)
+        fakeSession.failFirst()
+
+        #expect(await handle.result == .failed)
+        #expect(prefetcher.activeTaskCount == 0)
     }
 
     @Test("cancelAll cancels every active fake download")

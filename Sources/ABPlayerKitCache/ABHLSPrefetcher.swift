@@ -14,13 +14,63 @@ typealias ABHLSDownloadStart = @Sendable (
     @escaping @Sendable (ABHLSDownloadResult) -> Void
 ) -> (@Sendable () -> Void)?
 
+public enum ABHLSPrefetchResult: Sendable, Equatable {
+    case completed
+    case cancelled
+    case failed
+}
+
+fileprivate final class ABHLSPrefetchResultState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var resolvedResult: ABHLSPrefetchResult?
+    private var continuations: [CheckedContinuation<ABHLSPrefetchResult, Never>] = []
+
+    func resolve(_ result: ABHLSPrefetchResult) {
+        lock.lock()
+        guard resolvedResult == nil else {
+            lock.unlock()
+            return
+        }
+        resolvedResult = result
+        let continuations = self.continuations
+        self.continuations.removeAll()
+        lock.unlock()
+        for continuation in continuations {
+            continuation.resume(returning: result)
+        }
+    }
+
+    func value() async -> ABHLSPrefetchResult {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if let resolvedResult {
+                lock.unlock()
+                continuation.resume(returning: resolvedResult)
+            } else {
+                continuations.append(continuation)
+                lock.unlock()
+            }
+        }
+    }
+}
+
 public struct ABHLSPrefetchHandle: Sendable, Hashable {
     private let id: UUID
     private let cancellation: @Sendable (UUID) -> Void
+    private let resultState: ABHLSPrefetchResultState
 
-    init(id: UUID, cancellation: @escaping @Sendable (UUID) -> Void) {
+    fileprivate init(
+        id: UUID,
+        resultState: ABHLSPrefetchResultState,
+        cancellation: @escaping @Sendable (UUID) -> Void
+    ) {
         self.id = id
+        self.resultState = resultState
         self.cancellation = cancellation
+    }
+
+    public var result: ABHLSPrefetchResult {
+        get async { await resultState.value() }
     }
 
     public func cancel() {
@@ -78,12 +128,14 @@ public final class ABHLSPrefetcher: @unchecked Sendable {
         minimumRequiredMediaBitrate: Double? = nil
     ) -> ABHLSPrefetchHandle {
         let id = UUID()
+        let resultState = ABHLSPrefetchResultState()
         guard source.kind == .hls else {
-            return ABHLSPrefetchHandle(id: id) { _ in }
+            resultState.resolve(.failed)
+            return ABHLSPrefetchHandle(id: id, resultState: resultState) { _ in }
         }
 
         let key = ABCacheKey.derive(from: source)
-        state.reserve(id: id, key: key)
+        state.reserve(id: id, key: key, resultState: resultState)
         let cancellation = startDownload(id, source, minimumRequiredMediaBitrate) { [state] result in
             state.complete(id: id, result: result)
         }
@@ -93,7 +145,7 @@ public final class ABHLSPrefetcher: @unchecked Sendable {
             state.complete(id: id, result: .failure)
         }
 
-        return ABHLSPrefetchHandle(id: id) { [state] id in
+        return ABHLSPrefetchHandle(id: id, resultState: resultState) { [state] id in
             state.cancel(id: id)
         }
     }
@@ -127,6 +179,7 @@ public final class ABHLSPrefetcher: @unchecked Sendable {
 private final class ABHLSPrefetchState: @unchecked Sendable {
     private struct ActiveTask {
         let key: String
+        let resultState: ABHLSPrefetchResultState
         var cancellation: (@Sendable () -> Void)?
     }
 
@@ -164,14 +217,19 @@ private final class ABHLSPrefetchState: @unchecked Sendable {
         return count
     }
 
-    func reserve(id: UUID, key: String) {
+    func reserve(id: UUID, key: String, resultState: ABHLSPrefetchResultState) {
         lock.lock()
         let duplicateIDs = activeTasks.filter { $0.value.key == key }.map(\.key)
-        let duplicateCancellations = duplicateIDs.compactMap { activeTasks.removeValue(forKey: $0)?.cancellation }
-        activeTasks[id] = ActiveTask(key: key, cancellation: nil)
+        let duplicateTasks = duplicateIDs.compactMap { activeTasks.removeValue(forKey: $0) }
+        activeTasks[id] = ActiveTask(
+            key: key,
+            resultState: resultState,
+            cancellation: nil
+        )
         lock.unlock()
-        for cancellation in duplicateCancellations {
-            cancellation()
+        for task in duplicateTasks {
+            task.cancellation?()
+            task.resultState.resolve(.cancelled)
         }
     }
 
@@ -201,22 +259,30 @@ private final class ABHLSPrefetchState: @unchecked Sendable {
             persistIndexLocked()
         }
         lock.unlock()
+        switch result {
+        case .success:
+            task.resultState.resolve(.completed)
+        case .failure:
+            task.resultState.resolve(.failed)
+        }
     }
 
     func cancel(id: UUID) {
         lock.lock()
-        let cancellation = activeTasks.removeValue(forKey: id)?.cancellation
+        let task = activeTasks.removeValue(forKey: id)
         lock.unlock()
-        cancellation?()
+        task?.cancellation?()
+        task?.resultState.resolve(.cancelled)
     }
 
     func cancelAll() {
         lock.lock()
-        let cancellations = activeTasks.values.compactMap(\.cancellation)
+        let tasks = Array(activeTasks.values)
         activeTasks.removeAll()
         lock.unlock()
-        for cancellation in cancellations {
-            cancellation()
+        for task in tasks {
+            task.cancellation?()
+            task.resultState.resolve(.cancelled)
         }
     }
 
@@ -235,13 +301,14 @@ private final class ABHLSPrefetchState: @unchecked Sendable {
     func remove(key: String) {
         lock.lock()
         let matchingIDs = activeTasks.filter { $0.value.key == key }.map(\.key)
-        let cancellations = matchingIDs.compactMap { activeTasks.removeValue(forKey: $0)?.cancellation }
+        let tasks = matchingIDs.compactMap { activeTasks.removeValue(forKey: $0) }
         let url = localURLs.removeValue(forKey: key)
         persistIndexLocked()
         lock.unlock()
 
-        for cancellation in cancellations {
-            cancellation()
+        for task in tasks {
+            task.cancellation?()
+            task.resultState.resolve(.cancelled)
         }
         if let url {
             try? fileManager.removeItem(at: url)
