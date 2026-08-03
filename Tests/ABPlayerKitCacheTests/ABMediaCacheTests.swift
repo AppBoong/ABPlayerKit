@@ -39,7 +39,12 @@ private final class ABFakeHLSDownloadSession: @unchecked Sendable {
     func invalidate() {
         lock.lock()
         invalidationCount += 1
+        let completions = Array(self.completions.values)
+        self.completions.removeAll()
         lock.unlock()
+        for completion in completions {
+            completion(.failure)
+        }
     }
 
     private func cancel(id: UUID) {
@@ -164,6 +169,40 @@ struct ABHLSPrefetcherTests {
 
         #expect(prefetcher.activeTaskCount == 0)
         #expect(fakeSession.cancellationCount == 1)
+        #expect(fakeSession.invalidationCount == 1)
+    }
+
+    @Test("Shared session invalidation completes other prefetchers' jobs")
+    func invalidationCompletesSharedJobs() {
+        let fakeSession = ABFakeHLSDownloadSession()
+        let firstDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let secondDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: firstDirectory)
+            try? FileManager.default.removeItem(at: secondDirectory)
+        }
+        let startDownload: ABHLSDownloadStart = {
+            fakeSession.start(id: $0, source: $1, bitrate: $2, completion: $3)
+        }
+        let first = ABHLSPrefetcher(
+            configuration: .init(directory: firstDirectory),
+            startDownload: startDownload,
+            invalidateDownload: { fakeSession.invalidate() }
+        )
+        let second = ABHLSPrefetcher(
+            configuration: .init(directory: secondDirectory),
+            startDownload: startDownload,
+            invalidateDownload: { fakeSession.invalidate() }
+        )
+        first.prefetch(ABMediaSource(url: URL(string: "https://example.com/a.m3u8")!))
+        second.prefetch(ABMediaSource(url: URL(string: "https://example.com/b.m3u8")!))
+
+        first.invalidate()
+
+        #expect(first.activeTaskCount == 0)
+        #expect(second.activeTaskCount == 0)
         #expect(fakeSession.invalidationCount == 1)
     }
 

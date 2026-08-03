@@ -415,11 +415,18 @@ private final class ABHLSDownloadCoordinator: NSObject, AVAssetDownloadDelegate,
         didBecomeInvalidWithError error: (any Error)?
     ) {
         lock.lock()
-        if self.session === session {
-            self.session = nil
-            isInvalidating = false
+        guard self.session === session else {
+            lock.unlock()
+            return
         }
+        self.session = nil
+        isInvalidating = false
+        let invalidatedJobs = Array(jobs.values)
+        jobs.removeAll()
         lock.unlock()
+        for job in invalidatedJobs {
+            job.completion(.failure)
+        }
     }
 
     private func store(location: URL, for taskIdentifier: Int) {
