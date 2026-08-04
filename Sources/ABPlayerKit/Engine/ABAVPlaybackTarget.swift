@@ -16,12 +16,15 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
     private let observations = ABObservationBag()
     private var isLooping = false
     private var desiredRate: Float = 1.0
-    /// `nonisolated(unsafe)` so `deinit` (which is nonisolated even on a
-    /// `@MainActor` class) can remove the observer without racing normal
-    /// `@MainActor` access — safe because by the time `deinit` runs there is
-    /// no other owner left to access these concurrently.
-    private nonisolated(unsafe) var periodicTimeObserverToken: Any?
-    private nonisolated(unsafe) weak var periodicTimeObserverPlayer: AVPlayer?
+    /// Lock-protected rather than `nonisolated(unsafe)` stored properties
+    /// (round3 Phase1+2 review M3): a raw `nonisolated(unsafe)` removed
+    /// isolation checking from every access site, not just `deinit`, and
+    /// didn't stop `removeTimeObserver` itself from running off the main
+    /// thread — a documented race with the observer block, which this type
+    /// always registers on the main queue (`queue: nil` below). All
+    /// access — normal `@MainActor` call sites and `deinit` alike — now
+    /// goes through this single box.
+    private let periodicObserver = PeriodicObserverBox()
 
     var isPlaying: Bool {
         guard let avPlayer else { return false }
@@ -63,15 +66,12 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
     /// Guards against a consumer dropping `ABPlayer` (and therefore this
     /// target) without calling `release()`: an `AVPlayer` deallocating with
     /// a still-registered periodic time observer raises
-    /// `NSInternalInconsistencyException`. Mirrors
-    /// `removePeriodicTimeObserver()`'s logic inline because `deinit` is
-    /// nonisolated and cannot call an actor-isolated method. Idempotent —
-    /// running after `releasePlayer()` already cleared both properties is a
-    /// no-op.
+    /// `NSInternalInconsistencyException`. Delegates to `periodicObserver`
+    /// (nonisolated, lock-protected) because `deinit` is nonisolated and
+    /// cannot call an actor-isolated method. Idempotent — running after
+    /// `releasePlayer()` already cleared the box is a no-op.
     deinit {
-        if let periodicTimeObserverToken, let periodicTimeObserverPlayer {
-            periodicTimeObserverPlayer.removeTimeObserver(periodicTimeObserverToken)
-        }
+        periodicObserver.removeIfNeeded()
     }
 
     func attachItem(_ source: ABMediaSource, tuning: ABPlaybackTuning, assetFactory: any ABAssetFactory) {
@@ -165,8 +165,7 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
               let avPlayer,
               let capturedItem = avPlayerItem else { return }
         let observerInterval = CMTime(seconds: interval, preferredTimescale: 600)
-        periodicTimeObserverPlayer = avPlayer
-        periodicTimeObserverToken = avPlayer.addPeriodicTimeObserver(
+        let token = avPlayer.addPeriodicTimeObserver(
             forInterval: observerInterval,
             queue: nil
         ) { [weak self, weak capturedItem] time in
@@ -177,14 +176,11 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
                 onTick(time)
             }
         }
+        periodicObserver.set(token: token, player: avPlayer)
     }
 
     private func removePeriodicTimeObserver() {
-        if let periodicTimeObserverToken, let periodicTimeObserverPlayer {
-            periodicTimeObserverPlayer.removeTimeObserver(periodicTimeObserverToken)
-        }
-        periodicTimeObserverToken = nil
-        periodicTimeObserverPlayer = nil
+        periodicObserver.removeIfNeeded()
     }
 
     private func apply(_ tuning: ABPlaybackTuning, to item: AVPlayerItem) {
@@ -258,11 +254,19 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             }
         }
 
-        func resolve(_ result: ReadyWaitResult) {
+        /// Returns whether *this* call was the one that actually resolved
+        /// the state — `true` for the single winner of a concurrent race,
+        /// `false` for every other caller whose result was discarded.
+        /// Mirrors `ABCacheStore`'s `ABCacheProgressWaiter.resolve()
+        /// -> Bool` so concurrency tests have a real oracle to assert
+        /// against instead of a vacuous "the result is one of the possible
+        /// cases" check (round3 Phase1+2 review m2).
+        @discardableResult
+        func resolve(_ result: ReadyWaitResult) -> Bool {
             lock.lock()
             guard self.result == nil else {
                 lock.unlock()
-                return
+                return false
             }
             self.result = result
             let continuation = continuation
@@ -276,6 +280,7 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             timeoutTask?.cancel()
             invalidateObservation?()
             continuation?.resume(returning: result)
+            return true
         }
     }
 
@@ -377,6 +382,50 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
                 }
             }
             observations.add { timeControlObservation.invalidate() }
+        }
+    }
+}
+
+/// Lock-protected holder for the single periodic time observer
+/// `ABAVPlaybackTarget` may have registered, so both normal `@MainActor`
+/// call sites and `ABAVPlaybackTarget.deinit` (nonisolated) can clear it
+/// through the same, safe path (round3 Phase1+2 review M3). `removeIfNeeded`
+/// always performs the actual `removeTimeObserver` call on the main
+/// thread — the observer itself was registered with `queue: nil` (main
+/// queue), and `AVPlayer.removeTimeObserver` racing that queue's callback
+/// from a background thread is a documented crash risk, not just a data
+/// race on this box's own bookkeeping.
+private final class PeriodicObserverBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var token: Any?
+    private var player: AVPlayer?
+
+    func set(token: Any, player: AVPlayer) {
+        lock.lock()
+        self.token = token
+        self.player = player
+        lock.unlock()
+    }
+
+    /// Idempotent — a second call after the box is already empty (e.g.
+    /// `deinit` running after `releasePlayer()` already cleared it) is a
+    /// no-op.
+    func removeIfNeeded() {
+        lock.lock()
+        guard let token, let player else {
+            lock.unlock()
+            return
+        }
+        self.token = nil
+        self.player = nil
+        lock.unlock()
+
+        if Thread.isMainThread {
+            player.removeTimeObserver(token)
+        } else {
+            DispatchQueue.main.async {
+                player.removeTimeObserver(token)
+            }
         }
     }
 }
