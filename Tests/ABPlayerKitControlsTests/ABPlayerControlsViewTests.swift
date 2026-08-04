@@ -370,27 +370,47 @@ struct ABPlayerControlsLayoutTests {
         #expect(view.style.seekBarBottomSpacing == 10)
         // The touch-row-to-touch-row gap is derived, not the literal 10pt:
         // seekBarBottomSpacing targets the gap between *visible ink*, not
-        // between either side's 44pt touch frame, so the frames themselves
-        // sit closer together than 10pt by the row's font-metric slack (using
-        // capHeight, since digits/':'/'/' have no descenders — see
-        // `bottomRowVisibleContentSlack(for:)`). This asserts the touch-row
+        // between either side's touch frame, so the frames themselves sit
+        // closer together than 10pt by the row's font-metric slack — see
+        // `bottomRowVisibleContentSlack(for:)`. This asserts the touch-row
         // math is wired correctly; the true visible-ink-to-ink distance can
         // only be confirmed empirically (on-device pixel measurement — see
-        // IMPL-v0.2-RESULT.md's VISUAL-GAP-FIXED entry), since UILabel/UIButton
-        // report line-height-sized frames, not the glyph ink's own bounds.
-        let elapsedContentSlack = max(0, (44 - view.style.timeLabelFont.capHeight) / 2)
+        // IMPL-v0.2-RESULT.md's VISUAL-GAP-FIXED/REVIEW2-FIXES-DONE entries),
+        // since UILabel/UIButton report line-height-sized frames, not the
+        // glyph ink's own bounds.
+        //
+        // The row's cross-axis height is whichever child is tallest: normally
+        // `rateButtonSize.height`, but the (scaled) time-label font's own line
+        // height once it exceeds that. The label's font is the *scaled* one
+        // (`UIFontMetrics`, matching what `elapsedLabel` actually renders),
+        // since at larger Dynamic Type sizes the unscaled style font
+        // understates the real label height substantially. Slack per side is
+        // derived from real font metrics (line height for centering, then
+        // `ascender - capHeight` for the ink offset within the now-positioned
+        // frame) rather than an empirical constant, so it never over-corrects
+        // into a collision at an arbitrary font size — re-declared here (not
+        // referenced) since the production helpers are private.
+        func frameTopToInkTop(font: UIFont, centeredIn containerHeight: CGFloat) -> CGFloat {
+            let centeringSlack = max(0, (containerHeight - font.lineHeight) / 2)
+            let inkOffsetWithinFrame = max(0, font.ascender - font.capHeight)
+            return centeringSlack + inkOffsetWithinFrame
+        }
+        let scaledElapsedFont = UIFontMetrics(forTextStyle: .caption1).scaledFont(
+            for: view.style.timeLabelFont,
+            compatibleWith: view.traitCollection
+        )
+        let rowHeight = max(view.style.rateButtonSize.height, scaledElapsedFont.lineHeight)
+        let elapsedContentSlack = frameTopToInkTop(font: scaledElapsedFont, centeredIn: rowHeight)
+        let buttonHeight = view.style.rateButtonSize.height
+        let buttonCenteringSlack = max(0, (rowHeight - buttonHeight) / 2)
         let rateContentSlack: CGFloat
         switch view.style.rateLabelStyle {
         case .text(let font, _):
-            rateContentSlack = max(0, (44 - font.capHeight) / 2)
+            rateContentSlack = buttonCenteringSlack + frameTopToInkTop(font: font, centeredIn: buttonHeight)
         case .icon:
-            rateContentSlack = max(0, (44 - view.style.iconPointSize) / 2)
+            rateContentSlack = buttonCenteringSlack + max(0, (buttonHeight - view.style.iconPointSize) / 2)
         }
-        // +1.7pt mirrors ABPlayerControlsView.capHeightToInkTopCalibration — an
-        // empirical, on-device-measured correction for the residual gap between
-        // a capHeight-only estimate and a label/button title's true rendered
-        // ink position (private, so re-declared here rather than referenced).
-        let expectedBottomRowSlack = min(elapsedContentSlack, rateContentSlack) + 1.7
+        let expectedBottomRowSlack = min(elapsedContentSlack, rateContentSlack)
         #expect(abs((bottomRow.minY - visibleTrack.maxY) - (10 - expectedBottomRowSlack)) < 0.5)
         // Both visible glyphs sit somewhere inside the row's touch frame, below
         // the visible track — the exact ink-to-track distance is a rendering
@@ -405,6 +425,49 @@ struct ABPlayerControlsLayoutTests {
         #expect(abs(timeLabel.minX - seekBar.minX) < 0.5)
         // Rate button sits below the visible track, flush with the seek bar's trailing edge.
         #expect(abs(rateButton.maxX - seekBar.maxX) < 0.5)
+    }
+
+    @Test("Given an accessibility Dynamic Type trait collection, UIFontMetrics actually scales the time-label font")
+    func dynamicTypeScalingIsReal() {
+        // Sanity-checks the premise the next test relies on: at an
+        // accessibility content size category, UIFontMetrics(.caption1) scales
+        // the default 12pt timeLabelFont dramatically (on-device measurement
+        // from the review this fixes: 12pt -> 38pt at AX3). If this ever stops
+        // being true, the next test's simulated large font stops representing
+        // a real scenario.
+        let view = ABPlayerControlsView()
+        let axTraits = UITraitCollection(preferredContentSizeCategory: .accessibilityExtraExtraExtraLarge)
+
+        let scaledFont = view.scaledTimeLabelFont(for: view.style, compatibleWith: axTraits)
+
+        #expect(scaledFont.pointSize > view.style.timeLabelFont.pointSize * 2)
+    }
+
+    @Test("Given a time-label font at accessibility Dynamic Type size, the rendered label does not collide with the seek bar track")
+    func accessibilityDynamicTypeKeepsTimeLabelClearOfTrack() {
+        // Simulates the rendered state UIFontMetrics produces at AX3 (see
+        // dynamicTypeScalingIsReal) by assigning that scaled size directly,
+        // sidestepping live UITraitCollection propagation to a detached test
+        // view — unreliable in this test target without a real window/scene.
+        // Live trait-change propagation on an actual device/simulator is
+        // verified separately (see IMPL-v0.2-RESULT.md's REVIEW2-FIXES-DONE
+        // entry for this fix).
+        var style = ABPlayerControlsStyle()
+        style.timeLabelFont = .monospacedDigitSystemFont(ofSize: 38, weight: .medium)
+        let view = ABPlayerControlsView(style: style)
+        view.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
+        view.layoutIfNeeded()
+
+        #expect(view.elapsedLabel.font.pointSize >= 38)
+        // The label growing taller than the rate button's fixed 44pt height
+        // must grow the whole row to match (UIStackView never clips a
+        // `.center`-aligned child) — otherwise this test isn't exercising the
+        // row-growth case `bottomRowVisibleContentSlack(for:)` accounts for.
+        #expect(view.renderedBottomRowFrame.height > view.style.rateButtonSize.height)
+
+        let visibleTrack = view.renderedSeekBarVisibleTrackFrame
+        let timeLabel = view.renderedTimeLabelFrame
+        #expect(timeLabel.minY >= visibleTrack.maxY, "an accessibility-sized label must not grow up into the track above it")
     }
 
     @Test("Given a short overlay where the bottom cluster's touch row vertically overlaps the centered transport row, buttons still win hit testing over the seek bar")

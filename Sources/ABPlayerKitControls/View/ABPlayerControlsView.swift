@@ -219,42 +219,124 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         return style.seekBarBottomSpacing - touchRowSlackBelowTrack - bottomRowVisibleContentSlack(for: style)
     }
 
-    /// How much of the bottom row's 44pt cross-axis height sits above its
-    /// visible *ink*, on the *tightest* side (the row's accessible height is
-    /// dictated by the rate button, while the time label — much shorter — sits
-    /// centered in that same 44pt cross-axis with more slack above it). Uses
-    /// `capHeight`, not `lineHeight`: a `UILabel`/`UIButton` title's own frame
-    /// is sized to the font's full line height (ascender + |descender| +
-    /// leading), but numeral glyphs only draw ink from the baseline up to cap
-    /// height — measuring against line height leaves the frame's internal
-    /// leading/ascent slack uncounted, and the visible text lands well below
-    /// the intended distance from the track (confirmed by on-device pixel
-    /// measurement, not just frame math). Using the smaller of the two sides'
-    /// slack keeps the tighter side at exactly `seekBarBottomSpacing`, while
-    /// the looser side lands within a point or two of it.
-    private func bottomRowVisibleContentSlack(for style: ABPlayerControlsStyle) -> CGFloat {
-        let elapsedSlack = max(0, (Self.seekBarTouchRowHeight - style.timeLabelFont.capHeight) / 2)
-        let rateSlack = max(0, (Self.seekBarTouchRowHeight - rateButtonVisibleContentHeight(for: style)) / 2)
-        return min(elapsedSlack, rateSlack) + Self.capHeightToInkTopCalibration
+    /// `rootStackSpacing(for:)` depends on `scaledTimeLabelFont(for:)`, which
+    /// varies with the Dynamic Type trait — recomputed on `style`/`configuration`
+    /// assignment, but the *system* content-size-category preference can also
+    /// change underneath an unchanged style (Settings app, Slide Over split
+    /// changes, or an accessibility size override) without either ever being
+    /// reassigned. Without this, spacing keeps using whatever font size was
+    /// current at the last style/configuration write, so the label can grow
+    /// past the seek bar's track without the layout ever adjusting to it.
+    ///
+    /// Also re-applies the scaled font directly (matching `applyStyle`'s font
+    /// block) rather than relying solely on `adjustsFontForContentSizeCategory`'s
+    /// own automatic update — that mechanism updates the label's font on its
+    /// own trait-change notification, which is a separate pass from this one
+    /// and isn't guaranteed to run before layout reads `rootStack.spacing`,
+    /// so this keeps the font and the spacing that depends on it in lockstep.
+    private func registerForSpacingTraitChanges() {
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: ABPlayerControlsView, _: UITraitCollection) in
+            let scaledTimeFont = view.scaledTimeLabelFont(for: view.style)
+            view.elapsedLabel.font = scaledTimeFont
+            view.durationLabel.font = scaledTimeFont
+            view.updateTimeLabelWidthConstraints(using: scaledTimeFont)
+            view.rootStack.spacing = view.rootStackSpacing(for: view.style)
+        }
     }
 
-    /// A `UILabel`/`UIButton` title's frame top sits `ascender - capHeight`
-    /// above its glyphs' actual ink, on top of the (44 - capHeight)/2 centering
-    /// slack already modeled above — `ascender` isn't queried directly (it
-    /// would need per-side font branching for no real benefit at these sizes),
-    /// so this is a fixed calibration measured on-device against the shipping
-    /// default fonts (`ABPlayerControlsStyle.timeLabelFont`/`rateLabelStyle`),
-    /// closing the residual gap between the capHeight-only estimate and the
-    /// true rendered pixel distance (see VISUAL-GAP-FIXED in IMPL-v0.2-RESULT.md).
-    private static let capHeightToInkTopCalibration: CGFloat = 1.7
+    /// How much of the bottom row's cross-axis height sits above its visible
+    /// *ink*, on the *tightest* side:
+    /// - Whichever side sits closest to the seek bar's own ink dictates the
+    ///   distance; using the *smaller* of the two sides keeps that one at
+    ///   exactly `seekBarBottomSpacing`, while the looser side lands within a
+    ///   point or two of it (two different fonts can't both hit one target
+    ///   from a single shared stack-spacing value).
+    /// - `elapsedLabel` is a *direct* arranged child of the bottom row, so its
+    ///   own frame is centered directly in the row's cross-axis height.
+    /// - The rate button's title is nested one level deeper: `rateButton`
+    ///   itself (fixed at `rateButtonSize.height`) is the arranged child, so
+    ///   its title is centered inside *that* fixed height first, and the
+    ///   button itself is then centered inside the row.
+    ///
+    /// Uses `scaledTimeLabelFont(for:)` for the label side — the font
+    /// `elapsedLabel` actually renders with, including `UIFontMetrics`
+    /// Dynamic Type scaling — not `style.timeLabelFont` directly (confirmed
+    /// on-device: unscaled 8.5pt vs. AX3-scaled 26.8pt capHeight; using the
+    /// unscaled value under-subtracts the slack and lets the real, larger
+    /// label collide with the track above it). The rate button's title font
+    /// is *not* Dynamic Type-scaled (no `UIFontMetrics`/
+    /// `adjustsFontForContentSizeCategory` wiring for it currently), so
+    /// `style.rateLabelStyle`'s raw font remains accurate for that side.
+    private func bottomRowVisibleContentSlack(for style: ABPlayerControlsStyle) -> CGFloat {
+        // The row's real cross-axis height is whichever child is tallest — normally
+        // the rate button's fixed rateButtonSize.height, but a `UIStackView` with
+        // `alignment = .center` never clips: at a large enough Dynamic Type size,
+        // elapsedLabel's own (scaled) line height can exceed the rate button's and
+        // become the row's actual height instead, growing the whole row (and, with
+        // it, the rate button's own centering slack) rather than just the label's.
+        let rowHeight = max(style.rateButtonSize.height, scaledTimeLabelFont(for: style).lineHeight)
+        return min(
+            Self.frameTopToInkTop(font: scaledTimeLabelFont(for: style), centeredIn: rowHeight),
+            rateButtonBottomRowSlack(for: style, rowHeight: rowHeight)
+        )
+    }
 
-    private func rateButtonVisibleContentHeight(for style: ABPlayerControlsStyle) -> CGFloat {
+    private func rateButtonBottomRowSlack(for style: ABPlayerControlsStyle, rowHeight: CGFloat) -> CGFloat {
+        let buttonHeight = style.rateButtonSize.height
+        let buttonCenteringSlack = max(0, (rowHeight - buttonHeight) / 2)
         switch style.rateLabelStyle {
         case .text(let font, _):
-            font.capHeight
+            return buttonCenteringSlack + Self.frameTopToInkTop(font: font, centeredIn: buttonHeight)
         case .icon:
-            style.iconPointSize
+            // An icon's height is its rendered size, not font metrics — no
+            // ascender/capHeight gap applies; centering slack alone does.
+            return buttonCenteringSlack + max(0, (buttonHeight - style.iconPointSize) / 2)
         }
+    }
+
+    /// Distance from the top of a `containerHeight`-tall box to `font`'s ink
+    /// top, when a label/title using `font` is vertically centered in it:
+    /// half the box's slack around the font's line height, plus the further
+    /// offset from that (now-positioned) frame's own top down to where the
+    /// font's cap-height glyphs actually start drawing.
+    ///
+    /// Deliberately *not* a fixed-point or point-size-ratio calibration
+    /// (both were tried and rejected — see IMPL-v0.2-RESULT.md's
+    /// REVIEW2-FIXES-DONE entry for the numbers): a value tuned to land
+    /// exactly on `seekBarBottomSpacing` at the 12pt default font
+    /// systematically over- or under-corrected at a much larger accessibility
+    /// font, in one case badly enough to collide the label into the track —
+    /// exactly the bug this function exists to prevent. This real-metrics
+    /// version is deliberately not pixel-perfect at the default size (it
+    /// lands within roughly a point and a half of `seekBarBottomSpacing`
+    /// rather than exactly on it — confirmed on-device), but it never
+    /// collides at any tested font size, which matters far more than being
+    /// exact at exactly one of them.
+    private static func frameTopToInkTop(font: UIFont, centeredIn containerHeight: CGFloat) -> CGFloat {
+        let centeringSlack = max(0, (containerHeight - font.lineHeight) / 2)
+        let inkOffsetWithinFrame = max(0, font.ascender - font.capHeight)
+        return centeringSlack + inkOffsetWithinFrame
+    }
+
+    /// The font `elapsedLabel` actually renders with — `style.timeLabelFont`
+    /// run through `UIFontMetrics(.caption1)` for the current trait
+    /// collection, matching the assignment in `applyStyle`. Computed fresh
+    /// rather than read from `elapsedLabel.font` so `rootStackSpacing(for:)`
+    /// can be called before the label's font is first assigned. Internal
+    /// (not `private`), matching this file's convention for members tests
+    /// need direct access to, so tests can verify Dynamic Type scaling
+    /// without re-deriving `UIFontMetrics` behavior themselves.
+    func scaledTimeLabelFont(for style: ABPlayerControlsStyle) -> UIFont {
+        scaledTimeLabelFont(for: style, compatibleWith: traitCollection)
+    }
+
+    /// `compatibleWith:` broken out as a separate parameter (rather than always
+    /// reading `self.traitCollection`) so tests can verify the scaling math
+    /// itself against an explicit accessibility trait collection, independent
+    /// of whether a detached test view's own `traitCollection` resolves a
+    /// locally-set override (unreliable without a real window/scene).
+    func scaledTimeLabelFont(for style: ABPlayerControlsStyle, compatibleWith traitCollection: UITraitCollection) -> UIFont {
+        UIFontMetrics(forTextStyle: .caption1).scaledFont(for: style.timeLabelFont, compatibleWith: traitCollection)
     }
 
     private func buildViewHierarchy() {
@@ -262,6 +344,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         rootStack.axis = .vertical
         rootStack.spacing = rootStackSpacing(for: style)
         rootStack.translatesAutoresizingMaskIntoConstraints = false
+        registerForSpacingTraitChanges()
 
         buttonStack.axis = .horizontal
         buttonStack.alignment = .center
@@ -442,7 +525,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         if previous == nil
             || style.timeLabelFont != previous?.timeLabelFont
             || style.usesFixedWidthTimeLabels != previous?.usesFixedWidthTimeLabels {
-            let scaledTimeFont = UIFontMetrics(forTextStyle: .caption1).scaledFont(for: style.timeLabelFont)
+            let scaledTimeFont = scaledTimeLabelFont(for: style)
             elapsedLabel.font = scaledTimeFont
             durationLabel.font = scaledTimeFont
             elapsedLabel.adjustsFontForContentSizeCategory = true
