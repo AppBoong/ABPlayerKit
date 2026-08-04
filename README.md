@@ -166,6 +166,23 @@ token.cancel()
 
 Treat `ABPlayerEvent` as non-exhaustive. Minor releases may add cases, so consumer switches must include a `default` branch.
 
+#### Audio Session and Interruptions
+
+`ABPlayer` never touches the process-global `AVAudioSession` unless you opt in — both are `off` by default:
+
+```swift
+var configuration = ABPlayerConfiguration()
+configuration.audioSessionPolicy = .playback(mixWithOthers: false)
+configuration.interruptionPolicy = .pauseAndResume
+player.configuration = configuration
+```
+
+- **`audioSessionPolicy`** (default `.unmanaged`): when set to `.playback` or `.ambient`, the category is applied the moment this player becomes `.current` (or `play()` starts), and restored automatically. Concurrent players (a feed of `.preloaded`/`.current` cells) share one process-wide `ABAudioSessionCoordinator`, so the category is only captured before the *first* participating player applies it, and only restored once the *last* one releases — one player's `release()` never disrupts a sibling that's still relying on the session.
+- **`interruptionPolicy`** (default `.ignore`): set to `.pauseAndResume` to have the player pause automatically when a phone call, Siri, or another app interrupts playback, and resume once the interruption ends — but only if the system reports `AVAudioSessionInterruptionOptionKey.shouldResume` and this player was actually playing beforehand. Resuming reactivates the audio session through the same coordinator `audioSessionPolicy` uses, so the two compose automatically.
+- **`pausesOnRouteChangeDeviceUnavailable`** (default `true`, independent of `interruptionPolicy`): pauses when the current output device disappears (e.g. headphones unplugged), matching platform HIG expectations. Set to `false` to opt out.
+
+Both paths broadcast through the same `ABPlayerEvent` stream: `.audioInterruptionBegan`, `.audioInterruptionEnded(resumed:)`, and `.audioRouteChangedDeviceUnavailable`.
+
 ### `ABPlayerKitControls` — Opt-in Playback Controls
 
 UIKit applications place `ABPlayerControlsView` over `ABPlayerView` and attach the same player:
@@ -297,6 +314,8 @@ if await handle.result == .completed {
 ```
 
 Transparent HLS segment caching is intentionally outside v1. `AVAssetResourceLoader` cannot intercept ordinary HTTP(S) HLS master/media playlists; transparent caching would require a local reverse proxy that rewrites playlists and handles relative URLs, encryption keys, and background lifetime. That has a different and much larger failure surface, so the accepted [Q1 design decision](docs/DESIGN-OPEN-QUESTIONS.md) keeps it separate. See also [DESIGN-ABPlayerKit §9](docs/DESIGN-ABPlayerKit.md).
+
+Progressive MP4 caching is a **linear prefix**, not sparse ranges: a single sequential fill grows the cached file from byte 0 forward, and `load(_:range:)` normally waits for that fill to reach a requested offset. A distant seek in a non-faststart file would otherwise wait for the fill to sequentially crawl there. To bound that, a request whose offset sits `ABCacheConfiguration.passthroughGapThreshold` (default 2MB) or more ahead of the current fill prefix skips waiting entirely and is served by a direct network passthrough instead — capped to ≤1MB per round trip so it streams back in bounded chunks rather than buffering the whole gap in memory. The background fill keeps crawling forward untouched; this is a one-off fallback for that request, not a jump-start of the cache itself. Full sparse-range caching remains out of scope.
 
 ## Tuning
 

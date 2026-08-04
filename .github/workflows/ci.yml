@@ -39,10 +39,20 @@ jobs:
           xcodebuild
           -scheme ABPlayerKit-Package
           -destination "$DESTINATION"
+          -enableCodeCoverage YES
+          -resultBundlePath "$RUNNER_TEMP/ABPlayerKit.xcresult"
           SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
           GCC_TREAT_WARNINGS_AS_ERRORS=YES
           EXTRACT_APP_INTENTS_METADATA=NO
           build test
+
+      - name: Upload test result bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ABPlayerKit.xcresult
+          path: ${{ runner.temp }}/ABPlayerKit.xcresult
+          retention-days: 14
 
       - name: Build documentation
         run: >-
