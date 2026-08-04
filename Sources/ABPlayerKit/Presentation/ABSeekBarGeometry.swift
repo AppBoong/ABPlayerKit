@@ -37,7 +37,7 @@ public struct ABSeekBarGeometry: Sendable, Equatable {
 
     /// Returns the progress layer width, extending from the track inset to the thumb center.
     public func progressWidth(forProgress progress: Double) -> CGFloat {
-        max(0, thumbCenterX(forProgress: progress) - min(horizontalInset, trackWidth))
+        max(0, thumbCenterX(forProgress: progress) - min(horizontalInset, trackWidth / 2))
     }
 
     /// Converts progress into media time when duration is finite and positive.

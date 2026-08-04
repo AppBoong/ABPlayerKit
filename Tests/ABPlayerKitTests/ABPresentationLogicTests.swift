@@ -51,6 +51,15 @@ struct ABSeekBarGeometryTests {
         #expect(geometry.progress(forTouchX: 90) == 1)
     }
 
+    @Test("Given an inset larger than half the width, track and progress collapse together")
+    func oversizedInsetCollapsesTrackAndProgressTogether() {
+        let geometry = ABSeekBarGeometry(trackWidth: 100, thumbWidth: 20, horizontalInset: 80)
+
+        #expect(geometry.thumbCenterX(forProgress: 0) == 50)
+        #expect(geometry.thumbCenterX(forProgress: 1) == 50)
+        #expect(geometry.progressWidth(forProgress: 1) == 0)
+    }
+
     @Test("Given missing, zero, or indefinite duration, progress cannot produce time")
     func invalidDurationsHaveNoTime() {
         #expect(ABSeekBarGeometry.time(forProgress: 0.5, duration: nil) == nil)
