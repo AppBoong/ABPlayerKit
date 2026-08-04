@@ -1,0 +1,9 @@
+"controls.play" = "재생";
+"controls.pause" = "일시 정지";
+"controls.skipBackward" = "뒤로 건너뛰기";
+"controls.skipForward" = "앞으로 건너뛰기";
+"controls.rate" = "재생 속도";
+"controls.timeline" = "재생 위치";
+"controls.timelineValue" = "%2$@ 중 %1$@";
+"controls.live" = "실시간";
+"controls.rateValue" = "%@배";

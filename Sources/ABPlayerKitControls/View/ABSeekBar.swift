@@ -42,6 +42,7 @@ final class ABSeekBar: UIControl {
     var onScrubBegan: (() -> Void)?
     var onScrubChanged: ((Double) -> Void)?
     var onScrubEnded: ((Double) -> Void)?
+    var onAccessibilityAdjustment: ((Int) -> Void)?
 
     private let trackLayer = CALayer()
     private let bufferedLayer = CALayer()
@@ -65,6 +66,7 @@ final class ABSeekBar: UIControl {
     override init(frame: CGRect) {
         super.init(frame: frame)
         isAccessibilityElement = true
+        accessibilityTraits = .adjustable
         layer.addSublayer(trackLayer)
         layer.addSublayer(bufferedLayer)
         layer.addSublayer(progressLayer)
@@ -75,6 +77,7 @@ final class ABSeekBar: UIControl {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         isAccessibilityElement = true
+        accessibilityTraits = .adjustable
         layer.addSublayer(trackLayer)
         layer.addSublayer(bufferedLayer)
         layer.addSublayer(progressLayer)
@@ -132,6 +135,14 @@ final class ABSeekBar: UIControl {
 
     override func cancelTracking(with event: UIEvent?) {
         handleInteraction(.cancelled, x: nil)
+    }
+
+    override func accessibilityIncrement() {
+        onAccessibilityAdjustment?(1)
+    }
+
+    override func accessibilityDecrement() {
+        onAccessibilityAdjustment?(-1)
     }
 
     @discardableResult

@@ -54,6 +54,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     private var currentPlaybackTime = ABPlaybackTime.zero
     private var visibilityMachine: ABControlsVisibilityMachine
     private var hideTask: Task<Void, Never>?
+    var isVoiceOverRunningProvider: @MainActor () -> Bool = { UIAccessibility.isVoiceOverRunning }
+    var isReduceMotionEnabledProvider: @MainActor () -> Bool = { UIAccessibility.isReduceMotionEnabled }
+    private(set) var lastVisibilityAnimationDuration: TimeInterval?
     private lazy var backgroundTapRecognizer = UITapGestureRecognizer(
         target: self,
         action: #selector(backgroundTapped)
@@ -223,6 +226,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         seekBar.onScrubBegan = { [weak self] in self?.scrubBegan() }
         seekBar.onScrubChanged = { [weak self] progress in self?.scrubChanged(progress: progress) }
         seekBar.onScrubEnded = { [weak self] progress in self?.scrubEnded(progress: progress) }
+        seekBar.onAccessibilityAdjustment = { [weak self] direction in
+            self?.adjustTimelineForAccessibility(direction: direction)
+        }
     }
 
     private func replacePlayer() {
@@ -313,9 +319,12 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         seekBar.style = style
         elapsedLabel.textColor = style.timeLabelColor
         durationLabel.textColor = style.timeLabelColor
-        elapsedLabel.font = style.timeLabelFont
-        durationLabel.font = style.timeLabelFont
-        updateTimeLabelWidthConstraints(using: style.timeLabelFont)
+        let scaledTimeFont = UIFontMetrics(forTextStyle: .caption1).scaledFont(for: style.timeLabelFont)
+        elapsedLabel.font = scaledTimeFont
+        durationLabel.font = scaledTimeFont
+        elapsedLabel.adjustsFontForContentSizeCategory = true
+        durationLabel.adjustsFontForContentSizeCategory = true
+        updateTimeLabelWidthConstraints(using: scaledTimeFont)
         playWidthConstraint?.constant = style.playPauseButtonSize.width
         playHeightConstraint?.constant = style.playPauseButtonSize.height
         backwardWidthConstraint?.constant = style.skipButtonSize.width
@@ -381,6 +390,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
 
     private func updatePlaybackIcon() {
         playPauseButton.apply(icon: isPlayingState ? style.pauseIcon : style.playIcon, style: style)
+        playPauseButton.accessibilityLabel = ABControlsLocalization.string(
+            isPlayingState ? "controls.pause" : "controls.play"
+        )
     }
 
     private func updateSkipIcons() {
@@ -396,6 +408,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             ?? .system("goforward.\(synchronized ? integerInterval : 10)")
         skipBackwardButton.apply(icon: backward, style: style)
         skipForwardButton.apply(icon: forward, style: style)
+        skipBackwardButton.accessibilityLabel = ABControlsLocalization.string("controls.skipBackward")
+        skipForwardButton.accessibilityLabel = ABControlsLocalization.string("controls.skipForward")
         if !configuration.showsSkipButtons {
             skipBackwardButton.isHidden = true
             skipForwardButton.isHidden = true
@@ -418,6 +432,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
                 rateButton.setTitle(value, for: .normal)
             }
         }
+        rateButton.accessibilityLabel = ABControlsLocalization.string("controls.rate")
+        rateButton.accessibilityValue = ABControlsLocalization.format("controls.rateValue", value)
+        rateButton.accessibilityTraits.insert(.button)
         configureRateInteraction(currentRate: rate)
     }
 
@@ -427,6 +444,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         seekBar.bufferedProgress = time.bufferedProgress ?? 0
         seekBar.isSeekEnabled = time.duration != nil && controlsAreEnabled
         elapsedLabel.text = ABTimeFormatter.string(from: time.currentTime)
+        seekBar.accessibilityLabel = ABControlsLocalization.string("controls.timeline")
+        seekBar.accessibilityValue = accessibilityTimelineValue(for: time)
         switch configuration.timeLabelLayout {
         case .elapsedAndTotal:
             durationLabel.text = time.duration.map(ABTimeFormatter.string(from:)) ?? ABTimeFormatter.liveMarker
@@ -447,6 +466,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         seekBar.isSeekEnabled = false
         elapsedLabel.text = ABTimeFormatter.string(from: 0)
         durationLabel.text = ABTimeFormatter.liveMarker
+        seekBar.accessibilityLabel = ABControlsLocalization.string("controls.timeline")
+        seekBar.accessibilityValue = ABControlsLocalization.string("controls.live")
     }
 
     private func setControlsEnabled(_ enabled: Bool) {
@@ -549,6 +570,43 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         }
     }
 
+    private func adjustTimelineForAccessibility(direction: Int) {
+        guard direction != 0,
+              let duration = currentPlaybackTime.duration else { return }
+        let durationSeconds = CMTimeGetSeconds(duration)
+        let currentSeconds = CMTimeGetSeconds(currentPlaybackTime.currentTime)
+        guard durationSeconds.isFinite, durationSeconds > 0, currentSeconds.isFinite else { return }
+        let delta = Double(direction) * configuration.skipInterval
+        let targetSeconds = min(max(currentSeconds + delta, 0), durationSeconds)
+        let target = CMTime(seconds: targetSeconds, preferredTimescale: 600)
+        render(ABPlaybackTime(
+            currentTime: target,
+            duration: duration,
+            bufferedUntil: currentPlaybackTime.bufferedUntil
+        ))
+        if let player {
+            Task { await player.skip(by: delta) }
+        }
+        handleVisibility(.controlInteracted)
+        observerRegistry.broadcast(.seekCommitted(to: target))
+    }
+
+    private func accessibilityTimelineValue(for time: ABPlaybackTime) -> String {
+        guard let duration = time.duration else {
+            return ABControlsLocalization.string("controls.live")
+        }
+        let currentSeconds = CMTimeGetSeconds(time.currentTime)
+        let durationSeconds = CMTimeGetSeconds(duration)
+        guard currentSeconds.isFinite, durationSeconds.isFinite else {
+            return ABControlsLocalization.string("controls.live")
+        }
+        return ABControlsLocalization.format(
+            "controls.timelineValue",
+            ABControlsLocalization.spokenTime(currentSeconds),
+            ABControlsLocalization.spokenTime(durationSeconds)
+        )
+    }
+
     @objc private func backgroundTapped() {
         handleVisibility(.tapped)
     }
@@ -594,27 +652,36 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             self.rootStack.isUserInteractionEnabled = visible
             self.controlsBackgroundView.alpha = alpha
         }
-        guard animated else {
+        let duration = style.respectsReduceMotion && isReduceMotionEnabledProvider()
+            ? 0
+            : style.visibilityAnimationDuration
+        lastVisibilityAnimationDuration = animated ? duration : 0
+        guard animated, duration > 0 else {
             changes()
             return
         }
         UIView.animate(
-            withDuration: style.visibilityAnimationDuration,
+            withDuration: duration,
             animations: changes
         )
     }
 
     private func scheduleAutoHide(after delay: TimeInterval) {
         hideTask?.cancel()
+        guard !isVoiceOverRunningProvider() else {
+            hideTask = nil
+            return
+        }
         hideTask = Task { [weak self] in
             do {
                 try await Task.sleep(for: .seconds(max(0, delay)))
             } catch {
                 return
             }
-            guard !Task.isCancelled else { return }
-            self?.hideTask = nil
-            self?.handleVisibility(.autoHideFired)
+            guard !Task.isCancelled, let self else { return }
+            self.hideTask = nil
+            guard !self.isVoiceOverRunningProvider() else { return }
+            self.handleVisibility(.autoHideFired)
         }
     }
 

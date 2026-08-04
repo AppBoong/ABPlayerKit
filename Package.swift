@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "ABPlayerKit",
+    defaultLocalization: "en",
     platforms: [
         .iOS(.v17)
     ],
@@ -19,7 +20,8 @@ let package = Package(
         ),
         .target(
             name: "ABPlayerKitControls",
-            dependencies: ["ABPlayerKit"]
+            dependencies: ["ABPlayerKit"],
+            resources: [.process("Resources")]
         ),
         .target(
             name: "ABPlayerKitMetrics",

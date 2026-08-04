@@ -1,0 +1,9 @@
+"controls.play" = "Play";
+"controls.pause" = "Pause";
+"controls.skipBackward" = "Skip Backward";
+"controls.skipForward" = "Skip Forward";
+"controls.rate" = "Playback Rate";
+"controls.timeline" = "Playback Position";
+"controls.timelineValue" = "%1$@ of %2$@";
+"controls.live" = "Live";
+"controls.rateValue" = "%@ times";
