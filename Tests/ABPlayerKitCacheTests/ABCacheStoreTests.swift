@@ -431,6 +431,77 @@ struct ABCacheStoreTests {
         #expect(cacheFileExists(for: newSource, directory: directory))
     }
 
+    /// WP4 regression: `waitForProgress` used to be a bare
+    /// `withCheckedContinuation` that ignored cancellation. A `load(_:range:)`
+    /// call waiting on a fill that never makes progress would then hang
+    /// forever once cancelled, leaving its key in `readerRegistry` and
+    /// blocking that key from LRU eviction.
+    @Test("Cancelling a load waiting on stalled fill progress throws promptly and frees the reader")
+    func cancellingStalledLoadThrowsPromptlyAndFreesReader() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("stuck.mp4")
+        let response = ABHTTPResponse(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4")
+        let fetcher = ABControlledHTTPFetcher(
+            dataReplies: [metadataReply(length: 8)],
+            // Only `.response` — no `.data` — so the fill starts but never
+            // makes progress.
+            initialStreamEvents: [[.response(response)]]
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory),
+            httpFetcher: fetcher
+        )
+
+        let loadTask = Task {
+            try await store.load(source, range: ABByteRange(lowerBound: 0, upperBound: 7))
+        }
+
+        // Wait for `load` to actually retain a reader (i.e. it has reached
+        // the stalled-fill wait loop) before cancelling.
+        for _ in 0..<200 where store.activeReaderKeys().isEmpty {
+            await Task.yield()
+        }
+        #expect(!store.activeReaderKeys().isEmpty)
+
+        loadTask.cancel()
+
+        // Race the cancelled load against a generous timeout so a
+        // regression (the pre-fix hang) fails the test instead of hanging
+        // the suite forever.
+        enum Outcome: Equatable { case cancelled, completedUnexpectedly, timedOut }
+        let outcome = await withTaskGroup(of: Outcome.self) { group in
+            group.addTask {
+                do {
+                    _ = try await loadTask.value
+                    return .completedUnexpectedly
+                } catch is CancellationError {
+                    return .cancelled
+                } catch {
+                    return .completedUnexpectedly
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(2))
+                return .timedOut
+            }
+            let first = await group.next() ?? .timedOut
+            group.cancelAll()
+            return first
+        }
+
+        #expect(outcome == .cancelled)
+
+        // The cancelled waiter must not linger in `readerRegistry` — that
+        // would keep this key excluded from LRU eviction forever.
+        for _ in 0..<200 where !store.activeReaderKeys().isEmpty {
+            await Task.yield()
+        }
+        #expect(store.activeReaderKeys().isEmpty)
+
+        fetcher.finishStreams()
+    }
+
     private func collect(
         store: ABCacheStore,
         source: ABMediaSource,

@@ -43,6 +43,96 @@ private final class ABCacheReaderRegistry: @unchecked Sendable {
     }
 }
 
+/// One `waitForProgress` waiter. Coordinates the normal resume path (an
+/// actor-isolated call once fill progress lands) against task cancellation
+/// (a synchronous, non-actor-isolated `onCancel` handler) without letting
+/// either path resume the continuation twice. Cancellation may arrive
+/// before the continuation is installed, so — same pattern as
+/// `ABAVPlaybackTarget.ReadyWaitState` — the "resolved" state is retained
+/// until installation completes.
+private final class ABCacheProgressWaiter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isResolved = false
+
+    func install(_ continuation: CheckedContinuation<Void, Never>) {
+        lock.lock()
+        if isResolved {
+            lock.unlock()
+            continuation.resume()
+        } else {
+            self.continuation = continuation
+            lock.unlock()
+        }
+    }
+
+    /// Idempotent — the second caller (whichever of "fill progress" or
+    /// "cancelled" loses the race) observes `false` and does nothing.
+    @discardableResult
+    func resolve() -> Bool {
+        lock.lock()
+        guard !isResolved else {
+            lock.unlock()
+            return false
+        }
+        isResolved = true
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume()
+        return true
+    }
+}
+
+/// Tracks in-flight `waitForProgress` waiters by key and UUID. Deliberately
+/// **not** actor-isolated (mirrors `ABCacheReaderRegistry` just above): the
+/// `onCancel` side of `withTaskCancellationHandler` runs synchronously,
+/// outside actor isolation, and still needs to remove exactly the one
+/// waiter that was cancelled so it stops blocking LRU eviction (WP4 —
+/// previously a cancelled waiter stayed in this registry, and by extension
+/// `load(_:range:)` never returned, keeping `readerRegistry` retained for
+/// that key forever).
+private final class ABCacheProgressWaiterRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var waiters: [String: [UUID: ABCacheProgressWaiter]] = [:]
+
+    func add(key: String, id: UUID, waiter: ABCacheProgressWaiter) {
+        lock.lock()
+        waiters[key, default: [:]][id] = waiter
+        lock.unlock()
+    }
+
+    /// Removes a single waiter. Safe to call after it has already resolved
+    /// (the cancellation path) or after normal completion (a no-op) —
+    /// removal never resolves a waiter itself.
+    func remove(key: String, id: UUID) {
+        lock.lock()
+        waiters[key]?.removeValue(forKey: id)
+        if waiters[key]?.isEmpty == true {
+            waiters[key] = nil
+        }
+        lock.unlock()
+    }
+
+    /// Removes and resolves every waiter for `key` — the fill
+    /// progress/completion path.
+    func resolveAll(for key: String) {
+        lock.lock()
+        let removed = waiters.removeValue(forKey: key)?.values
+        lock.unlock()
+        removed?.forEach { $0.resolve() }
+    }
+
+    /// Removes and resolves every waiter across every key — store teardown.
+    func resolveEverything() {
+        lock.lock()
+        let all = waiters.values.flatMap(\.values)
+        waiters.removeAll()
+        lock.unlock()
+        all.forEach { $0.resolve() }
+    }
+}
+
 actor ABCacheStore {
     private struct RemoteMetadata: Sendable {
         let contentLength: Int64?
@@ -68,7 +158,7 @@ actor ABCacheStore {
     private var fills: [String: Task<Void, Never>] = [:]
     private var fillResponses: [String: ABHTTPResponse] = [:]
     private var fillErrors: [String: StoreError] = [:]
-    private var progressWaiters: [String: [UUID: CheckedContinuation<Void, Never>]] = [:]
+    nonisolated private let progressWaiters = ABCacheProgressWaiterRegistry()
     private var indexIsDirty = false
     private var indexFlushTask: Task<Void, Never>?
     private var recordedEvictionShortfallCount = 0
@@ -131,6 +221,15 @@ actor ABCacheStore {
 
     func metadataCacheCount() -> Int {
         metadataCache.count
+    }
+
+    /// Test-only introspection (WP4 regression coverage): the set of keys
+    /// `load(_:range:)` currently has an active reader for. A cancelled
+    /// `waitForProgress` waiter that fails to unwind `load(_:range:)`
+    /// promptly would leave its key in here forever, blocking that key from
+    /// LRU eviction.
+    nonisolated func activeReaderKeys() -> Set<String> {
+        readerRegistry.activeKeys
     }
 
     func remove(_ source: ABMediaSource) throws {
@@ -555,25 +654,36 @@ actor ABCacheStore {
         return request
     }
 
+    /// Suspends until either fill progress lands for `key` (the normal
+    /// path, resolved via `resumeWaiters(for:)`) or the awaiting `Task` is
+    /// cancelled. On cancellation, `onCancel` resumes this specific waiter
+    /// (keyed by `id`) and removes it from `progressWaiters` immediately —
+    /// synchronously, from a non-actor-isolated context — so the caller's
+    /// following `Task.checkCancellation()` throws promptly instead of
+    /// leaving a dead entry that blocks LRU eviction (WP4).
     private func waitForProgress(key: String) async {
-        await withCheckedContinuation { continuation in
-            progressWaiters[key, default: [:]][UUID()] = continuation
+        let id = UUID()
+        let waiter = ABCacheProgressWaiter()
+        progressWaiters.add(key: key, id: id, waiter: waiter)
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                waiter.install(continuation)
+            }
+        } onCancel: {
+            waiter.resolve()
+            progressWaiters.remove(key: key, id: id)
         }
+        // Normal-completion cleanup — a no-op if `onCancel` already removed
+        // this waiter.
+        progressWaiters.remove(key: key, id: id)
     }
 
     private func resumeWaiters(for key: String) {
-        let waiters = progressWaiters.removeValue(forKey: key)?.values ?? [:].values
-        for waiter in waiters {
-            waiter.resume()
-        }
+        progressWaiters.resolveAll(for: key)
     }
 
     private func resumeAllWaiters() {
-        let waiters = progressWaiters.values.flatMap(\.values)
-        progressWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
+        progressWaiters.resolveEverything()
     }
 
     private func cancelFill(for key: String) {
