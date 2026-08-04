@@ -1,12 +1,21 @@
 @preconcurrency import AVFoundation
 import CoreGraphics
 
-/// Converts between seek-bar coordinates, playback progress, and media time.
+/// Converts between seek-bar view coordinates, playback progress, and media time.
+///
+/// `trackWidth` is the full width of the coordinate space supplied to
+/// ``progress(forTouchX:)``. The usable track is derived by removing
+/// `horizontalInset` from both edges and reserving half of `thumbWidth`.
 public struct ABSeekBarGeometry: Sendable, Equatable {
+    /// The full coordinate-space width before horizontal insets are applied.
     public let trackWidth: CGFloat
+    /// The visual thumb width reserved inside the usable track.
     public let thumbWidth: CGFloat
+    /// The inset applied to each horizontal edge of `trackWidth`.
     public let horizontalInset: CGFloat
 
+    /// Creates geometry in a coordinate space whose horizontal range is
+    /// `0...trackWidth`.
     public init(trackWidth: CGFloat, thumbWidth: CGFloat, horizontalInset: CGFloat = 0) {
         self.trackWidth = max(0, trackWidth)
         self.thumbWidth = max(0, thumbWidth)
