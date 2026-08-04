@@ -691,6 +691,23 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     private func updateTimeLabels(currentTime: CMTime, duration: CMTime?) {
         let durationSeconds = duration.flatMap { $0.isNumeric ? CMTimeGetSeconds($0) : nil }
         let currentSeconds = CMTimeGetSeconds(currentTime)
+
+        if case .custom(let formatter) = configuration.timeFormat {
+            // `.custom` contract (round3 Phase4 WP12): the formatter
+            // receives both the elapsed seconds and the reference duration
+            // in one call and is expected to produce the *entire* label
+            // text itself — `timeLabelLayout`'s elapsed/secondary
+            // combination does not apply, since the consumer already has
+            // both values and full control over layout. Combining on top
+            // of an already-complete `.custom` string produced the
+            // `"12s/90s/90s/90s"`-shaped double-combination bug this
+            // replaces.
+            elapsedLabel.text = currentTime.isNumeric
+                ? formatter(currentSeconds, durationSeconds)
+                : timePlaceholder(referenceDuration: durationSeconds)
+            return
+        }
+
         let elapsed = currentTime.isNumeric
             ? formattedTime(currentSeconds, referenceDuration: durationSeconds)
             : timePlaceholder(referenceDuration: durationSeconds)

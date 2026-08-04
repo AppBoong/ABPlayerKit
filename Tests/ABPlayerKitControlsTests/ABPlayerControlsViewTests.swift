@@ -214,7 +214,7 @@ struct ABPlayerControlsEventReflectionTests {
         #expect(view.displayedElapsedText == "00:01:23/01:06:40")
     }
 
-    @Test("Given a custom time format, its formatter receives elapsed seconds and duration seconds")
+    @Test("Given a custom time format, its single formatter call result is used verbatim as the label")
     func customTimeFormatReceivesSecondsAndDuration() {
         var configuration = ABPlayerControlsConfiguration()
         configuration.timeFormat = .custom { seconds, duration in
@@ -228,7 +228,30 @@ struct ABPlayerControlsEventReflectionTests {
             bufferedUntil: nil
         )))
 
-        #expect(view.displayedElapsedText == "12s/90s/90s/90s")
+        // round3 Phase4 WP12: the label is the formatter's own return value,
+        // called once with (elapsed, duration) — not that value combined
+        // again via `timeLabelLayout`, which previously doubled it into
+        // `"12s/90s/90s/90s"` (this test used to bake that bug in as the
+        // expected value).
+        #expect(view.displayedElapsedText == "12s/90s")
+    }
+
+    @Test("A custom time format ignores timeLabelLayout — elapsedOnly still gets the full formatter output")
+    func customTimeFormatIgnoresTimeLabelLayout() {
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.timeLabelLayout = .elapsedAndRemaining
+        configuration.timeFormat = .custom { seconds, duration in
+            "\(Int(seconds))/\(duration.map { "\(Int($0))" } ?? "?")"
+        }
+        let view = ABPlayerControlsView(configuration: configuration)
+
+        view.handlePlayerEvent(.periodicTime(ABPlaybackTime(
+            currentTime: CMTime(seconds: 5, preferredTimescale: 600),
+            duration: CMTime(seconds: 20, preferredTimescale: 600),
+            bufferedUntil: nil
+        )))
+
+        #expect(view.displayedElapsedText == "5/20")
     }
 
     @Test("Given playing status, controls display the pause icon")
