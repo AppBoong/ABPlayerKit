@@ -8,6 +8,7 @@ let package = Package(
     ],
     products: [
         .library(name: "ABPlayerKit", targets: ["ABPlayerKit"]),
+        .library(name: "ABPlayerKitControls", targets: ["ABPlayerKitControls"]),
         .library(name: "ABPlayerKitMetrics", targets: ["ABPlayerKitMetrics"]),
         .library(name: "ABPlayerKitCache", targets: ["ABPlayerKitCache"])
     ],
@@ -15,6 +16,10 @@ let package = Package(
         // The shared ABPlayerKit-Package scheme runs every test target below.
         .target(
             name: "ABPlayerKit"
+        ),
+        .target(
+            name: "ABPlayerKitControls",
+            dependencies: ["ABPlayerKit"]
         ),
         .target(
             name: "ABPlayerKitMetrics",
@@ -27,6 +32,10 @@ let package = Package(
         .testTarget(
             name: "ABPlayerKitTests",
             dependencies: ["ABPlayerKit"]
+        ),
+        .testTarget(
+            name: "ABPlayerKitControlsTests",
+            dependencies: ["ABPlayerKitControls", "ABPlayerKit"]
         ),
         .testTarget(
             name: "ABPlayerKitMetricsTests",
