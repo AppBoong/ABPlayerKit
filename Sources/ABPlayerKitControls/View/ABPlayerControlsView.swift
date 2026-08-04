@@ -4,7 +4,7 @@ import UIKit
 
 /// A UIKit playback-controls overlay backed by the core playback engine.
 @MainActor
-public final class ABPlayerControlsView: UIView {
+public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     public var player: ABPlayer? {
         didSet {
             guard player !== oldValue else { return }
@@ -51,6 +51,12 @@ public final class ABPlayerControlsView: UIView {
     private var periodicIntervalLease: ABPeriodicIntervalLease?
     private var isPlayingState = false
     private var currentPlaybackTime = ABPlaybackTime.zero
+    private var visibilityMachine: ABControlsVisibilityMachine
+    private var hideTask: Task<Void, Never>?
+    private lazy var backgroundTapRecognizer = UITapGestureRecognizer(
+        target: self,
+        action: #selector(backgroundTapped)
+    )
 
     private var playWidthConstraint: NSLayoutConstraint?
     private var playHeightConstraint: NSLayoutConstraint?
@@ -67,6 +73,9 @@ public final class ABPlayerControlsView: UIView {
     var displayedDurationText: String? { durationLabel.text }
     var controlsAreEnabled: Bool { playPauseButton.isEnabled }
     var isShowingPauseIcon: Bool { isPlayingState }
+    var hasScheduledAutoHide: Bool { hideTask != nil }
+    var controlsContentAlpha: CGFloat { rootStack.alpha }
+    var controlsContentIsInteractive: Bool { rootStack.isUserInteractionEnabled }
 
     public init(
         style: ABPlayerControlsStyle = .default,
@@ -75,20 +84,24 @@ public final class ABPlayerControlsView: UIView {
         self.style = style
         self.configuration = configuration
         self.isControlsVisible = configuration.initialVisibility == .visible
+        self.visibilityMachine = ABControlsVisibilityMachine(
+            visibility: configuration.initialVisibility == .visible ? .visible : .hidden
+        )
         super.init(frame: .zero)
         buildViewHierarchy()
         wireActions()
         applyStyle(previous: nil)
         applyConfiguration(previous: nil)
         resetTimeline()
-        alpha = isControlsVisible ? 1 : 0
-        isUserInteractionEnabled = isControlsVisible
+        rootStack.alpha = isControlsVisible ? 1 : 0
+        rootStack.isUserInteractionEnabled = isControlsVisible
     }
 
     required init?(coder: NSCoder) {
         self.style = .default
         self.configuration = .init()
         self.isControlsVisible = true
+        self.visibilityMachine = ABControlsVisibilityMachine(visibility: .visible)
         super.init(coder: coder)
         buildViewHierarchy()
         wireActions()
@@ -98,24 +111,7 @@ public final class ABPlayerControlsView: UIView {
     }
 
     public func setControlsVisible(_ visible: Bool, animated: Bool = true) {
-        guard visible != isControlsVisible else { return }
-        isControlsVisible = visible
-        if visible { isUserInteractionEnabled = true }
-        let changes = { self.alpha = visible ? 1 : 0 }
-        let completion: (Bool) -> Void = { _ in
-            if !visible { self.isUserInteractionEnabled = false }
-        }
-        if animated {
-            UIView.animate(
-                withDuration: style.visibilityAnimationDuration,
-                animations: changes,
-                completion: completion
-            )
-        } else {
-            changes()
-            completion(true)
-        }
-        observerRegistry.broadcast(.visibilityChanged(isVisible: visible))
+        handleVisibility(.setVisible(visible), animated: animated)
     }
 
     public func addObserver(
@@ -125,6 +121,7 @@ public final class ABPlayerControlsView: UIView {
     }
 
     deinit {
+        hideTask?.cancel()
         playerObservationToken?.cancel()
     }
 
@@ -159,6 +156,9 @@ public final class ABPlayerControlsView: UIView {
         rootStack.addArrangedSubview(seekBar)
         rootStack.addArrangedSubview(bottomStack)
         addSubview(rootStack)
+        backgroundTapRecognizer.cancelsTouchesInView = false
+        backgroundTapRecognizer.delegate = self
+        addGestureRecognizer(backgroundTapRecognizer)
         NSLayoutConstraint.activate([
             rootStack.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
             rootStack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
@@ -197,6 +197,7 @@ public final class ABPlayerControlsView: UIView {
     }
 
     private func replacePlayer() {
+        handleVisibility(.detached, animated: false)
         playerObservationToken?.cancel()
         playerObservationToken = nil
         periodicIntervalLease?.restore()
@@ -217,6 +218,14 @@ public final class ABPlayerControlsView: UIView {
             self.handlePlayerEvent(event)
         }
         isPlayingState = player.isPlaying
+        _ = visibilityMachine.handle(.playbackStateChanged(isPlaying: isPlayingState))
+        let initialVisibility: ABControlsVisibilityMachine.Visibility = configuration.initialVisibility == .visible
+            ? .visible
+            : .hidden
+        applyVisibilityEffects(
+            visibilityMachine.handle(.attached(initial: initialVisibility)),
+            animated: false
+        )
         currentPlaybackTime = player.playbackTime
         updatePlaybackIcon()
         updateRate(player.rate)
@@ -231,6 +240,7 @@ public final class ABPlayerControlsView: UIView {
         case .timeControlStatusChanged(let status):
             isPlayingState = status == .playing
             updatePlaybackIcon()
+            handleVisibility(.playbackStateChanged(isPlaying: isPlayingState))
         case .rateChanged(let rate):
             updateRate(rate)
         case .gradeChanged(_, let grade):
@@ -250,7 +260,7 @@ public final class ABPlayerControlsView: UIView {
         case .playedToEnd:
             isPlayingState = false
             updatePlaybackIcon()
-            setControlsVisible(true)
+            handleVisibility(.setVisible(true))
         case .seekCompleted(let time):
             guard player?.isScrubbing != true else { return }
             let snapshot = ABPlaybackTime(
@@ -301,6 +311,14 @@ public final class ABPlayerControlsView: UIView {
            periodicIntervalLease != nil {
             player.configuration.periodicTimeInterval = configuration.periodicTimeInterval
         }
+        if previous?.autoHideDelay != configuration.autoHideDelay
+            || previous?.staysVisibleWhilePaused != configuration.staysVisibleWhilePaused {
+            handleVisibility(.configurationChanged(
+                autoHideDelay: configuration.autoHideDelay,
+                staysVisibleWhilePaused: configuration.staysVisibleWhilePaused
+            ))
+        }
+        backgroundTapRecognizer.isEnabled = configuration.handlesBackgroundTap
     }
 
     private func updatePlaybackIcon() {
@@ -388,17 +406,20 @@ public final class ABPlayerControlsView: UIView {
             isPlayingState = true
         }
         updatePlaybackIcon()
+        handleVisibility(.controlInteracted)
         observerRegistry.broadcast(.playPauseTapped(isPlayingAfterTap: isPlayingState))
     }
 
     private func skip(by interval: TimeInterval) {
         guard let player else { return }
         Task { await player.skip(by: interval) }
+        handleVisibility(.controlInteracted)
         observerRegistry.broadcast(.skipTapped(by: interval))
     }
 
     private func scrubBegan() {
         player?.beginScrubbing()
+        handleVisibility(.scrubBegan)
         observerRegistry.broadcast(.scrubbingChanged(isScrubbing: true))
     }
 
@@ -416,8 +437,89 @@ public final class ABPlayerControlsView: UIView {
         Task { [weak self, weak player] in
             guard let self, let player, self.player === player else { return }
             await player.endScrubbing()
+            self.handleVisibility(.scrubEnded)
             self.observerRegistry.broadcast(.scrubbingChanged(isScrubbing: false))
             self.observerRegistry.broadcast(.seekCommitted(to: time))
         }
+    }
+
+    @objc private func backgroundTapped() {
+        handleVisibility(.tapped)
+    }
+
+    func simulateBackgroundTap() {
+        guard configuration.handlesBackgroundTap else { return }
+        backgroundTapped()
+    }
+
+    func handleVisibility(
+        _ input: ABControlsVisibilityMachine.Input,
+        animated: Bool = true
+    ) {
+        applyVisibilityEffects(visibilityMachine.handle(input), animated: animated)
+    }
+
+    private func applyVisibilityEffects(
+        _ effects: [ABControlsVisibilityMachine.Effect],
+        animated: Bool
+    ) {
+        for effect in effects {
+            switch effect {
+            case .show:
+                applyControlsVisibility(true, animated: animated)
+            case .hide:
+                applyControlsVisibility(false, animated: animated)
+            case .scheduleAutoHide(let delay):
+                scheduleAutoHide(after: delay)
+            case .cancelAutoHide:
+                hideTask?.cancel()
+                hideTask = nil
+            case .notifyVisibility(let visible):
+                observerRegistry.broadcast(.visibilityChanged(isVisible: visible))
+            }
+        }
+    }
+
+    private func applyControlsVisibility(_ visible: Bool, animated: Bool) {
+        isControlsVisible = visible
+        let changes = {
+            self.rootStack.alpha = visible ? 1 : 0
+            self.rootStack.isUserInteractionEnabled = visible
+        }
+        guard animated else {
+            changes()
+            return
+        }
+        UIView.animate(
+            withDuration: style.visibilityAnimationDuration,
+            animations: changes
+        )
+    }
+
+    private func scheduleAutoHide(after delay: TimeInterval) {
+        hideTask?.cancel()
+        hideTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(max(0, delay)))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.hideTask = nil
+            self?.handleVisibility(.autoHideFired)
+        }
+    }
+
+    public func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldReceive touch: UITouch
+    ) -> Bool {
+        guard gestureRecognizer === backgroundTapRecognizer else { return true }
+        var view = touch.view
+        while let current = view, current !== self {
+            if current is UIControl { return false }
+            view = current.superview
+        }
+        return true
     }
 }
