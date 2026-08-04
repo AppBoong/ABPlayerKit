@@ -90,6 +90,82 @@ struct ABPlayerControlsAttachmentTests {
     }
 }
 
+@Suite("Controls promote a non-current player to current on a play tap")
+@MainActor
+struct ABPlayerControlsPromotionTests {
+    @Test("Given the default configuration, promotesToCurrentOnPlay is enabled")
+    func defaultsToPromoting() {
+        #expect(ABPlayerControlsConfiguration().promotesToCurrentOnPlay)
+    }
+
+    @Test("Given a source at a lower grade, play/pause stays tappable and promotes on tap")
+    func playTapPromotesToCurrentByDefault() {
+        let source = ABMediaSource(url: URL(string: "https://example.com/promote.mp4")!)
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        player.set(source: source, grade: .preloaded)
+        let view = ABPlayerControlsView()
+        view.player = player
+
+        #expect(view.controlsAreEnabled)
+
+        view.playPauseButton.sendActions(for: .touchUpInside)
+
+        #expect(player.grade == .current)
+        #expect(player.isPlaying)
+    }
+
+    @Test("Given a source at a lower grade, seek/skip/rate stay disabled — only play/pause is promotion-eligible")
+    func onlyPlayPauseIsPromotionEligible() {
+        let source = ABMediaSource(url: URL(string: "https://example.com/only-play.mp4")!)
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        player.set(source: source, grade: .preloaded)
+        let view = ABPlayerControlsView()
+        view.player = player
+
+        #expect(view.controlsAreEnabled)
+        #expect(!view.skipBackwardButton.isEnabled)
+        #expect(!view.skipForwardButton.isEnabled)
+        #expect(!view.rateButton.isEnabled)
+        #expect(!view.seekBar.isEnabled)
+    }
+
+    @Test("Given promotesToCurrentOnPlay disabled, play/pause stays disabled below current, matching prior behavior")
+    func playTapStaysDisabledWhenPromotionOptedOut() {
+        let source = ABMediaSource(url: URL(string: "https://example.com/no-promote.mp4")!)
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        player.set(source: source, grade: .preloaded)
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.promotesToCurrentOnPlay = false
+        let view = ABPlayerControlsView(configuration: configuration)
+        view.player = player
+
+        #expect(!view.controlsAreEnabled)
+    }
+
+    @Test("Given no source at all, play/pause stays disabled even with promotion enabled — nothing to promote to")
+    func playTapStaysDisabledWithoutSource() {
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        let view = ABPlayerControlsView()
+        view.player = player
+
+        #expect(!view.controlsAreEnabled)
+    }
+
+    @Test("Given an item failure, play/pause is genuinely disabled, not promotion-eligible")
+    func failureDisablesPlayPauseEvenWithASource() {
+        let source = ABMediaSource(url: URL(string: "https://example.com/failed.mp4")!)
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        player.set(source: source, grade: .preloaded)
+        let view = ABPlayerControlsView()
+        view.player = player
+        #expect(view.controlsAreEnabled)
+
+        view.handlePlayerEvent(.itemStatusChanged(.failed))
+
+        #expect(!view.controlsAreEnabled)
+    }
+}
+
 @Suite("Controls reflect engine events")
 @MainActor
 struct ABPlayerControlsEventReflectionTests {

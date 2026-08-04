@@ -15,7 +15,7 @@ All style values apply live. Updating colors does not recreate the controls or i
 
 ## Understand the Standard Layout
 
-The skip-backward, play/pause, and skip-forward controls form a centered transport cluster. The timeline stays at the bottom, with its combined `HH:mm:ss/HH:mm:ss` elapsed-and-total label directly above the leading edge. The playback-rate control occupies the bottom-trailing edge beside the timeline. Other time-label modes keep the same position and fixed-hour clock format.
+The skip-backward, play/pause, and skip-forward controls form a centered transport cluster. The seek bar spans the full overlay width with equal leading/trailing padding, sitting near the bottom. Directly below the seek bar's visible track — by exactly ``ABPlayerControlsStyle/seekBarBottomSpacing`` — a compact row holds the elapsed/total time label at the bottom-leading edge and the playback-rate control at the bottom-trailing edge; that row itself sits flush with the overlay's bottom edge, inset by ``ABPlayerControlsStyle/contentInsets``. The seek bar's touch-target row stays a full 44pt tall for accessibility even though its drawn track is much thinner, so it can extend upward past that visible gap — hit-testing always favors the smaller, more specific controls over the seek bar wherever their touch areas overlap.
 
 ## Change the Timeline
 
@@ -67,6 +67,10 @@ controls.configuration = configuration
 ``ABPlayerControlsConfiguration/timeFormat`` controls how time labels render: `.fixedHours` (the default) always shows `HH:MM:SS`, `.automatic` drops the hours field under one hour, and `.custom` takes a `(seconds, referenceDurationSeconds) -> String` closure — every label in a render pass (elapsed, total, remaining) receives the same `referenceDurationSeconds` so a custom formatter can keep field widths consistent.
 
 Set ``ABPlayerControlsConfiguration/periodicTimeInterval`` to tune UI update frequency. The default is 0.25 seconds. The controls suppress auto-hide while VoiceOver is running and honor Reduce Motion when ``ABPlayerControlsStyle/respectsReduceMotion`` is enabled.
+
+## Play From a Non-Current Player
+
+A player attached at `.preloaded` or `.instanceOnly` (the common pattern: promote to `.current` only once the user actually wants to watch) has every control disabled except play/pause — with ``ABPlayerControlsConfiguration/promotesToCurrentOnPlay`` at its default of `true`, tapping play/pause on a player that already has a source promotes it to `.current` and starts playback in one tap, instead of leaving the whole overlay inert until something outside the controls layer promotes it. Seek, skip, and the rate control stay disabled until the player is actually `.current`. Set the flag to `false` to require an explicit external promotion before play/pause responds at all (the pre-existing behavior).
 
 ## Add Application Controls
 

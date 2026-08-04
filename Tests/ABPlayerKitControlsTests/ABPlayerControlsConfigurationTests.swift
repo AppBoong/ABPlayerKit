@@ -29,5 +29,6 @@ struct ABPlayerControlsConfigurationTests {
         #expect(configuration.handlesBackgroundTap)
         #expect(configuration.allowsTrackTapToSeek)
         #expect(configuration.initialVisibility == .visible)
+        #expect(configuration.promotesToCurrentOnPlay)
     }
 }

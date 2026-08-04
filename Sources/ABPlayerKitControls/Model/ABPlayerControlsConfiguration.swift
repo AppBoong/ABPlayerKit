@@ -63,6 +63,17 @@ public struct ABPlayerControlsConfiguration: Sendable, Equatable {
     public var allowsTrackTapToSeek = true
     public var initialVisibility: InitialVisibility = .visible
 
+    /// Whether tapping the play/pause button while the player has a source but
+    /// isn't `.current` promotes it to `.current` and plays, instead of the
+    /// button being inert. Defaults to `true` — a player freshly attached at
+    /// `.preloaded`/`.instanceOnly` (the common case: a host app promotes to
+    /// `.current` only once the user actually wants to watch) would otherwise
+    /// leave the whole overlay dead until something outside the controls layer
+    /// promoted it. Seek, skip, and the rate control stay disabled until the
+    /// player actually reaches `.current` — only the tap that gets it there is
+    /// special-cased.
+    public var promotesToCurrentOnPlay = true
+
     public init() {}
 }
 

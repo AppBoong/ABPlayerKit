@@ -343,6 +343,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             if grade != .current { resetTimeline() }
         case .itemDetached, .sourceChanged:
             resetTimeline()
+            setControlsEnabled(player?.grade == .current)
         case .itemStatusChanged(.readyToPlay):
             if let player {
                 render(player.playbackTime)
@@ -351,7 +352,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         case .itemStatusChanged(.unknown):
             break
         case .itemStatusChanged(.failed), .failed:
-            setControlsEnabled(false)
+            setControlsEnabled(false, allowsPromotionTap: false)
         case .playedToEnd:
             isPlayingState = false
             updatePlaybackIcon()
@@ -435,6 +436,14 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             ))
         }
         backgroundTapRecognizer.isEnabled = configuration.handlesBackgroundTap
+        // Re-derive play/pause's promotion-tap eligibility: promotesToCurrentOnPlay
+        // itself may have just changed. Only when a player is actually attached —
+        // otherwise this would force every control disabled on init (before
+        // `player` is ever set), which changes their hit-testability, not just
+        // their look, unlike every other pre-attachment default in this view.
+        if let player {
+            setControlsEnabled(player.grade == .current)
+        }
     }
 
     private func updateTimeLabelWidthConstraints(using font: UIFont) {
@@ -590,8 +599,24 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         seekBar.accessibilityValue = ABControlsLocalization.string("controls.live")
     }
 
-    private func setControlsEnabled(_ enabled: Bool) {
-        for control in [playPauseButton, skipBackwardButton, skipForwardButton, rateButton] {
+    /// `true` when a play/pause tap should promote the player to `.current`
+    /// (see `ABPlayerControlsConfiguration/promotesToCurrentOnPlay`) rather than
+    /// do nothing. Requires an actual source to promote to — with none, there's
+    /// nothing a promotion could play, so the button stays genuinely disabled.
+    private var canPromoteToCurrentOnPlayTap: Bool {
+        guard configuration.promotesToCurrentOnPlay, let player else { return false }
+        return player.grade != .current && player.source != nil
+    }
+
+    /// - Parameter allowsPromotionTap: `false` forces the play/pause button to
+    ///   the same disabled state as every other control (used when disabling
+    ///   because of an actual failure, where a "play" tap has nothing to
+    ///   promote into working order).
+    private func setControlsEnabled(_ enabled: Bool, allowsPromotionTap: Bool = true) {
+        let playPauseEnabled = enabled || (allowsPromotionTap && canPromoteToCurrentOnPlayTap)
+        playPauseButton.isEnabled = playPauseEnabled
+        playPauseButton.tintColor = playPauseEnabled ? style.tintColor : style.disabledTintColor
+        for control in [skipBackwardButton, skipForwardButton, rateButton] {
             control.isEnabled = enabled
             control.tintColor = enabled ? style.tintColor : style.disabledTintColor
         }
@@ -605,6 +630,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             player.pause()
             isPlayingState = false
         } else {
+            if canPromoteToCurrentOnPlayTap {
+                player.promote(to: .current)
+            }
             player.play()
             isPlayingState = true
         }
