@@ -5,17 +5,14 @@ import Testing
 @MainActor
 struct ABPlayerControlsAutoHideTests {
     @Test("Given playing controls, playback state arms and fires auto-hide")
-    func playingAutoHideFires() async {
+    func playingAutoHideFires() async throws {
         var configuration = ABPlayerControlsConfiguration()
         configuration.autoHideDelay = 0.01
         let view = ABPlayerControlsView(configuration: configuration)
 
         view.handleVisibility(.playbackStateChanged(isPlaying: true), animated: false)
         #expect(view.hasScheduledAutoHide)
-        let deadline = ContinuousClock.now + .seconds(1)
-        while view.isControlsVisible, ContinuousClock.now < deadline {
-            await Task.yield()
-        }
+        try await waitUntil(.seconds(1)) { !view.isControlsVisible }
 
         #expect(!view.isControlsVisible)
         #expect(view.controlsContentAlpha == 0)

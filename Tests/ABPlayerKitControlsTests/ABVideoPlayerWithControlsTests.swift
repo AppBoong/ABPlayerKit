@@ -7,19 +7,32 @@ import Testing
 @Suite("SwiftUI convenience player composes video and controls")
 @MainActor
 struct ABVideoPlayerWithControlsTests {
-    @Test("Given a player, the convenience view builds its layered body")
+    @Test("Given a player, the convenience view mounts a controls view carrying the requested style and configuration")
     func buildsBody() {
         let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
         var configuration = ABPlayerControlsConfiguration()
         configuration.skipInterval = 15
 
-        let view = ABVideoPlayerWithControls(
+        let rootView = ABVideoPlayerWithControls(
             player: player,
             style: .minimal,
             configuration: configuration
         )
+        .frame(width: 320, height: 180)
+        let hostingController = UIHostingController(rootView: rootView)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+        window.rootViewController = hostingController
+        window.isHidden = false
+        defer { window.isHidden = true }
+        hostingController.view.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        hostingController.view.setNeedsLayout()
+        hostingController.view.layoutIfNeeded()
 
-        _ = view.body
+        let controlsView = hostingController.view.firstDescendant(of: ABPlayerControlsView.self)
+
+        #expect(controlsView != nil)
+        #expect(controlsView?.style == .minimal)
+        #expect(controlsView?.configuration.skipInterval == 15)
     }
 
     @Test("Given a fixed SwiftUI container, controls fill the complete video overlay")

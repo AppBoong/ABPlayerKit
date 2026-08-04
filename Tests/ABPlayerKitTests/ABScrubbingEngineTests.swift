@@ -28,14 +28,12 @@ struct ABScrubbingEngineTests {
     }
 
     @Test("Given no explicit session, scrub performs one coarse seek")
-    func scrubWithoutBeginIsSingleCoarseSeek() async {
+    func scrubWithoutBeginIsSingleCoarseSeek() async throws {
         let (player, target) = makePlayer()
         let destination = CMTime(seconds: 25, preferredTimescale: 600)
 
         player.scrub(to: destination)
-        while !target.calls.contains(.seek(destination, .scrubbing)) {
-            await Task.yield()
-        }
+        try await waitUntil { target.calls.contains(.seek(destination, .scrubbing)) }
 
         #expect(target.calls.filter { if case .seek = $0 { true } else { false } }.count == 1)
     }
@@ -55,7 +53,7 @@ struct ABScrubbingEngineTests {
     }
 
     @Test("Given rapid scrub requests, only the first and latest precise seeks issue")
-    func rapidScrubsCoalesceAndCommitLatest() async {
+    func rapidScrubsCoalesceAndCommitLatest() async throws {
         let (player, target) = makePlayer(suspendedSeeks: true)
         let first = CMTime(seconds: 10, preferredTimescale: 600)
         let stale = CMTime(seconds: 20, preferredTimescale: 600)
@@ -63,14 +61,14 @@ struct ABScrubbingEngineTests {
         player.beginScrubbing()
 
         player.scrub(to: first)
-        while target.pendingSeekCount == 0 { await Task.yield() }
+        try await waitUntil { target.pendingSeekCount > 0 }
         player.scrub(to: stale)
         player.scrub(to: latest)
 
         let endTask = Task { await player.endScrubbing() }
         await Task.yield()
         target.completeNextSeek()
-        while target.pendingSeekCount == 0 { await Task.yield() }
+        try await waitUntil { target.pendingSeekCount > 0 }
         target.completeNextSeek()
         await endTask.value
 
@@ -86,7 +84,7 @@ struct ABScrubbingEngineTests {
     }
 
     @Test("Given the coarse seek already completed, ending adds one precise commit")
-    func completedCoarseSeekStillCommitsPrecisely() async {
+    func completedCoarseSeekStillCommitsPrecisely() async throws {
         let (player, target) = makePlayer()
         let destination = CMTime(seconds: 35, preferredTimescale: 600)
         var completedSeeks: [CMTime] = []
@@ -98,7 +96,7 @@ struct ABScrubbingEngineTests {
         defer { token.cancel() }
         player.beginScrubbing()
         player.scrub(to: destination)
-        while completedSeeks.isEmpty { await Task.yield() }
+        try await waitUntil { !completedSeeks.isEmpty }
 
         await player.endScrubbing()
 
@@ -129,19 +127,19 @@ struct ABScrubbingEngineTests {
     }
 
     @Test("Given rapid skips during scrubbing, they share the seek coalescer")
-    func rapidScrubbingSkipsCoalesce() async {
+    func rapidScrubbingSkipsCoalesce() async throws {
         let (player, target) = makePlayer(suspendedSeeks: true)
         player.beginScrubbing()
 
         await player.skip(by: 5)
-        while target.pendingSeekCount == 0 { await Task.yield() }
+        try await waitUntil { target.pendingSeekCount > 0 }
         for _ in 0..<4 {
             await player.skip(by: 5)
         }
 
         #expect(target.calls.filter { if case .seek = $0 { true } else { false } }.count == 1)
         target.completeNextSeek()
-        while target.pendingSeekCount == 0 { await Task.yield() }
+        try await waitUntil { target.pendingSeekCount > 0 }
         target.completeNextSeek()
         target.waitsForSeekContinuation = false
         await player.endScrubbing()
@@ -168,7 +166,7 @@ struct ABScrubbingEngineTests {
     }
 
     @Test("Given a source swap during scrubbing, the session ends and no stale seek issues")
-    func sourceSwapEndsSessionAndDiscardsStaleSeek() async {
+    func sourceSwapEndsSessionAndDiscardsStaleSeek() async throws {
         let (player, target) = makePlayer(suspendedSeeks: true)
         let staleDestination = CMTime(seconds: 25, preferredTimescale: 600)
         let replacement = ABMediaSource(url: URL(string: "https://example.com/replacement.mp4")!)
@@ -181,7 +179,7 @@ struct ABScrubbingEngineTests {
         defer { token.cancel() }
         player.beginScrubbing()
         player.scrub(to: staleDestination)
-        while target.pendingSeekCount == 0 { await Task.yield() }
+        try await waitUntil { target.pendingSeekCount > 0 }
 
         player.set(source: replacement, grade: .current)
         target.completeNextSeek()
@@ -212,7 +210,7 @@ struct ABScrubbingEngineTests {
     }
 
     @Test("Given demotion while ending, no non-current seek issues and state cleanup remains")
-    func demotionWhileEndingRejectsCommitAndKeepsCleanup() async {
+    func demotionWhileEndingRejectsCommitAndKeepsCleanup() async throws {
         let (player, target) = makePlayer(suspendedSeeks: true)
         let destination = CMTime(seconds: 50, preferredTimescale: 600)
         var boundaries: [Bool] = []
@@ -230,7 +228,7 @@ struct ABScrubbingEngineTests {
         defer { token.cancel() }
         player.beginScrubbing()
         player.scrub(to: destination)
-        while target.pendingSeekCount == 0 { await Task.yield() }
+        try await waitUntil { target.pendingSeekCount > 0 }
         let endTask = Task { await player.endScrubbing() }
         await Task.yield()
 

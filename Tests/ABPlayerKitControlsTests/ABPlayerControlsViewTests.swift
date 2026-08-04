@@ -57,7 +57,7 @@ struct ABPlayerControlsAttachmentTests {
     }
 
     @Test("Given view deallocation, later player events do not retain or crash it")
-    func deallocationCancelsObservation() async {
+    func deallocationCancelsObservation() async throws {
         let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
         weak var weakView: ABPlayerControlsView?
         autoreleasepool {
@@ -67,9 +67,7 @@ struct ABPlayerControlsAttachmentTests {
         }
 
         player.setRate(1.5)
-        while player.configuration.periodicTimeInterval != nil {
-            await Task.yield()
-        }
+        try await waitUntil { player.configuration.periodicTimeInterval == nil }
 
         #expect(weakView == nil)
         #expect(player.configuration.periodicTimeInterval == nil)
@@ -166,7 +164,7 @@ struct ABPlayerControlsPromotionTests {
     }
 }
 
-@Suite("Controls reflect engine events")
+@Suite("Controls reflect engine events", .timeLimit(.minutes(1)))
 @MainActor
 struct ABPlayerControlsEventReflectionTests {
     @Test("Given finite playback, the timeline uses a combined fixed-hour label")
@@ -321,7 +319,7 @@ struct ABPlayerControlsEventReflectionTests {
     }
 
     @Test("Given duration disappears during scrubbing, controls always end the session")
-    func missingDurationStillEndsScrubbing() async {
+    func missingDurationStillEndsScrubbing() async throws {
         let source = ABMediaSource(url: URL(string: "https://example.com/controls-scrub.mp4")!)
         let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
         player.set(source: source, grade: .current)
@@ -343,7 +341,7 @@ struct ABPlayerControlsEventReflectionTests {
 
         view.handlePlayerEvent(.sourceChanged(nil))
         view.seekBar.onScrubEnded?(0.5)
-        while player.isScrubbing { await Task.yield() }
+        try await waitUntil { !player.isScrubbing }
 
         #expect(controlsEvents.contains(.scrubbingChanged(isScrubbing: false)))
         #expect(!controlsEvents.contains { if case .seekCommitted = $0 { true } else { false } })
