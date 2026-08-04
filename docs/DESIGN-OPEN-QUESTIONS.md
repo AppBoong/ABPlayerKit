@@ -1,6 +1,6 @@
 # 설계 미결 쟁점 — 사용자 결정 요청 (Phase 1)
 
-> 아래 8건 외의 설계 결정은 각 설계서의 "내가 직접 결정한 사항과 근거"에 근거와 함께 확정해 두었다.
+> Phase 1 기준 8건(Q1~Q8) + v0.2 컨트롤 레이어 7건(Q9~Q15, 문서 하단 확정 표). 아래 8건 외의 설계 결정은 각 설계서의 "내가 직접 결정한 사항과 근거"에 근거와 함께 확정해 두었다.
 > 여기 남긴 것은 **되돌리는 비용이 크거나(공개 API·레포 구조), 측정 근거 없이는 정할 수 없는** 항목뿐이다.
 
 ---
@@ -134,3 +134,26 @@
 - **Q7**: Package.swift `platforms: [.iOS(.v17)]`, `swiftLanguageModes: [.v6]`. AVFoundation 경계에 `@preconcurrency` 필요 지점 예상. TTFF 시계로 `ContinuousClock` 검토 가능.
 - **Q6**: `ABShortsFeed`(SwiftUI 래퍼)의 `@ViewBuilder overlay` 파라미터 제거 → 오버레이는 `UIView` 반환 클로저로 통일.
 - **Q8**: `ABShortsKit`에 `ABResumePolicy { .none, .rememberWindow(capacity: Int) }` 추가. 위치 저장 시점 = 강등/해제 직전, 복원 시점 = current 승격 시 첫 프레임 표시 전 seek. `.none`이 기본값이 아니라 **`.rememberWindow`가 기본** (사용자 의도 반영). 메트릭 `ABMetricSample`에 `resumedFromTime: CFTimeInterval?` 필드 추가.
+
+---
+
+## ✅ 확정 결정 — v0.2 컨트롤 레이어 (사용자 승인, 2026-08-04)
+
+> 쟁점 서술과 선택지는 `docs/DESIGN-v0.2-CONTROLS.md` §12에 있다.
+
+| # | 쟁점 | 확정 | 비고 |
+|---|---|---|---|
+| Q9 | 컨트롤 레이어의 타겟 위치 | **A** — 신규 타겟 `ABPlayerKitControls`(UIKit 코어 + SwiftUI 래퍼). **단 수정안 1건**: 공유 순수 타입 `ABSeekBarGeometry`·`ABTimeFormatter`는 컨트롤이 아니라 **코어 `ABPlayerKit`의 public API**로 승격 | 추천안 + 사용자 수정안. 근거 = ABShortsKit v0.2가 숏폼 제스처 UI(하단 슬림 시크바, 탭 재생/일시정지, 롱프레스 2× 배속)에서 재사용. **숏폼 UI 자체는 이번 사이클 범위 밖** |
+| Q10 | `ABPlayerEvent`에 케이스 4개 추가 (소스 호환 파괴) | **A** — 그대로 추가. `ABPlayerEvent`를 비전수(non-exhaustive)로 취급하고 `default`를 두라는 규약을 README·DocC·CHANGELOG **3곳 전부**에 명시 | 추천안 채택 |
+| Q11 | 주기 시간 관찰을 누가 켜는가 | **A** — `configuration.periodicTimeInterval`이 유일한 스위치. 컨트롤 뷰가 부착 시 자기 값으로 설정하고 해제 시 **부착 이전 값으로 복원** | 추천안 채택. 복원은 테스트로 게이팅 |
+| Q12 | 배속 ≠ 1일 때 preroll rate | **A** — `configuration.prerollRate`를 문자 그대로 사용. `playbackRate`와 연동하지 않음 | 추천안 채택. Phase 5 벤치마크에서 2× 승격 지연이 실측되면 v0.3 재검토 |
+| Q13 | `ABPlayerControlsStyle`의 `Sendable` | **A** — 채택을 시도하고 Swift 6에서 경고가 나면 떼고 `Equatable`만 유지. **`@unchecked Sendable` 금지** | 추천안 채택. 다이나믹 컬러 유지를 위해 `UIColor` 사용 |
+| Q14 | 컨트롤 구현 스택 | **A** — UIKit 코어 + SwiftUI 래퍼 | 추천안 채택. PLANNING §2 기술 스택 일치 + 드래그 제스처 정밀도 |
+| Q15 | 기본 `periodicTimeInterval` | **A** — 0.25초 | 추천안 채택. Phase 5에서 Instruments 실측치를 README에 기재 |
+
+### 결정이 설계에 미치는 영향
+- **Q9 수정안**: 코어에 `Sources/ABPlayerKit/Presentation/` 신설 → `ABSeekBarGeometry`(public struct), `ABTimeFormatter`(public enum). 두 타입은 `UIKit` 비의존(`CoreGraphics` + `CoreMedia`만)이므로 코어 설계서 §1의 비목표("커스텀 컨트롤 **UI**")를 침범하지 않는다. 테스트는 `ABPlayerKitTests`로 이관, 태스크 B5 → A4로 이동(C2·C3이 A4에 의존). v0.2부터 semver 대상이므로 확장은 **메서드 추가로만** 한다.
+- **Q10**: `CHANGELOG.md`에 "전수 `switch` 사용 시 재컴파일 에러" 주의 문구 필수. `ABPlayerEvent` DocC 심볼 주석에도 동일 규약 기재.
+- **Q11**: `ABPlayerControlsView`가 `previousPeriodicTimeInterval`을 보관하고 `player` didSet / `deinit`에서 복원.
+- **Q13**: 경고 발생 시 `Sendable`을 떼는 것이 기본 동작 — 컴파일을 통과시키기 위해 `@unchecked`를 붙이는 것은 `MainActor.assumeIsolated` 금지와 같은 이유로 금지된다.
+- **Q15**: `ABPlayerControlsConfiguration.periodicTimeInterval` 기본값 0.25초. 소비자 조절 가능.
