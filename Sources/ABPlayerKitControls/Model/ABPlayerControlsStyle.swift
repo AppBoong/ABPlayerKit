@@ -42,9 +42,9 @@ public struct ABPlayerControlsStyle: Equatable {
     public var timeLabelFont: UIFont = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
     public var usesFixedWidthTimeLabels = true
 
-    public var trackColor: UIColor = UIColor.white.withAlphaComponent(0.25)
+    public var trackColor: UIColor = UIColor.white.withAlphaComponent(0.3)
     public var progressColor: UIColor = .white
-    public var bufferedColor: UIColor = UIColor.white.withAlphaComponent(0.5)
+    public var bufferedColor: UIColor = UIColor.white.withAlphaComponent(0.45)
     public var trackHeight: CGFloat = 3
     public var trackHeightWhileScrubbing: CGFloat = 6
     public var trackCornerRadius: ABTrackCornerRadius = .capsule
@@ -69,8 +69,8 @@ public struct ABPlayerControlsStyle: Equatable {
     public var rateButtonSize = CGSize(width: 52, height: 44)
 
     public var backgroundStyle: ABControlsBackgroundStyle = .gradient(
-        top: UIColor.black.withAlphaComponent(0),
-        bottom: UIColor.black.withAlphaComponent(0.55)
+        top: UIColor.black.withAlphaComponent(0.08),
+        bottom: UIColor.black.withAlphaComponent(0.3)
     )
     public var contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
     public var containerCornerRadius: CGFloat = 0
@@ -85,8 +85,12 @@ public struct ABPlayerControlsStyle: Equatable {
 
     @MainActor public static let minimal: ABPlayerControlsStyle = {
         var style = ABPlayerControlsStyle()
-        style.backgroundStyle = .none
+        style.backgroundStyle = .gradient(
+            top: .clear,
+            bottom: UIColor.black.withAlphaComponent(0.16)
+        )
         style.bufferedColor = .clear
+        style.trackColor = UIColor.white.withAlphaComponent(0.24)
         style.trackHeight = 2
         style.trackHeightWhileScrubbing = 3
         style.thumbSize = CGSize(width: 10, height: 10)
@@ -100,7 +104,12 @@ public struct ABPlayerControlsStyle: Equatable {
         style.tintColor = .systemBlue
         style.progressColor = .systemBlue
         style.thumbColor = .systemBlue
-        style.backgroundStyle = .blur(.systemMaterial)
+        style.trackColor = UIColor.white.withAlphaComponent(0.28)
+        style.bufferedColor = UIColor.systemBlue.withAlphaComponent(0.42)
+        style.backgroundStyle = .gradient(
+            top: UIColor.systemBlue.withAlphaComponent(0.04),
+            bottom: UIColor.black.withAlphaComponent(0.24)
+        )
         return style
     }()
 }
