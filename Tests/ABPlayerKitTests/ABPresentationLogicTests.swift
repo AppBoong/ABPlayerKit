@@ -129,4 +129,46 @@ struct ABTimeFormatterTests {
     func missingDurationHasNoRemainingTime() {
         #expect(ABTimeFormatter.remainingString(current: 12, duration: nil) == "--:--:--")
     }
+
+    @Test("Given no reference duration, automatic formatting derives hours from the value itself", arguments: [
+        (0.0, "00:00"),
+        (59.0, "00:59"),
+        (599.0, "09:59"),
+        (3_599.0, "59:59"),
+        (3_600.0, "01:00:00"),
+        (3_661.0, "01:01:01")
+    ])
+    func automaticFormattingWithoutReference(seconds: TimeInterval, expected: String) {
+        #expect(ABTimeFormatter.automaticString(from: seconds) == expected)
+    }
+
+    @Test("Given a reference duration under one hour, short values stay MM:SS")
+    func automaticFormattingShortReferenceStaysCompact() {
+        #expect(ABTimeFormatter.automaticString(from: 12, referenceDuration: 200) == "00:12")
+    }
+
+    @Test("Given a reference duration at or beyond one hour, short values still show hours")
+    func automaticFormattingLongReferenceShowsHours() {
+        #expect(ABTimeFormatter.automaticString(from: 61, referenceDuration: 4_000) == "00:01:01")
+    }
+
+    @Test("Given non-finite seconds, automatic formatting uses a placeholder matching the reference width")
+    func automaticFormattingRejectsNonFiniteSeconds() {
+        #expect(ABTimeFormatter.automaticString(from: .nan) == "--:--")
+        #expect(ABTimeFormatter.automaticString(from: .nan, referenceDuration: 4_000) == "--:--:--")
+    }
+
+    @Test("Given valid CMTime, automatic formatting matches the TimeInterval overload")
+    func automaticFormattingMatchesCMTimeOverload() {
+        let time = CMTime(seconds: 90, preferredTimescale: 600)
+        let duration = CMTime(seconds: 4_000, preferredTimescale: 600)
+
+        #expect(ABTimeFormatter.automaticString(from: time, referenceDuration: duration) == "00:01:30")
+    }
+
+    @Test("Given invalid or indefinite CMTime, automatic formatting uses a placeholder")
+    func automaticFormattingRejectsInvalidMediaTime() {
+        #expect(ABTimeFormatter.automaticString(from: .invalid) == "--:--")
+        #expect(ABTimeFormatter.automaticString(from: .indefinite) == "--:--")
+    }
 }
