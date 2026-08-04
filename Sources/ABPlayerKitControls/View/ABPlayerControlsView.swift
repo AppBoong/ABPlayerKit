@@ -50,6 +50,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     private let observerRegistry = ABControlsObserverRegistry()
     private var playerObservationToken: ABObservationToken?
     private var periodicIntervalLease: ABPeriodicIntervalLease?
+    private weak var scrubbingPlayer: ABPlayer?
     private var isPlayingState = false
     private var currentPlaybackTime = ABPlaybackTime.zero
     private var visibilityMachine: ABControlsVisibilityMachine
@@ -545,7 +546,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func scrubBegan() {
-        player?.beginScrubbing()
+        scrubbingPlayer = player
+        scrubbingPlayer?.beginScrubbing()
         handleVisibility(.scrubBegan)
         observerRegistry.broadcast(.scrubbingChanged(isScrubbing: true))
     }
@@ -554,19 +556,31 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         guard let duration = currentPlaybackTime.duration,
               let time = ABSeekBarGeometry.time(forProgress: progress, duration: duration) else { return }
         elapsedLabel.text = ABTimeFormatter.string(from: time)
-        player?.scrub(to: time)
+        scrubbingPlayer?.scrub(to: time)
     }
 
     private func scrubEnded(progress: Double) {
-        guard let player,
-              let duration = currentPlaybackTime.duration,
-              let time = ABSeekBarGeometry.time(forProgress: progress, duration: duration) else { return }
-        Task { [weak self, weak player] in
-            guard let self, let player, self.player === player else { return }
-            await player.endScrubbing()
-            self.handleVisibility(.scrubEnded)
+        let sessionPlayer = scrubbingPlayer ?? player
+        scrubbingPlayer = nil
+        let committedTime = ABSeekBarGeometry.time(
+            forProgress: progress,
+            duration: currentPlaybackTime.duration
+        )
+        Task { [weak self, weak sessionPlayer] in
+            await sessionPlayer?.endScrubbing()
+            guard let self else { return }
+            let controlsStillRepresentSession = if let sessionPlayer {
+                self.player === sessionPlayer
+            } else {
+                self.player == nil
+            }
+            if controlsStillRepresentSession {
+                self.handleVisibility(.scrubEnded)
+            }
             self.observerRegistry.broadcast(.scrubbingChanged(isScrubbing: false))
-            self.observerRegistry.broadcast(.seekCommitted(to: time))
+            if controlsStillRepresentSession, let committedTime {
+                self.observerRegistry.broadcast(.seekCommitted(to: committedTime))
+            }
         }
     }
 

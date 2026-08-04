@@ -142,4 +142,34 @@ struct ABPlayerControlsEventReflectionTests {
         #expect(!view.seekBar.isSeekEnabled)
         #expect(view.displayedDurationText == ABTimeFormatter.liveMarker)
     }
+
+    @Test("Given duration disappears during scrubbing, controls always end the session")
+    func missingDurationStillEndsScrubbing() async {
+        let source = ABMediaSource(url: URL(string: "https://example.com/controls-scrub.mp4")!)
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        player.set(source: source, grade: .current)
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.staysVisibleWhilePaused = false
+        let view = ABPlayerControlsView(configuration: configuration)
+        view.player = player
+        view.handlePlayerEvent(.periodicTime(ABPlaybackTime(
+            currentTime: CMTime(seconds: 20, preferredTimescale: 600),
+            duration: CMTime(seconds: 100, preferredTimescale: 600),
+            bufferedUntil: nil
+        )))
+        view.handlePlayerEvent(.timeControlStatusChanged(.playing))
+        var controlsEvents: [ABControlsEvent] = []
+        let token = view.addObserver { controlsEvents.append($0) }
+        defer { token.cancel() }
+        view.seekBar.onScrubBegan?()
+        #expect(player.isScrubbing)
+
+        view.handlePlayerEvent(.sourceChanged(nil))
+        view.seekBar.onScrubEnded?(0.5)
+        while player.isScrubbing { await Task.yield() }
+
+        #expect(controlsEvents.contains(.scrubbingChanged(isScrubbing: false)))
+        #expect(!controlsEvents.contains { if case .seekCommitted = $0 { true } else { false } })
+        #expect(view.hasScheduledAutoHide)
+    }
 }
