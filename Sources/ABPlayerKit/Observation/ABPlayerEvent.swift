@@ -53,4 +53,20 @@ public enum ABPlayerEvent: Sendable, Equatable {
     /// Emitted when a playback control call (`play`/`pause`/`seek`) is
     /// ignored because `grade != .current`.
     case playbackRejected
+    /// An `AVAudioSession` interruption (phone call, Siri, another app
+    /// taking the session) began and paused this player. Only emitted when
+    /// `ABPlayerConfiguration/interruptionPolicy != .ignore` (round3
+    /// Phase4 WP10).
+    case audioInterruptionBegan
+    /// A previously-began interruption ended. `resumed` is `true` only if
+    /// `ABInterruptionPolicy/pauseAndResume` was configured, the system
+    /// reported `.shouldResume`, and this player was actually playing when
+    /// the interruption began.
+    case audioInterruptionEnded(resumed: Bool)
+    /// The audio route changed because the previous output device became
+    /// unavailable (e.g. headphones unplugged) and this player paused in
+    /// response. Only emitted when
+    /// `ABPlayerConfiguration/pausesOnRouteChangeDeviceUnavailable` is
+    /// `true` (its default).
+    case audioRouteChangedDeviceUnavailable
 }

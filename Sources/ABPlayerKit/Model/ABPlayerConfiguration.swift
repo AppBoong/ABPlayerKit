@@ -21,6 +21,18 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
     public var rewindOnDemotion: Bool
     public var backgroundPolicy: ABBackgroundPolicy
     public var audioSessionPolicy: ABAudioSessionPolicy
+    /// Opt-in `AVAudioSession` interruption handling (round3 Phase4 WP10).
+    /// Defaults to `.ignore` — matches `audioSessionPolicy`'s "do nothing
+    /// unless asked" convention.
+    public var interruptionPolicy: ABInterruptionPolicy
+    /// Pauses playback when `AVAudioSessionRouteChangeReasonKey` reports
+    /// `.oldDeviceUnavailable` (e.g. headphones unplugged) while this player
+    /// is `.current` — independent of `interruptionPolicy`, since this is
+    /// its own notification with its own default (`true`, matching the
+    /// platform HIG convention that content should pause rather than
+    /// continue playing out loud when the listening device disappears).
+    /// Round3 Phase4 WP10.3.
+    public var pausesOnRouteChangeDeviceUnavailable: Bool
     public var videoGravity: AVLayerVideoGravity
     public var assetFactory: any ABAssetFactory
 
@@ -37,6 +49,8 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
         rewindOnDemotion: Bool = false,
         backgroundPolicy: ABBackgroundPolicy = .pause,
         audioSessionPolicy: ABAudioSessionPolicy = .unmanaged,
+        interruptionPolicy: ABInterruptionPolicy = .ignore,
+        pausesOnRouteChangeDeviceUnavailable: Bool = true,
         videoGravity: AVLayerVideoGravity = .resizeAspectFill,
         assetFactory: any ABAssetFactory = ABDefaultAssetFactory()
     ) {
@@ -52,6 +66,8 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
         self.rewindOnDemotion = rewindOnDemotion
         self.backgroundPolicy = backgroundPolicy
         self.audioSessionPolicy = audioSessionPolicy
+        self.interruptionPolicy = interruptionPolicy
+        self.pausesOnRouteChangeDeviceUnavailable = pausesOnRouteChangeDeviceUnavailable
         self.videoGravity = videoGravity
         self.assetFactory = assetFactory
     }
@@ -69,6 +85,8 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
             && lhs.rewindOnDemotion == rhs.rewindOnDemotion
             && lhs.backgroundPolicy == rhs.backgroundPolicy
             && lhs.audioSessionPolicy == rhs.audioSessionPolicy
+            && lhs.interruptionPolicy == rhs.interruptionPolicy
+            && lhs.pausesOnRouteChangeDeviceUnavailable == rhs.pausesOnRouteChangeDeviceUnavailable
             && lhs.videoGravity == rhs.videoGravity
     }
 }

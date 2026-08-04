@@ -96,6 +96,11 @@ public final class ABPlayer {
     @ObservationIgnored
     private var wasPlayingBeforeBackground = false
 
+    @ObservationIgnored
+    private var interruptionObserver: ABAudioInterruptionObserver?
+    @ObservationIgnored
+    private var wasPlayingBeforeInterruption = false
+
     /// The process-wide owner of audio session apply/restore
     /// (`Policy/ABAudioSessionCoordinator.swift`) — shared across every
     /// `ABPlayer` instance so concurrent players (the feed scenario)
@@ -118,6 +123,7 @@ public final class ABPlayer {
         self.audioSessionCoordinator = .shared
         wireTarget()
         reconcileBackgroundObserver()
+        reconcileInterruptionObserver()
     }
 
     /// Test-only entry point — lets `ABPlayerKitTests` substitute
@@ -139,6 +145,7 @@ public final class ABPlayer {
         self.audioSessionCoordinator = audioSessionCoordinator
         wireTarget()
         reconcileBackgroundObserver()
+        reconcileInterruptionObserver()
     }
 
     /// Guards against a consumer dropping this instance without calling
@@ -570,6 +577,10 @@ public final class ABPlayer {
                 applyAudioSessionPolicyIfNeeded()
             }
         }
+        if previousConfiguration.interruptionPolicy != configuration.interruptionPolicy
+            || previousConfiguration.pausesOnRouteChangeDeviceUnavailable != configuration.pausesOnRouteChangeDeviceUnavailable {
+            reconcileInterruptionObserver()
+        }
 
         guard grade.holdsItem else { return }
         // Only re-apply/broadcast when a tuning value actually changed —
@@ -651,6 +662,57 @@ public final class ABPlayer {
 
     private func broadcast(_ event: ABPlayerEvent) {
         observerRegistry.broadcast(event, from: self)
+    }
+
+    // MARK: - Audio interruption / route change (round3 Phase4 WP10)
+
+    private func reconcileInterruptionObserver() {
+        guard configuration.interruptionPolicy != .ignore
+            || configuration.pausesOnRouteChangeDeviceUnavailable else {
+            interruptionObserver?.invalidate()
+            interruptionObserver = nil
+            return
+        }
+        guard interruptionObserver == nil else { return }
+        interruptionObserver = ABAudioInterruptionObserver(
+            center: notificationCenter,
+            onInterruptionBegan: { [weak self] in self?.handleInterruptionBegan() },
+            onInterruptionEnded: { [weak self] shouldResume in self?.handleInterruptionEnded(shouldResume: shouldResume) },
+            onRouteChangeDeviceUnavailable: { [weak self] in self?.handleRouteChangeDeviceUnavailable() }
+        )
+    }
+
+    private func handleInterruptionBegan() {
+        guard configuration.interruptionPolicy != .ignore else { return }
+        wasPlayingBeforeInterruption = isPlaying
+        if grade == .current {
+            target.pause()
+        }
+        broadcast(.audioInterruptionBegan)
+    }
+
+    private func handleInterruptionEnded(shouldResume: Bool) {
+        guard configuration.interruptionPolicy != .ignore else { return }
+        let resumes = configuration.interruptionPolicy == .pauseAndResume
+            && shouldResume
+            && wasPlayingBeforeInterruption
+            && grade == .current
+        wasPlayingBeforeInterruption = false
+        if resumes {
+            // `play()` reactivates the audio session through
+            // `applyAudioSessionPolicyIfNeeded()` → `audioSessionCoordinator`
+            // (round3 Phase3 WP2 M1's "always reactivate" fix), so an
+            // interruption that deactivated the session ends with it
+            // correctly reactivated rather than silently staying inactive.
+            play()
+        }
+        broadcast(.audioInterruptionEnded(resumed: resumes))
+    }
+
+    private func handleRouteChangeDeviceUnavailable() {
+        guard configuration.pausesOnRouteChangeDeviceUnavailable, grade == .current else { return }
+        target.pause()
+        broadcast(.audioRouteChangedDeviceUnavailable)
     }
 
     // MARK: - Audio session (Q4 in DESIGN-OPEN-QUESTIONS.md)
