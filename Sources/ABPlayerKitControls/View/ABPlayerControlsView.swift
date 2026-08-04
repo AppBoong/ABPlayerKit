@@ -320,12 +320,16 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         seekBar.style = style
         elapsedLabel.textColor = style.timeLabelColor
         durationLabel.textColor = style.timeLabelColor
-        let scaledTimeFont = UIFontMetrics(forTextStyle: .caption1).scaledFont(for: style.timeLabelFont)
-        elapsedLabel.font = scaledTimeFont
-        durationLabel.font = scaledTimeFont
-        elapsedLabel.adjustsFontForContentSizeCategory = true
-        durationLabel.adjustsFontForContentSizeCategory = true
-        updateTimeLabelWidthConstraints(using: scaledTimeFont)
+        if previous == nil
+            || style.timeLabelFont != previous?.timeLabelFont
+            || style.usesFixedWidthTimeLabels != previous?.usesFixedWidthTimeLabels {
+            let scaledTimeFont = UIFontMetrics(forTextStyle: .caption1).scaledFont(for: style.timeLabelFont)
+            elapsedLabel.font = scaledTimeFont
+            durationLabel.font = scaledTimeFont
+            elapsedLabel.adjustsFontForContentSizeCategory = true
+            durationLabel.adjustsFontForContentSizeCategory = true
+            updateTimeLabelWidthConstraints(using: scaledTimeFont)
+        }
         playWidthConstraint?.constant = style.playPauseButtonSize.width
         playHeightConstraint?.constant = style.playPauseButtonSize.height
         backwardWidthConstraint?.constant = style.skipButtonSize.width
