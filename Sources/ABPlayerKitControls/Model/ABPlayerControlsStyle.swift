@@ -75,8 +75,10 @@ public struct ABPlayerControlsStyle: Equatable {
     public var contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
     public var containerCornerRadius: CGFloat = 0
     /// Vertical gap between the seek bar and the compact row below it
-    /// (the time label and rate button). Kept tight by default.
-    public var seekBarBottomSpacing: CGFloat = 4
+    /// (the time label and rate button). The whole cluster (seek bar + this
+    /// gap + the row) hugs the overlay's bottom edge, inset by
+    /// `contentInsets.bottom` — only this gap separates the two rows.
+    public var seekBarBottomSpacing: CGFloat = 10
 
     public var visibilityAnimationDuration: TimeInterval = 0.25
     public var respectsReduceMotion = true

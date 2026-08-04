@@ -266,7 +266,7 @@ struct ABPlayerControlsEventReflectionTests {
 @Suite("Controls follow the release overlay geometry")
 @MainActor
 struct ABPlayerControlsLayoutTests {
-    @Test("Given a video-sized overlay, the seek bar spans the full width and the row below it hugs the bottom")
+    @Test("Given a video-sized overlay, the seek bar spans the full width and the bottom cluster hugs the overlay's bottom edge")
     func releaseLayoutGeometry() {
         let view = ABPlayerControlsView()
         view.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
@@ -286,10 +286,19 @@ struct ABPlayerControlsLayoutTests {
         #expect(abs(seekBar.minX - view.style.contentInsets.leading) < 0.5)
         #expect(abs(seekBar.maxX - (view.bounds.maxX - view.style.contentInsets.trailing)) < 0.5)
         #expect(seekBar.midY > view.bounds.midY)
-        // The compact row (time label + rate button) sits directly below the bar,
-        // separated by exactly the tight seek-bar-to-row gap.
-        #expect(abs(bottomRow.minY - seekBar.maxY - view.style.seekBarBottomSpacing) < 0.5)
+        // The default spacing between the seek bar and the row below it is pinned
+        // to exactly 10pt — a regression test for the default value itself, not
+        // just for whatever `style.seekBarBottomSpacing` happens to be set to.
+        #expect(view.style.seekBarBottomSpacing == 10)
+        #expect(abs(bottomRow.minY - seekBar.maxY - 10) < 0.5)
+        // The row (time label + rate button) sits at the very bottom of the
+        // overlay, inset only by contentInsets.bottom — nothing floats below it.
         #expect(abs(view.bounds.maxY - view.style.contentInsets.bottom - bottomRow.maxY) < 0.5)
+        // The whole cluster (seek bar + 10pt gap + row) hugs the bottom edge: its
+        // total height accounts for every point between the seek bar's top and
+        // the overlay's bottom margin — no extra slack anywhere in the cluster.
+        let clusterHeight = view.bounds.maxY - view.style.contentInsets.bottom - seekBar.minY
+        #expect(abs(clusterHeight - (seekBar.height + 10 + bottomRow.height)) < 0.5)
         // Time label sits below the bar, flush with its leading edge.
         #expect(abs(timeLabel.minX - seekBar.minX) < 0.5)
         #expect(timeLabel.minY >= seekBar.maxY)
