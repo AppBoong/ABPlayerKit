@@ -11,6 +11,7 @@ struct ABPlayerControlsLiveStyleTests {
         initial.backgroundStyle = .gradient(top: .clear, bottom: .black)
         let view = ABPlayerControlsView(style: initial)
         let gradient = view.renderedBackgroundGradientLayer
+        let rateMenu = view.rateButton.menu
         let initialInvalidations = view.styleLayoutInvalidationCount
         var changed = initial
         changed.tintColor = .systemPink
@@ -22,6 +23,7 @@ struct ABPlayerControlsLiveStyleTests {
 
         #expect(view.styleLayoutInvalidationCount == initialInvalidations)
         #expect(view.renderedBackgroundGradientLayer === gradient)
+        #expect(view.rateButton.menu === rateMenu)
         #expect(view.playPauseButton.tintColor == UIColor.systemPink)
     }
 

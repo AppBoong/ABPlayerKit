@@ -340,7 +340,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         rateHeightConstraint?.constant = style.rateButtonSize.height
         updatePlaybackIcon()
         updateSkipIcons()
-        updateRate(player?.rate ?? 1)
+        updateRate(player?.rate ?? 1, rebuildInteraction: false)
         guard let previous else { return }
         if style.iconsDiffer(from: previous) {
             for button in [playPauseButton, skipBackwardButton, skipForwardButton, rateButton] {
@@ -421,7 +421,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         }
     }
 
-    private func updateRate(_ rate: Float) {
+    private func updateRate(_ rate: Float, rebuildInteraction: Bool = true) {
         let value = String(format: "%g", rate)
         switch style.rateLabelStyle {
         case .text(let font, let format):
@@ -440,7 +440,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         rateButton.accessibilityLabel = ABControlsLocalization.string("controls.rate")
         rateButton.accessibilityValue = ABControlsLocalization.format("controls.rateValue", value)
         rateButton.accessibilityTraits.insert(.button)
-        configureRateInteraction(currentRate: rate)
+        if rebuildInteraction {
+            configureRateInteraction(currentRate: rate)
+        }
     }
 
     private func render(_ time: ABPlaybackTime) {
