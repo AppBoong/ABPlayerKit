@@ -164,6 +164,8 @@ let token = player.addObserver { event in
 token.cancel()
 ```
 
+Treat `ABPlayerEvent` as non-exhaustive. Minor releases may add cases, so consumer switches must include a `default` branch.
+
 ### `ABPlayerKitControls` — Opt-in Playback Controls
 
 UIKit applications place `ABPlayerControlsView` over `ABPlayerView` and attach the same player:

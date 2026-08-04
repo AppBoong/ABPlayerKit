@@ -164,6 +164,8 @@ let token = player.addObserver { event in
 token.cancel()
 ```
 
+`ABPlayerEvent`는 비전수(non-exhaustive) 열거형으로 취급하세요. 마이너 릴리스에서 케이스가 추가될 수 있으므로 소비자 코드의 `switch`에는 반드시 `default` 분기를 두어야 합니다.
+
 ### `ABPlayerKitControls` — 선택형 재생 컨트롤
 
 UIKit 앱에서는 `ABPlayerControlsView`를 `ABPlayerView` 위에 배치하고 같은 플레이어를 연결합니다.
