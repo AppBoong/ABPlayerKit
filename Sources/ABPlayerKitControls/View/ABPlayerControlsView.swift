@@ -170,13 +170,20 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             // bottom cluster's 44pt touch rows can vertically overlap the
             // centered transport row (see ABPlayerControlsLayoutTests) — when
             // they do, the more specific button must win, not the seek bar.
-            for control in [
+            // accessoryViews (consumer-injected, e.g. fullscreen/captions) sit
+            // in that same bottom row and are just as overlapped, so they must
+            // be checked before the seek bar too — otherwise the documented
+            // "the more specific control always wins" promise (CustomizingControls.md)
+            // is false for the one extension point consumers actually plug into.
+            var priorityControls: [UIView] = [
                 playPauseButton,
                 skipForwardButton,
                 skipBackwardButton,
-                rateButton,
-                seekBar
-            ] {
+                rateButton
+            ]
+            priorityControls.append(contentsOf: accessoryStack.arrangedSubviews)
+            priorityControls.append(seekBar)
+            for control in priorityControls {
                 let controlPoint = control.convert(point, from: self)
                 if let hitView = control.hitTest(controlPoint, with: event) {
                     return hitView

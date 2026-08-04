@@ -436,6 +436,48 @@ struct ABPlayerControlsLayoutTests {
         }
     }
 
+    @Test("Given an enabled seek bar overlapping the bottom row, accessory views still win hit testing")
+    func accessoryViewsWinHitTestingOverAnEnabledSeekBar() {
+        // Deliberately does NOT use a player-less view: with no player, resetTimeline()
+        // sets seekBar.isSeekEnabled = false, which turns off isUserInteractionEnabled
+        // and pulls the seek bar out of hit testing entirely — a probe against that
+        // setup would pass for the wrong reason (the seek bar never competes at all),
+        // exactly the false-positive this suite's own review caught once already.
+        let source = ABMediaSource(url: URL(string: "https://example.com/accessory-hit-test.mp4")!)
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        player.set(source: source, grade: .current)
+        let view = ABPlayerControlsView()
+        view.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
+        view.player = player
+        view.handlePlayerEvent(.periodicTime(ABPlaybackTime(
+            currentTime: CMTime(seconds: 30, preferredTimescale: 600),
+            duration: CMTime(seconds: 120, preferredTimescale: 600),
+            bufferedUntil: nil
+        )))
+
+        let accessoryButton = UIButton(type: .custom)
+        accessoryButton.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            accessoryButton.widthAnchor.constraint(equalToConstant: 44),
+            accessoryButton.heightAnchor.constraint(equalToConstant: 44)
+        ])
+        view.accessoryViews = [accessoryButton]
+        view.layoutIfNeeded()
+
+        // Confirm the overlap this test guards against is real, not hypothetical
+        // (this is the exact geometry the review reproduced its failure with).
+        #expect(view.seekBar.isSeekEnabled)
+        #expect(view.renderedSeekBarFrame.intersects(
+            accessoryButton.convert(accessoryButton.bounds, to: view)
+        ))
+
+        let center = accessoryButton.convert(
+            CGPoint(x: accessoryButton.bounds.midX, y: accessoryButton.bounds.midY),
+            to: view
+        )
+        #expect(view.hitTest(center, with: nil) === accessoryButton)
+    }
+
     @Test("Given a hidden rate control, the seek bar still spans the full width and the row below collapses")
     func hiddenRateKeepsFullWidthSeekBar() {
         var configuration = ABPlayerControlsConfiguration()
