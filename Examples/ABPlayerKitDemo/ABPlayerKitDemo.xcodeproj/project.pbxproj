@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0978A40824D431215D2F6A40 /* ABPlayerKitMetrics in Frameworks */ = {isa = PBXBuildFile; productRef = B1897A8CC22156051FE0C75C /* ABPlayerKitMetrics */; };
+		2C9F20A7A6084BA582D70101 /* ABPlayerKitControls in Frameworks */ = {isa = PBXBuildFile; productRef = 2C9F20A7A6084BA582D70102 /* ABPlayerKitControls */; };
 		54E79F31D42F040B83C10A15 /* ABPlayerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 49AC8041686D22C634E371D2 /* ABPlayerKit */; };
 		789E9A5E1C7D97222FFDA49A /* ABPlayerKitDemoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8365BE4D345F4DCBD527D4EB /* ABPlayerKitDemoApp.swift */; };
 		9518DB33FC263EE0C83F0DFC /* DemoRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACE361F1567AA3E2BF4CACA2 /* DemoRootView.swift */; };
@@ -35,6 +36,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				54E79F31D42F040B83C10A15 /* ABPlayerKit in Frameworks */,
+				2C9F20A7A6084BA582D70101 /* ABPlayerKitControls in Frameworks */,
 				0978A40824D431215D2F6A40 /* ABPlayerKitMetrics in Frameworks */,
 				9BBC64FD605D0D96CAF27E0C /* ABPlayerKitCache in Frameworks */,
 			);
@@ -98,6 +100,7 @@
 			name = ABPlayerKitDemo;
 			packageProductDependencies = (
 				49AC8041686D22C634E371D2 /* ABPlayerKit */,
+				2C9F20A7A6084BA582D70102 /* ABPlayerKitControls */,
 				B1897A8CC22156051FE0C75C /* ABPlayerKitMetrics */,
 				B38D10D3A1D3C801BDEEC0B1 /* ABPlayerKitCache */,
 			);
@@ -351,6 +354,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		2C9F20A7A6084BA582D70102 /* ABPlayerKitControls */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ABPlayerKitControls;
+		};
 		49AC8041686D22C634E371D2 /* ABPlayerKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ABPlayerKit;

@@ -1,18 +1,39 @@
 import ABPlayerKit
+import ABPlayerKitControls
 import AVFoundation
 import SwiftUI
 
 struct PlaybackScreen: View {
     let model: DemoModel
+    @State private var selectedControlsStyle = DemoControlsStyle.default
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    ABVideoPlayer(player: model.player, videoGravity: .resizeAspect)
+                    ABVideoPlayerWithControls(
+                        player: model.player,
+                        videoGravity: .resizeAspect,
+                        style: selectedControlsStyle.style,
+                        configuration: controlsConfiguration
+                    )
                         .aspectRatio(16 / 9, contentMode: .fit)
                         .background(.black)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                    GroupBox("Controls") {
+                        Picker("Style", selection: $selectedControlsStyle) {
+                            ForEach(DemoControlsStyle.allCases) { controlsStyle in
+                                Text(controlsStyle.title).tag(controlsStyle)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        Text("Choose Current grade, then drag the timeline and use the rate menu to try seek coalescing and persistent playback speed.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 8)
+                    }
 
                     GroupBox("Media") {
                         Picker("Source", selection: mediaBinding) {
@@ -123,5 +144,38 @@ struct PlaybackScreen: View {
             get: { model.selectedTuning },
             set: { tuning in model.setTuning(tuning) }
         )
+    }
+
+    private var controlsConfiguration: ABPlayerControlsConfiguration {
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.skipInterval = 15
+        configuration.rateOptions = [0.5, 1, 1.5, 2]
+        configuration.rateInteraction = .menu
+        return configuration
+    }
+}
+
+private enum DemoControlsStyle: String, CaseIterable, Identifiable {
+    case `default`
+    case minimal
+    case tinted
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .default: "Default"
+        case .minimal: "Minimal"
+        case .tinted: "Tinted"
+        }
+    }
+
+    @MainActor
+    var style: ABPlayerControlsStyle {
+        switch self {
+        case .default: .default
+        case .minimal: .minimal
+        case .tinted: .tinted
+        }
     }
 }

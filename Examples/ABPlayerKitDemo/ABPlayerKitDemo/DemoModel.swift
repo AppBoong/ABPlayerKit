@@ -451,11 +451,16 @@ private extension ABPlayerEvent {
         case .playbackStalled: "Playback stalled"
         case .playedToEnd: "Playback reached the end"
         case .timeControlStatusChanged(let status): "Playback: \(String(describing: status))"
+        case .rateChanged(let rate): "Rate: \(String(format: "%g", rate))×"
+        case .scrubbingChanged(let isScrubbing): isScrubbing ? "Scrubbing began" : "Scrubbing ended"
+        case .seekCompleted(let time): "Seek: \(ABTimeFormatter.string(from: time))"
+        case .periodicTime(let time): "Time: \(ABTimeFormatter.string(from: time.currentTime))"
         case .failed(let error): "Error: \(String(describing: error))"
         case .tuningApplied(let role, _): "Applied \(String(describing: role)) tuning"
         case .itemDetached(let reason): "Detached: \(String(describing: reason))"
         case .invalidGradeForSource: "Grade rejected for empty source"
         case .playbackRejected: "Playback command rejected"
+        @unknown default: "Playback event"
         }
     }
 }
