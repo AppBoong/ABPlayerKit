@@ -307,6 +307,29 @@ struct ABPlayerControlsLayoutTests {
         #expect(rateButton.minY >= seekBar.maxY)
     }
 
+    @Test("Given a short overlay where the bottom cluster's touch row vertically overlaps the centered transport row, buttons still win hit testing over the seek bar")
+    func bottomClusterOverlapFavorsButtonsOverSeekBar() {
+        let view = ABPlayerControlsView()
+        view.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
+        view.layoutIfNeeded()
+
+        // Confirm the overlap this test guards against is real, not hypothetical:
+        // the seek bar's 44pt touch row and the centered transport row's 44pt
+        // touch row actually intersect at this (realistic, 16:9-at-390pt-wide)
+        // overlay size.
+        let seekBar = view.renderedSeekBarFrame
+        let transport = view.renderedTransportControlsFrame
+        #expect(seekBar.intersects(transport))
+
+        for control in [view.playPauseButton, view.skipForwardButton, view.skipBackwardButton] {
+            let center = control.convert(
+                CGPoint(x: control.bounds.midX, y: control.bounds.midY),
+                to: view
+            )
+            #expect(view.hitTest(center, with: nil) === control)
+        }
+    }
+
     @Test("Given a hidden rate control, the seek bar still spans the full width and the row below collapses")
     func hiddenRateKeepsFullWidthSeekBar() {
         var configuration = ABPlayerControlsConfiguration()

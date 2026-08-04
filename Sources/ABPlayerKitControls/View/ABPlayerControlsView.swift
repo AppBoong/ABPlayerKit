@@ -151,12 +151,17 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         if controlsContentView.isUserInteractionEnabled,
            !controlsContentView.isHidden,
            controlsContentView.alpha > 0.01 {
+            // Small, specific circular targets first; the full-width seek bar's
+            // broad touch-target row is checked last. On short overlays the
+            // bottom cluster's 44pt touch rows can vertically overlap the
+            // centered transport row (see ABPlayerControlsLayoutTests) — when
+            // they do, the more specific button must win, not the seek bar.
             for control in [
-                rateButton,
-                seekBar,
-                skipForwardButton,
                 playPauseButton,
-                skipBackwardButton
+                skipForwardButton,
+                skipBackwardButton,
+                rateButton,
+                seekBar
             ] {
                 let controlPoint = control.convert(point, from: self)
                 if let hitView = control.hitTest(controlPoint, with: event) {
