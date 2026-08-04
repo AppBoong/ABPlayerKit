@@ -67,6 +67,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     private var forwardHeightConstraint: NSLayoutConstraint?
     private var rateWidthConstraint: NSLayoutConstraint?
     private var rateHeightConstraint: NSLayoutConstraint?
+    private var elapsedMinimumWidthConstraint: NSLayoutConstraint?
+    private var durationMinimumWidthConstraint: NSLayoutConstraint?
+    private var equalTimeLabelWidthConstraint: NSLayoutConstraint?
 
     var displayedPlayPauseImage: UIImage? { playPauseButton.image(for: .normal) }
     var displayedRateText: String? { rateButton.title(for: .normal) }
@@ -80,6 +83,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     var backgroundContentAlpha: CGFloat { controlsBackgroundView.alpha }
     var renderedBackgroundContentView: UIView? { controlsBackgroundView.renderedContentView }
     var renderedBackgroundGradientLayer: CAGradientLayer? { controlsBackgroundView.gradientLayer }
+    private(set) var styleLayoutInvalidationCount = 0
+    var hasFixedWidthTimeLabels: Bool { equalTimeLabelWidthConstraint?.isActive == true }
+    var fixedTimeLabelMinimumWidth: CGFloat { elapsedMinimumWidthConstraint?.constant ?? 0 }
 
     public init(
         style: ABPlayerControlsStyle = .default,
@@ -187,6 +193,16 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         forwardHeightConstraint = skipForwardButton.heightAnchor.constraint(equalToConstant: style.skipButtonSize.height)
         rateWidthConstraint = rateButton.widthAnchor.constraint(equalToConstant: style.rateButtonSize.width)
         rateHeightConstraint = rateButton.heightAnchor.constraint(equalToConstant: style.rateButtonSize.height)
+        elapsedMinimumWidthConstraint = elapsedLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)
+        durationMinimumWidthConstraint = durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)
+        equalTimeLabelWidthConstraint = elapsedLabel.widthAnchor.constraint(equalTo: durationLabel.widthAnchor)
+        for constraint in [
+            elapsedMinimumWidthConstraint,
+            durationMinimumWidthConstraint,
+            equalTimeLabelWidthConstraint
+        ].compactMap({ $0 }) {
+            constraint.priority = .defaultHigh
+        }
         NSLayoutConstraint.activate([
             playWidthConstraint,
             playHeightConstraint,
@@ -288,7 +304,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func applyStyle(previous: ABPlayerControlsStyle?) {
-        controlsBackgroundView.apply(style.backgroundStyle)
+        let replacedBackground = controlsBackgroundView.apply(style.backgroundStyle)
         controlsBackgroundView.layer.cornerRadius = style.containerCornerRadius
         controlsBackgroundView.clipsToBounds = style.containerCornerRadius > 0
         directionalLayoutMargins = style.contentInsets
@@ -299,6 +315,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         durationLabel.textColor = style.timeLabelColor
         elapsedLabel.font = style.timeLabelFont
         durationLabel.font = style.timeLabelFont
+        updateTimeLabelWidthConstraints(using: style.timeLabelFont)
         playWidthConstraint?.constant = style.playPauseButtonSize.width
         playHeightConstraint?.constant = style.playPauseButtonSize.height
         backwardWidthConstraint?.constant = style.skipButtonSize.width
@@ -310,7 +327,16 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         updatePlaybackIcon()
         updateSkipIcons()
         updateRate(player?.rate ?? 1)
-        setNeedsLayout()
+        guard let previous else { return }
+        if style.iconsDiffer(from: previous) {
+            for button in [playPauseButton, skipBackwardButton, skipForwardButton, rateButton] {
+                button.invalidateIntrinsicContentSize()
+            }
+        }
+        if replacedBackground || style.requiresControlsLayout(comparedTo: previous) {
+            styleLayoutInvalidationCount += 1
+            setNeedsLayout()
+        }
     }
 
     private func applyConfiguration(previous: ABPlayerControlsConfiguration?) {
@@ -336,6 +362,21 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             ))
         }
         backgroundTapRecognizer.isEnabled = configuration.handlesBackgroundTap
+    }
+
+    private func updateTimeLabelWidthConstraints(using font: UIFont) {
+        let constraints = [
+            elapsedMinimumWidthConstraint,
+            durationMinimumWidthConstraint,
+            equalTimeLabelWidthConstraint
+        ].compactMap { $0 }
+        NSLayoutConstraint.deactivate(constraints)
+        guard style.usesFixedWidthTimeLabels else { return }
+        let reference = "59:59" as NSString
+        let width = ceil(reference.size(withAttributes: [.font: font]).width)
+        elapsedMinimumWidthConstraint?.constant = width
+        durationMinimumWidthConstraint?.constant = width
+        NSLayoutConstraint.activate(constraints)
     }
 
     private func updatePlaybackIcon() {
@@ -588,5 +629,41 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             view = current.superview
         }
         return true
+    }
+}
+
+private extension ABPlayerControlsStyle {
+    func iconsDiffer(from previous: Self) -> Bool {
+        playIcon != previous.playIcon
+            || pauseIcon != previous.pauseIcon
+            || skipBackwardIcon != previous.skipBackwardIcon
+            || skipForwardIcon != previous.skipForwardIcon
+            || iconPointSize != previous.iconPointSize
+            || iconWeight != previous.iconWeight
+            || iconRenderingMode != previous.iconRenderingMode
+            || rateLabelStyle != previous.rateLabelStyle
+    }
+
+    func requiresControlsLayout(comparedTo previous: Self) -> Bool {
+        playPauseButtonSize != previous.playPauseButtonSize
+            || skipButtonSize != previous.skipButtonSize
+            || buttonSpacing != previous.buttonSpacing
+            || timeLabelFont != previous.timeLabelFont
+            || usesFixedWidthTimeLabels != previous.usesFixedWidthTimeLabels
+            || trackHeight != previous.trackHeight
+            || trackHeightWhileScrubbing != previous.trackHeightWhileScrubbing
+            || trackCornerRadius != previous.trackCornerRadius
+            || seekBarHorizontalInset != previous.seekBarHorizontalInset
+            || thumbSize != previous.thumbSize
+            || thumbSizeWhileScrubbing != previous.thumbSizeWhileScrubbing
+            || thumbBorderWidth != previous.thumbBorderWidth
+            || thumbCornerRadius != previous.thumbCornerRadius
+            || thumbShadowRadius != previous.thumbShadowRadius
+            || thumbImage != previous.thumbImage
+            || isThumbHidden != previous.isThumbHidden
+            || rateButtonSize != previous.rateButtonSize
+            || contentInsets != previous.contentInsets
+            || containerCornerRadius != previous.containerCornerRadius
+            || seekBarBottomSpacing != previous.seekBarBottomSpacing
     }
 }

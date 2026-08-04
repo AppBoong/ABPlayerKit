@@ -4,8 +4,16 @@ import UIKit
 final class ABControlsBackgroundView: UIView {
     private(set) var renderedContentView: UIView?
     private(set) var gradientLayer: CAGradientLayer?
+    private var currentStyle: ABControlsBackgroundStyle?
 
-    func apply(_ style: ABControlsBackgroundStyle) {
+    @discardableResult
+    func apply(_ style: ABControlsBackgroundStyle) -> Bool {
+        if let currentStyle, Self.hasSameKind(currentStyle, style) {
+            update(style)
+            self.currentStyle = style
+            return false
+        }
+
         renderedContentView?.removeFromSuperview()
         renderedContentView = nil
         gradientLayer?.removeFromSuperlayer()
@@ -36,10 +44,37 @@ final class ABControlsBackgroundView: UIView {
             ])
             renderedContentView = effectView
         }
+        currentStyle = style
+        return true
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         gradientLayer?.frame = bounds
+    }
+
+    private func update(_ style: ABControlsBackgroundStyle) {
+        switch style {
+        case .none:
+            break
+        case .color(let color):
+            backgroundColor = color
+        case .gradient(let top, let bottom):
+            gradientLayer?.colors = [top.cgColor, bottom.cgColor]
+        case .blur(let effectStyle):
+            (renderedContentView as? UIVisualEffectView)?.effect = UIBlurEffect(style: effectStyle)
+        }
+    }
+
+    private static func hasSameKind(
+        _ lhs: ABControlsBackgroundStyle,
+        _ rhs: ABControlsBackgroundStyle
+    ) -> Bool {
+        switch (lhs, rhs) {
+        case (.none, .none), (.color, .color), (.gradient, .gradient), (.blur, .blur):
+            true
+        default:
+            false
+        }
     }
 }

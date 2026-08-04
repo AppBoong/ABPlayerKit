@@ -2,6 +2,8 @@ import UIKit
 
 @MainActor
 final class ABControlButton: UIButton {
+    private(set) var resolvedIcon: ABControlIcon?
+
     private var highlightedAlpha: CGFloat = 0.5
 
     override var isHighlighted: Bool {
@@ -15,6 +17,7 @@ final class ABControlButton: UIButton {
     }
 
     func apply(icon: ABControlIcon, style: ABPlayerControlsStyle) {
+        resolvedIcon = icon
         highlightedAlpha = min(max(style.buttonHighlightedAlpha, 0), 1)
         switch icon {
         case .system(let name):
