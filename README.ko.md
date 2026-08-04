@@ -9,7 +9,7 @@
 
 ABPlayerKit은 `AVPlayer`를 얇게 감싸면서 측정 가능성을 제공하는 래퍼입니다. 네 단계 재생 등급 상태 머신으로 재생 자원 소유권을 명시하고, 첫 프레임 표시 시간(TTFF)을 정확히 정의합니다. 현재 아이템에 대해 `AVPlayerLayer.isReadyForDisplay`와 `AVPlayerItem.status == .readyToPlay`가 **모두** 참일 때만 첫 프레임이 표시된 것으로 판단합니다.
 
-AVFoundation을 숨기지 않으면서 승격과 강등을 대칭으로 처리하고, 선택 기능인 메트릭과 캐시는 독립적으로 링크하는 별도 타겟으로 분리합니다.
+AVFoundation을 숨기지 않으면서 승격과 강등을 대칭으로 처리하고, 선택 기능인 컨트롤·메트릭·캐시는 독립적으로 링크하는 별도 타겟으로 분리합니다.
 
 ## 요구 사항
 
@@ -31,7 +31,7 @@ https://github.com/AppBoong/ABPlayerKit.git
 dependencies: [
     .package(
         url: "https://github.com/AppBoong/ABPlayerKit.git",
-        from: "0.1.0"
+        from: "0.2.0"
     )
 ],
 targets: [
@@ -40,6 +40,7 @@ targets: [
         dependencies: [
             .product(name: "ABPlayerKit", package: "ABPlayerKit"),
             // 필요할 때만 링크합니다.
+            .product(name: "ABPlayerKitControls", package: "ABPlayerKit"),
             .product(name: "ABPlayerKitMetrics", package: "ABPlayerKit"),
             .product(name: "ABPlayerKitCache", package: "ABPlayerKit")
         ]
@@ -47,7 +48,7 @@ targets: [
 ]
 ```
 
-릴리스 전 개발 버전을 사용하려면 `from: "0.1.0"`을 `branch: "main"`으로 바꾸세요. 애플리케이션에서는 위의 버전 조건 사용을 권장합니다.
+릴리스 전 개발 버전을 사용하려면 `from: "0.2.0"`을 `branch: "main"`으로 바꾸세요. 애플리케이션에서는 위의 버전 조건 사용을 권장합니다.
 
 ## 빠른 시작
 
@@ -130,6 +131,13 @@ struct VideoScreen: View {
 
 ## 타겟
 
+| 제품 | 추가 기능 | 링크 시점 |
+|---|---|---|
+| `ABPlayerKit` | 재생 엔진, UIKit 렌더링, SwiftUI 비디오 래퍼 | 항상 |
+| `ABPlayerKitControls` | 타임라인, 버튼, 배속 선택, 자동 숨김, UIKit/SwiftUI 컨트롤 | 표준 컨트롤 레이어가 필요할 때 |
+| `ABPlayerKitMetrics` | TTFF 기록, sink, 집계 | 재생을 측정할 때 |
+| `ABPlayerKitCache` | 프로그레시브 캐시와 명시적 HLS 프리페치 | 오프라인/캐시 동작을 소유할 때 |
+
 ### `ABPlayerKit` — 코어
 
 코어 타겟은 재생 상태 머신, UIKit 뷰, SwiftUI 래퍼, 튜닝, 백그라운드/오디오 정책, 토큰 기반 이벤트를 소유합니다.
@@ -155,6 +163,53 @@ let token = player.addObserver { event in
 // 관찰이 필요한 동안 token을 보관합니다.
 token.cancel()
 ```
+
+### `ABPlayerKitControls` — 선택형 재생 컨트롤
+
+UIKit 앱에서는 `ABPlayerControlsView`를 `ABPlayerView` 위에 배치하고 같은 플레이어를 연결합니다.
+
+```swift
+import ABPlayerKit
+import ABPlayerKitControls
+
+let videoView = ABPlayerView()
+videoView.player = player
+
+let controlsView = ABPlayerControlsView()
+controlsView.player = player
+```
+
+SwiftUI 앱에서는 미리 조립된 편의 뷰를 사용할 수 있습니다.
+
+```swift
+import ABPlayerKit
+import ABPlayerKitControls
+import SwiftUI
+
+ABVideoPlayerWithControls(
+    player: player,
+    videoGravity: .resizeAspect
+)
+.aspectRatio(16 / 9, contentMode: .fit)
+```
+
+스타일은 기존 컨트롤 뷰에 즉시 반영됩니다. 뒷편 트랙, 재생 완료 구간, 썸 외형, 아이콘을 각각 바꿀 수 있습니다.
+
+```swift
+var style = ABPlayerControlsStyle.default
+style.trackColor = .white.withAlphaComponent(0.2)
+style.progressColor = .systemPink
+style.thumbColor = .systemPink
+style.thumbSize = CGSize(width: 14, height: 14)
+style.playIcon = .system("play.circle.fill")
+style.pauseIcon = .system("pause.circle.fill")
+
+controlsView.style = style
+```
+
+동작은 `ABPlayerControlsConfiguration`으로 설정합니다. 주기 UI 갱신 간격 기본값은 0.25초이고, 지원되는 스킵 간격에 맞춰 아이콘을 동기화하며, 배속 선택은 메뉴·순환·숨김 모드를 지원합니다. VoiceOver 실행 중에는 자동 숨김을 억제하고 Reduce Motion에서는 페이드를 제거합니다.
+
+컨트롤을 별도 제품으로 둔 이유는 피드나 백그라운드 플레이어가 자체 제스처를 제공하거나 UI가 전혀 없는 경우가 많기 때문입니다. 그런 소비자는 작은 코어만 링크하고, 표준 플레이어 화면만 UIKit 컨트롤과 SwiftUI 래퍼를 import 한 줄로 선택합니다.
 
 ### `ABPlayerKitMetrics` — 링크로 선택하는 메트릭
 
@@ -269,8 +324,10 @@ player.set(source: source, grade: .preloaded) // preloadTuning 복원
 flowchart TD
     Consumer[소비자] --> PlayerView[ABPlayerView]
     Consumer --> VideoPlayer[ABVideoPlayer]
+    Consumer --> Controls[ABPlayerKitControls]
     PlayerView --> Player[ABPlayer]
     VideoPlayer --> Player
+    Controls --> Player
     Player --> Planner[ABGradePlanner<br/>순수 상태 머신]
     Player --> Target[ABPlaybackTarget<br/>internal 테스트 이음매]
     Target --> AVTarget[ABAVPlaybackTarget]

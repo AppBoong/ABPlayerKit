@@ -9,7 +9,7 @@
 
 ABPlayerKit is a thin, measurable wrapper around `AVPlayer`. It makes playback resource ownership explicit with a four-grade state machine and defines time to first frame (TTFF) precisely: the first frame is displayed only when `AVPlayerLayer.isReadyForDisplay` **and** `AVPlayerItem.status == .readyToPlay` are both true for the current item.
 
-The package keeps AVFoundation visible, adds symmetric promotion and demotion, and separates optional metrics and cache behavior into independently linked targets.
+The package keeps AVFoundation visible, adds symmetric promotion and demotion, and separates optional controls, metrics, and cache behavior into independently linked targets.
 
 ## Requirements
 
@@ -31,7 +31,7 @@ Or add it to `Package.swift`:
 dependencies: [
     .package(
         url: "https://github.com/AppBoong/ABPlayerKit.git",
-        from: "0.1.0"
+        from: "0.2.0"
     )
 ],
 targets: [
@@ -40,6 +40,7 @@ targets: [
         dependencies: [
             .product(name: "ABPlayerKit", package: "ABPlayerKit"),
             // Link only when needed:
+            .product(name: "ABPlayerKitControls", package: "ABPlayerKit"),
             .product(name: "ABPlayerKitMetrics", package: "ABPlayerKit"),
             .product(name: "ABPlayerKitCache", package: "ABPlayerKit")
         ]
@@ -47,7 +48,7 @@ targets: [
 ]
 ```
 
-For unreleased development, replace `from: "0.1.0"` with `branch: "main"`. Applications should prefer the version requirement shown above.
+For unreleased development, replace `from: "0.2.0"` with `branch: "main"`. Applications should prefer the version requirement shown above.
 
 ## Quick Start
 
@@ -130,6 +131,13 @@ struct VideoScreen: View {
 
 ## Targets
 
+| Product | What it adds | Link when |
+|---|---|---|
+| `ABPlayerKit` | Playback engine, UIKit rendering, SwiftUI video wrapper | Always |
+| `ABPlayerKitControls` | Timeline, buttons, rate selection, auto-hide, UIKit and SwiftUI controls | The app wants the standard controls layer |
+| `ABPlayerKitMetrics` | TTFF recording, sinks, and aggregation | The app measures playback |
+| `ABPlayerKitCache` | Progressive caching and explicit HLS prefetch | The app owns offline/cache behavior |
+
 ### `ABPlayerKit` — Core
 
 The core target owns the playback state machine, UIKit view, SwiftUI wrapper, tuning, background/audio policies, and token-based events.
@@ -155,6 +163,53 @@ let token = player.addObserver { event in
 // Retain token for as long as observation is needed.
 token.cancel()
 ```
+
+### `ABPlayerKitControls` — Opt-in Playback Controls
+
+UIKit applications place `ABPlayerControlsView` over `ABPlayerView` and attach the same player:
+
+```swift
+import ABPlayerKit
+import ABPlayerKitControls
+
+let videoView = ABPlayerView()
+videoView.player = player
+
+let controlsView = ABPlayerControlsView()
+controlsView.player = player
+```
+
+SwiftUI applications can use the ready-made composition:
+
+```swift
+import ABPlayerKit
+import ABPlayerKitControls
+import SwiftUI
+
+ABVideoPlayerWithControls(
+    player: player,
+    videoGravity: .resizeAspect
+)
+.aspectRatio(16 / 9, contentMode: .fit)
+```
+
+Style changes apply live to the existing controls. Track, played progress, thumb appearance, and icons are independent:
+
+```swift
+var style = ABPlayerControlsStyle.default
+style.trackColor = .white.withAlphaComponent(0.2)
+style.progressColor = .systemPink
+style.thumbColor = .systemPink
+style.thumbSize = CGSize(width: 14, height: 14)
+style.playIcon = .system("play.circle.fill")
+style.pauseIcon = .system("pause.circle.fill")
+
+controlsView.style = style
+```
+
+Behavior lives in `ABPlayerControlsConfiguration`: the default periodic UI update interval is 0.25 seconds, skip icons synchronize with supported intervals, and rate selection supports menu, cycle, and hidden modes. VoiceOver suppresses auto-hide; Reduce Motion removes fades.
+
+The controls remain a separate product because many feeds and background players provide their own gestures or no UI at all. Those consumers link only the small core, while standard-player screens opt into UIKit controls and their SwiftUI wrapper with one additional import.
 
 ### `ABPlayerKitMetrics` — Opt-in by Linkage
 
@@ -269,8 +324,10 @@ This symmetry prevents a demoted item from retaining the unrestricted/current po
 flowchart TD
     Consumer --> PlayerView[ABPlayerView]
     Consumer --> VideoPlayer[ABVideoPlayer]
+    Consumer --> Controls[ABPlayerKitControls]
     PlayerView --> Player[ABPlayer]
     VideoPlayer --> Player
+    Controls --> Player
     Player --> Planner[ABGradePlanner<br/>pure state machine]
     Player --> Target[ABPlaybackTarget<br/>internal test seam]
     Target --> AVTarget[ABAVPlaybackTarget]
