@@ -354,4 +354,36 @@ struct ABPlayerControlsLayoutTests {
             with: nil
         ) === view)
     }
+
+    @Test("Given a touch that resolves to a control (or a descendant of one), the background-tap recognizer must refuse it")
+    func backgroundTapRecognizerRefusesControlTouches() {
+        let view = ABPlayerControlsView()
+        view.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
+        view.layoutIfNeeded()
+
+        for control in [
+            view.playPauseButton,
+            view.skipBackwardButton,
+            view.skipForwardButton,
+            view.rateButton,
+            view.seekBar
+        ] {
+            #expect(!ABPlayerControlsView.backgroundTapShouldReceiveTouch(on: control, upTo: view))
+        }
+
+        // A real touch's `touch.view` can resolve to a control's internal subview
+        // (e.g. a UIButton's title/image view) rather than the control itself —
+        // the walk up to `root` must still find the ancestor UIControl and refuse.
+        let imageView = view.playPauseButton.imageView
+        #expect(imageView != nil)
+        if let imageView {
+            #expect(!ABPlayerControlsView.backgroundTapShouldReceiveTouch(on: imageView, upTo: view))
+        }
+
+        // Plain layout containers and the view itself are not controls — the
+        // background tap must still fire for taps on genuinely empty space.
+        #expect(ABPlayerControlsView.backgroundTapShouldReceiveTouch(on: view.seekBar.superview, upTo: view))
+        #expect(ABPlayerControlsView.backgroundTapShouldReceiveTouch(on: view, upTo: view))
+        #expect(ABPlayerControlsView.backgroundTapShouldReceiveTouch(on: nil, upTo: view))
+    }
 }

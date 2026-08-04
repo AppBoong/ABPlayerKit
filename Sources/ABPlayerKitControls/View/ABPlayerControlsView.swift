@@ -823,10 +823,18 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         shouldReceive touch: UITouch
     ) -> Bool {
         guard gestureRecognizer === backgroundTapRecognizer else { return true }
-        var view = touch.view
-        while let current = view, current !== self {
-            if current is UIControl { return false }
-            view = current.superview
+        return Self.backgroundTapShouldReceiveTouch(on: touch.view, upTo: self)
+    }
+
+    /// `true` unless `view` (or an ancestor strictly between it and `root`) is a
+    /// `UIControl` — real button/seek-bar touches must never also recognize the
+    /// whole-overlay background tap. Factored out of the delegate callback so it's
+    /// testable without a real `UITouch` (UIKit gives no public initializer for one).
+    static func backgroundTapShouldReceiveTouch(on view: UIView?, upTo root: UIView) -> Bool {
+        var current = view
+        while let node = current, node !== root {
+            if node is UIControl { return false }
+            current = node.superview
         }
         return true
     }
