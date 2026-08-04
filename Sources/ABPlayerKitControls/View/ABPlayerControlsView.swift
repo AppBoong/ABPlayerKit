@@ -207,7 +207,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             rootStack.bottomAnchor.constraint(equalTo: layoutMarginsGuide.bottomAnchor),
             rateButton.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
             rateButton.centerYAnchor.constraint(equalTo: seekBar.centerYAnchor),
-            seekBar.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
+            seekBar.heightAnchor.constraint(equalToConstant: 44)
         ])
         updateTimelineTrailingConstraint(rateIsHidden: false)
 

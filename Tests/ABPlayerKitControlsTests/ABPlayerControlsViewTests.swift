@@ -205,6 +205,7 @@ struct ABPlayerControlsLayoutTests {
         let rateButton = view.renderedRateButtonFrame
         #expect(abs(transport.midX - view.bounds.midX) < 0.5)
         #expect(abs(transport.midY - view.bounds.midY) < 0.5)
+        #expect(abs(seekBar.height - 44) < 0.5)
         #expect(abs(seekBar.maxY - (view.bounds.maxY - view.style.contentInsets.bottom)) < 0.5)
         #expect(seekBar.midY > view.bounds.midY)
         #expect(abs(timeLabel.minX - seekBar.minX) < 0.5)
