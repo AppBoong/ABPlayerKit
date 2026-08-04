@@ -1,3 +1,4 @@
+@preconcurrency import AVFoundation
 import ABPlayerKit
 import SwiftUI
 import Testing
@@ -42,6 +43,47 @@ struct ABVideoPlayerWithControlsTests {
         #expect(controlsView?.alpha == 1)
         #expect(controlsView?.isHidden == false)
         #expect(controlsView?.hitTest(CGPoint(x: 160, y: 45), with: nil) != nil)
+    }
+
+    @Test("Given mounted SwiftUI controls, window hit testing reaches every interactive control")
+    func mountedControlsReceiveTouches() throws {
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        player.set(
+            source: ABMediaSource(url: URL(string: "https://example.com/touch-test.mp4")!),
+            grade: .current
+        )
+        let rootView = ABVideoPlayerWithControls(player: player)
+            .frame(width: 390, height: 220)
+        let hostingController = UIHostingController(rootView: rootView)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 300))
+        window.rootViewController = hostingController
+        window.isHidden = false
+        defer { window.isHidden = true }
+        hostingController.view.frame = window.bounds
+        hostingController.view.layoutIfNeeded()
+        let controlsView = try #require(
+            hostingController.view.firstDescendant(of: ABPlayerControlsView.self)
+        )
+        controlsView.handlePlayerEvent(.periodicTime(ABPlaybackTime(
+            currentTime: CMTime(seconds: 30, preferredTimescale: 600),
+            duration: CMTime(seconds: 120, preferredTimescale: 600),
+            bufferedUntil: nil
+        )))
+        hostingController.view.layoutIfNeeded()
+
+        for control in [
+            controlsView.skipBackwardButton,
+            controlsView.playPauseButton,
+            controlsView.skipForwardButton,
+            controlsView.rateButton,
+            controlsView.seekBar
+        ] {
+            let center = control.convert(
+                CGPoint(x: control.bounds.midX, y: control.bounds.midY),
+                to: hostingController.view
+            )
+            #expect(hostingController.view.hitTest(center, with: nil) === control)
+        }
     }
 }
 

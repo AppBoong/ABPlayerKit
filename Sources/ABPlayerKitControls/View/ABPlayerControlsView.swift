@@ -140,6 +140,31 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         observerRegistry.add(handler)
     }
 
+    public override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard isUserInteractionEnabled,
+              !isHidden,
+              alpha > 0.01 else {
+            return nil
+        }
+        if controlsContentView.isUserInteractionEnabled,
+           !controlsContentView.isHidden,
+           controlsContentView.alpha > 0.01 {
+            for control in [
+                rateButton,
+                seekBar,
+                skipForwardButton,
+                playPauseButton,
+                skipBackwardButton
+            ] {
+                let controlPoint = control.convert(point, from: self)
+                if let hitView = control.hitTest(controlPoint, with: event) {
+                    return hitView
+                }
+            }
+        }
+        return super.hitTest(point, with: event)
+    }
+
     deinit {
         hideTask?.cancel()
         playerObservationToken?.cancel()

@@ -229,4 +229,41 @@ struct ABPlayerControlsLayoutTests {
                 - (view.bounds.maxX - view.style.contentInsets.trailing)
         ) < 0.5)
     }
+
+    @Test("Given visible controls, hit testing reaches every interactive control")
+    func interactiveControlHitTesting() {
+        let view = ABPlayerControlsView()
+        view.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
+        view.handlePlayerEvent(.periodicTime(ABPlaybackTime(
+            currentTime: CMTime(seconds: 30, preferredTimescale: 600),
+            duration: CMTime(seconds: 120, preferredTimescale: 600),
+            bufferedUntil: nil
+        )))
+
+        view.layoutIfNeeded()
+
+        // Layout-only containers must never gate their visibly positioned controls.
+        view.playPauseButton.superview?.isUserInteractionEnabled = false
+        view.seekBar.superview?.isUserInteractionEnabled = false
+
+        for control in [
+            view.skipBackwardButton,
+            view.playPauseButton,
+            view.skipForwardButton,
+            view.rateButton,
+            view.seekBar
+        ] {
+            let center = control.convert(
+                CGPoint(x: control.bounds.midX, y: control.bounds.midY),
+                to: view
+            )
+            #expect(view.hitTest(center, with: nil) === control)
+        }
+
+        view.setControlsVisible(false, animated: false)
+        #expect(view.hitTest(
+            CGPoint(x: view.bounds.midX, y: view.bounds.midY),
+            with: nil
+        ) === view)
+    }
 }
