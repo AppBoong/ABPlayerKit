@@ -94,6 +94,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     var fixedTimeLabelMinimumWidth: CGFloat { elapsedMinimumWidthConstraint?.constant ?? 0 }
     var renderedTransportControlsFrame: CGRect { buttonStack.convert(buttonStack.bounds, to: self) }
     var renderedSeekBarFrame: CGRect { seekBar.convert(seekBar.bounds, to: self) }
+    /// The seek bar's *drawn* track — smaller than `renderedSeekBarFrame`, which
+    /// is the full 44pt touch-target row the track is centered inside.
+    var renderedSeekBarVisibleTrackFrame: CGRect { seekBar.convert(seekBar.renderedTrackFrame, to: self) }
     var renderedBottomRowFrame: CGRect { bottomStack.convert(bottomStack.bounds, to: self) }
     var renderedTimeLabelFrame: CGRect { elapsedLabel.convert(elapsedLabel.bounds, to: self) }
     var renderedRateButtonFrame: CGRect { rateButton.convert(rateButton.bounds, to: self) }
@@ -177,10 +180,28 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         playerObservationToken?.cancel()
     }
 
+    /// The seek bar's fixed touch-target row height. The visible track is
+    /// vertically centered inside it (see `ABSeekBar.layoutSubviews`), so the
+    /// row is taller than the drawn track by design (44pt hit area, HIG/a11y).
+    private static let seekBarTouchRowHeight: CGFloat = 44
+
+    /// `style.seekBarBottomSpacing` is a gap between the seek bar's *visible*
+    /// track and the row below it, not between the full 44pt touch-target row
+    /// and that row. Since the track sits centered inside the touch row, half
+    /// of the touch row's slack below the track must be subtracted from the
+    /// stack spacing to land the track itself at the requested distance — this
+    /// routinely goes negative, deliberately overlapping the touch row with the
+    /// row below (hit-test priority in `hitTest(_:with:)` already resolves any
+    /// resulting ambiguity in favor of the more specific control).
+    private func rootStackSpacing(for style: ABPlayerControlsStyle) -> CGFloat {
+        let touchRowSlackBelowTrack = (Self.seekBarTouchRowHeight - style.trackHeight) / 2
+        return style.seekBarBottomSpacing - touchRowSlackBelowTrack
+    }
+
     private func buildViewHierarchy() {
         directionalLayoutMargins = style.contentInsets
         rootStack.axis = .vertical
-        rootStack.spacing = style.seekBarBottomSpacing
+        rootStack.spacing = rootStackSpacing(for: style)
         rootStack.translatesAutoresizingMaskIntoConstraints = false
 
         buttonStack.axis = .horizontal
@@ -232,7 +253,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             rootStack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
             rootStack.topAnchor.constraint(greaterThanOrEqualTo: layoutMarginsGuide.topAnchor),
             rootStack.bottomAnchor.constraint(equalTo: layoutMarginsGuide.bottomAnchor),
-            seekBar.heightAnchor.constraint(equalToConstant: 44)
+            seekBar.heightAnchor.constraint(equalToConstant: Self.seekBarTouchRowHeight)
         ])
 
         playWidthConstraint = playPauseButton.widthAnchor.constraint(equalToConstant: style.playPauseButtonSize.width)
@@ -353,7 +374,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         controlsBackgroundView.layer.cornerRadius = style.containerCornerRadius
         controlsBackgroundView.clipsToBounds = style.containerCornerRadius > 0
         directionalLayoutMargins = style.contentInsets
-        rootStack.spacing = style.seekBarBottomSpacing
+        rootStack.spacing = rootStackSpacing(for: style)
         buttonStack.spacing = style.buttonSpacing
         seekBar.style = style
         elapsedLabel.textColor = style.timeLabelColor

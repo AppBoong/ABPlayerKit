@@ -266,7 +266,7 @@ struct ABPlayerControlsEventReflectionTests {
 @Suite("Controls follow the release overlay geometry")
 @MainActor
 struct ABPlayerControlsLayoutTests {
-    @Test("Given a video-sized overlay, the seek bar spans the full width and the bottom cluster hugs the overlay's bottom edge")
+    @Test("Given a video-sized overlay, the seek bar spans the full width and its visible track sits exactly 10pt above the bottom row")
     func releaseLayoutGeometry() {
         let view = ABPlayerControlsView()
         view.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
@@ -276,35 +276,43 @@ struct ABPlayerControlsLayoutTests {
 
         let transport = view.renderedTransportControlsFrame
         let seekBar = view.renderedSeekBarFrame
+        let visibleTrack = view.renderedSeekBarVisibleTrackFrame
         let bottomRow = view.renderedBottomRowFrame
         let timeLabel = view.renderedTimeLabelFrame
         let rateButton = view.renderedRateButtonFrame
         #expect(abs(transport.midX - view.bounds.midX) < 0.5)
         #expect(abs(transport.midY - view.bounds.midY) < 0.5)
+        // The seek bar's touch-target row stays a full 44pt tall (HIG/a11y) and
+        // spans the full overlay width with equal padding on both sides, even
+        // though (below) its *visible track* sits much closer to the row below.
         #expect(abs(seekBar.height - 44) < 0.5)
-        // Seek bar spans the full overlay width with equal padding on both sides.
         #expect(abs(seekBar.minX - view.style.contentInsets.leading) < 0.5)
         #expect(abs(seekBar.maxX - (view.bounds.maxX - view.style.contentInsets.trailing)) < 0.5)
         #expect(seekBar.midY > view.bounds.midY)
         // The default spacing between the seek bar and the row below it is pinned
         // to exactly 10pt — a regression test for the default value itself, not
         // just for whatever `style.seekBarBottomSpacing` happens to be set to.
+        // Critically, this is measured from the *visible track*'s bottom edge,
+        // not the touch row's — the track is centered inside the taller 44pt
+        // touch row, so the touch row necessarily extends upward past this gap
+        // (and can overlap the transport row above; hit-test priority resolves
+        // that, see `bottomClusterOverlapFavorsButtonsOverSeekBar`).
         #expect(view.style.seekBarBottomSpacing == 10)
-        #expect(abs(bottomRow.minY - seekBar.maxY - 10) < 0.5)
+        #expect(abs(bottomRow.minY - visibleTrack.maxY - 10) < 0.5)
+        #expect(visibleTrack.minY > seekBar.minY, "the visible track must be inset within the taller touch row, not flush with its top")
         // The row (time label + rate button) sits at the very bottom of the
         // overlay, inset only by contentInsets.bottom — nothing floats below it.
         #expect(abs(view.bounds.maxY - view.style.contentInsets.bottom - bottomRow.maxY) < 0.5)
-        // The whole cluster (seek bar + 10pt gap + row) hugs the bottom edge: its
-        // total height accounts for every point between the seek bar's top and
-        // the overlay's bottom margin — no extra slack anywhere in the cluster.
-        let clusterHeight = view.bounds.maxY - view.style.contentInsets.bottom - seekBar.minY
-        #expect(abs(clusterHeight - (seekBar.height + 10 + bottomRow.height)) < 0.5)
-        // Time label sits below the bar, flush with its leading edge.
+        // The whole *visible* cluster (track + 10pt gap + row) hugs the bottom
+        // edge: no extra slack between the track and the row below it.
+        let visibleClusterHeight = view.bounds.maxY - view.style.contentInsets.bottom - visibleTrack.minY
+        #expect(abs(visibleClusterHeight - (visibleTrack.height + 10 + bottomRow.height)) < 0.5)
+        // Time label sits below the visible track, flush with the seek bar's leading edge.
         #expect(abs(timeLabel.minX - seekBar.minX) < 0.5)
-        #expect(timeLabel.minY >= seekBar.maxY)
-        // Rate button sits below the bar, flush with its trailing edge.
+        #expect(timeLabel.minY >= visibleTrack.maxY)
+        // Rate button sits below the visible track, flush with the seek bar's trailing edge.
         #expect(abs(rateButton.maxX - seekBar.maxX) < 0.5)
-        #expect(rateButton.minY >= seekBar.maxY)
+        #expect(rateButton.minY >= visibleTrack.maxY)
     }
 
     @Test("Given a short overlay where the bottom cluster's touch row vertically overlaps the centered transport row, buttons still win hit testing over the seek bar")

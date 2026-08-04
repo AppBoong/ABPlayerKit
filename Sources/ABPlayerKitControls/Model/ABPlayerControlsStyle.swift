@@ -74,10 +74,14 @@ public struct ABPlayerControlsStyle: Equatable {
     )
     public var contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
     public var containerCornerRadius: CGFloat = 0
-    /// Vertical gap between the seek bar and the compact row below it
-    /// (the time label and rate button). The whole cluster (seek bar + this
-    /// gap + the row) hugs the overlay's bottom edge, inset by
-    /// `contentInsets.bottom` — only this gap separates the two rows.
+    /// Vertical gap between the seek bar's *visible track* and the compact row
+    /// below it (the time label and rate button) — not between the seek bar's
+    /// full 44pt touch-target row and that row; the track is centered inside
+    /// the taller touch row, so the touch area extends upward past this gap to
+    /// stay a full 44pt tall (hit-testing already favors the smaller controls
+    /// over the seek bar wherever their touch areas overlap). The whole visible
+    /// cluster (track + this gap + the row) hugs the overlay's bottom edge,
+    /// inset by `contentInsets.bottom`.
     public var seekBarBottomSpacing: CGFloat = 10
 
     public var visibilityAnimationDuration: TimeInterval = 0.25
