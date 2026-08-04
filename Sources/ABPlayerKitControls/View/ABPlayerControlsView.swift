@@ -46,6 +46,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     private let buttonStack = UIStackView()
     private let bottomStack = UIStackView()
     private let rootStack = UIStackView()
+    private let controlsBackgroundView = ABControlsBackgroundView()
     private let observerRegistry = ABControlsObserverRegistry()
     private var playerObservationToken: ABObservationToken?
     private var periodicIntervalLease: ABPeriodicIntervalLease?
@@ -76,6 +77,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     var hasScheduledAutoHide: Bool { hideTask != nil }
     var controlsContentAlpha: CGFloat { rootStack.alpha }
     var controlsContentIsInteractive: Bool { rootStack.isUserInteractionEnabled }
+    var backgroundContentAlpha: CGFloat { controlsBackgroundView.alpha }
+    var renderedBackgroundContentView: UIView? { controlsBackgroundView.renderedContentView }
+    var renderedBackgroundGradientLayer: CAGradientLayer? { controlsBackgroundView.gradientLayer }
 
     public init(
         style: ABPlayerControlsStyle = .default,
@@ -95,6 +99,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         resetTimeline()
         rootStack.alpha = isControlsVisible ? 1 : 0
         rootStack.isUserInteractionEnabled = isControlsVisible
+        controlsBackgroundView.alpha = rootStack.alpha
     }
 
     required init?(coder: NSCoder) {
@@ -155,11 +160,18 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
 
         rootStack.addArrangedSubview(seekBar)
         rootStack.addArrangedSubview(bottomStack)
+        controlsBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        controlsBackgroundView.isUserInteractionEnabled = false
+        addSubview(controlsBackgroundView)
         addSubview(rootStack)
         backgroundTapRecognizer.cancelsTouchesInView = false
         backgroundTapRecognizer.delegate = self
         addGestureRecognizer(backgroundTapRecognizer)
         NSLayoutConstraint.activate([
+            controlsBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            controlsBackgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            controlsBackgroundView.topAnchor.constraint(equalTo: topAnchor),
+            controlsBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
             rootStack.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
             rootStack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
             rootStack.topAnchor.constraint(greaterThanOrEqualTo: layoutMarginsGuide.topAnchor),
@@ -276,6 +288,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func applyStyle(previous: ABPlayerControlsStyle?) {
+        controlsBackgroundView.apply(style.backgroundStyle)
+        controlsBackgroundView.layer.cornerRadius = style.containerCornerRadius
+        controlsBackgroundView.clipsToBounds = style.containerCornerRadius > 0
         directionalLayoutMargins = style.contentInsets
         rootStack.spacing = style.seekBarBottomSpacing
         buttonStack.spacing = style.buttonSpacing
@@ -533,8 +548,10 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     private func applyControlsVisibility(_ visible: Bool, animated: Bool) {
         isControlsVisible = visible
         let changes = {
-            self.rootStack.alpha = visible ? 1 : 0
+            let alpha: CGFloat = visible ? 1 : 0
+            self.rootStack.alpha = alpha
             self.rootStack.isUserInteractionEnabled = visible
+            self.controlsBackgroundView.alpha = alpha
         }
         guard animated else {
             changes()
