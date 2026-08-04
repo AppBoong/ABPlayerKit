@@ -50,7 +50,7 @@ struct ABPlayerControlsAccessibilityTests {
 
         #expect(view.seekBar.accessibilityTraits.contains(.adjustable))
         #expect(originalValue?.isEmpty == false)
-        #expect(view.displayedElapsedText == "00:01:22")
+        #expect(view.displayedElapsedText == "00:01:22/00:03:45")
     }
 
     @Test("Given a rate change, its accessibility value reflects the multiplier")

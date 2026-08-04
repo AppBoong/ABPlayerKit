@@ -46,6 +46,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     private let buttonStack = UIStackView()
     private let bottomStack = UIStackView()
     private let rootStack = UIStackView()
+    private let controlsContentView = UIView()
     private let controlsBackgroundView = ABControlsBackgroundView()
     private let observerRegistry = ABControlsObserverRegistry()
     private var playerObservationToken: ABObservationToken?
@@ -72,8 +73,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     private var rateWidthConstraint: NSLayoutConstraint?
     private var rateHeightConstraint: NSLayoutConstraint?
     private var elapsedMinimumWidthConstraint: NSLayoutConstraint?
-    private var durationMinimumWidthConstraint: NSLayoutConstraint?
-    private var equalTimeLabelWidthConstraint: NSLayoutConstraint?
+    private var timelineTrailingToRateConstraint: NSLayoutConstraint?
+    private var timelineTrailingToMarginConstraint: NSLayoutConstraint?
 
     var displayedPlayPauseImage: UIImage? { playPauseButton.image(for: .normal) }
     var displayedRateText: String? { rateButton.title(for: .normal) }
@@ -82,14 +83,18 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     var controlsAreEnabled: Bool { playPauseButton.isEnabled }
     var isShowingPauseIcon: Bool { isPlayingState }
     var hasScheduledAutoHide: Bool { hideTask != nil }
-    var controlsContentAlpha: CGFloat { rootStack.alpha }
-    var controlsContentIsInteractive: Bool { rootStack.isUserInteractionEnabled }
+    var controlsContentAlpha: CGFloat { controlsContentView.alpha }
+    var controlsContentIsInteractive: Bool { controlsContentView.isUserInteractionEnabled }
     var backgroundContentAlpha: CGFloat { controlsBackgroundView.alpha }
     var renderedBackgroundContentView: UIView? { controlsBackgroundView.renderedContentView }
     var renderedBackgroundGradientLayer: CAGradientLayer? { controlsBackgroundView.gradientLayer }
     private(set) var styleLayoutInvalidationCount = 0
-    var hasFixedWidthTimeLabels: Bool { equalTimeLabelWidthConstraint?.isActive == true }
+    var hasFixedWidthTimeLabels: Bool { elapsedMinimumWidthConstraint?.isActive == true }
     var fixedTimeLabelMinimumWidth: CGFloat { elapsedMinimumWidthConstraint?.constant ?? 0 }
+    var renderedTransportControlsFrame: CGRect { buttonStack.convert(buttonStack.bounds, to: self) }
+    var renderedSeekBarFrame: CGRect { seekBar.convert(seekBar.bounds, to: self) }
+    var renderedTimeLabelFrame: CGRect { elapsedLabel.convert(elapsedLabel.bounds, to: self) }
+    var renderedRateButtonFrame: CGRect { rateButton.convert(rateButton.bounds, to: self) }
 
     public init(
         style: ABPlayerControlsStyle = .default,
@@ -107,9 +112,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         applyStyle(previous: nil)
         applyConfiguration(previous: nil)
         resetTimeline()
-        rootStack.alpha = isControlsVisible ? 1 : 0
-        rootStack.isUserInteractionEnabled = isControlsVisible
-        controlsBackgroundView.alpha = rootStack.alpha
+        controlsContentView.alpha = isControlsVisible ? 1 : 0
+        controlsContentView.isUserInteractionEnabled = isControlsVisible
+        controlsBackgroundView.alpha = controlsContentView.alpha
     }
 
     required init?(coder: NSCoder) {
@@ -149,6 +154,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         buttonStack.axis = .horizontal
         buttonStack.alignment = .center
         buttonStack.spacing = style.buttonSpacing
+        buttonStack.translatesAutoresizingMaskIntoConstraints = false
         buttonStack.addArrangedSubview(skipBackwardButton)
         buttonStack.addArrangedSubview(playPauseButton)
         buttonStack.addArrangedSubview(skipForwardButton)
@@ -162,32 +168,48 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         bottomStack.spacing = 8
         bottomStack.addArrangedSubview(elapsedLabel)
         bottomStack.addArrangedSubview(UIView())
-        bottomStack.addArrangedSubview(buttonStack)
-        bottomStack.addArrangedSubview(UIView())
-        bottomStack.addArrangedSubview(rateButton)
         bottomStack.addArrangedSubview(accessoryStack)
-        bottomStack.addArrangedSubview(durationLabel)
 
-        rootStack.addArrangedSubview(seekBar)
         rootStack.addArrangedSubview(bottomStack)
+        rootStack.addArrangedSubview(seekBar)
+        controlsContentView.translatesAutoresizingMaskIntoConstraints = false
         controlsBackgroundView.translatesAutoresizingMaskIntoConstraints = false
         controlsBackgroundView.isUserInteractionEnabled = false
         addSubview(controlsBackgroundView)
-        addSubview(rootStack)
+        addSubview(controlsContentView)
+        controlsContentView.addSubview(buttonStack)
+        controlsContentView.addSubview(rootStack)
+        controlsContentView.addSubview(rateButton)
+        rateButton.translatesAutoresizingMaskIntoConstraints = false
         backgroundTapRecognizer.cancelsTouchesInView = false
         backgroundTapRecognizer.delegate = self
         addGestureRecognizer(backgroundTapRecognizer)
+        timelineTrailingToRateConstraint = rootStack.trailingAnchor.constraint(
+            equalTo: rateButton.leadingAnchor,
+            constant: -8
+        )
+        timelineTrailingToMarginConstraint = rootStack.trailingAnchor.constraint(
+            equalTo: layoutMarginsGuide.trailingAnchor
+        )
         NSLayoutConstraint.activate([
             controlsBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
             controlsBackgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
             controlsBackgroundView.topAnchor.constraint(equalTo: topAnchor),
             controlsBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            controlsContentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            controlsContentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            controlsContentView.topAnchor.constraint(equalTo: topAnchor),
+            controlsContentView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            buttonStack.centerXAnchor.constraint(equalTo: controlsContentView.centerXAnchor),
+            buttonStack.centerYAnchor.constraint(equalTo: controlsContentView.centerYAnchor),
             rootStack.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
-            rootStack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
             rootStack.topAnchor.constraint(greaterThanOrEqualTo: layoutMarginsGuide.topAnchor),
             rootStack.bottomAnchor.constraint(equalTo: layoutMarginsGuide.bottomAnchor),
+            rateButton.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            rateButton.centerYAnchor.constraint(equalTo: seekBar.centerYAnchor),
             seekBar.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
         ])
+        updateTimelineTrailingConstraint(rateIsHidden: false)
 
         playWidthConstraint = playPauseButton.widthAnchor.constraint(equalToConstant: style.playPauseButtonSize.width)
         playHeightConstraint = playPauseButton.heightAnchor.constraint(equalToConstant: style.playPauseButtonSize.height)
@@ -198,15 +220,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         rateWidthConstraint = rateButton.widthAnchor.constraint(equalToConstant: style.rateButtonSize.width)
         rateHeightConstraint = rateButton.heightAnchor.constraint(equalToConstant: style.rateButtonSize.height)
         elapsedMinimumWidthConstraint = elapsedLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)
-        durationMinimumWidthConstraint = durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)
-        equalTimeLabelWidthConstraint = elapsedLabel.widthAnchor.constraint(equalTo: durationLabel.widthAnchor)
-        for constraint in [
-            elapsedMinimumWidthConstraint,
-            durationMinimumWidthConstraint,
-            equalTimeLabelWidthConstraint
-        ].compactMap({ $0 }) {
-            constraint.priority = .defaultHigh
-        }
+        elapsedMinimumWidthConstraint?.priority = .defaultHigh
         NSLayoutConstraint.activate([
             playWidthConstraint,
             playHeightConstraint,
@@ -357,7 +371,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         seekBar.showsBufferedProgress = configuration.showsBufferedProgress
         seekBar.allowsTrackTapToSeek = configuration.allowsTrackTapToSeek
         elapsedLabel.isHidden = !configuration.showsTimeLabels
-        durationLabel.isHidden = !configuration.showsTimeLabels || configuration.timeLabelLayout == .elapsedOnly
+        durationLabel.isHidden = true
         skipBackwardButton.isHidden = !configuration.showsSkipButtons
         skipForwardButton.isHidden = !configuration.showsSkipButtons
         updateSkipIcons()
@@ -379,18 +393,13 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func updateTimeLabelWidthConstraints(using font: UIFont) {
-        let constraints = [
-            elapsedMinimumWidthConstraint,
-            durationMinimumWidthConstraint,
-            equalTimeLabelWidthConstraint
-        ].compactMap { $0 }
-        NSLayoutConstraint.deactivate(constraints)
+        guard let elapsedMinimumWidthConstraint else { return }
+        elapsedMinimumWidthConstraint.isActive = false
         guard style.usesFixedWidthTimeLabels else { return }
-        let reference = "59:59" as NSString
+        let reference = "00:00:00/-00:00:00" as NSString
         let width = ceil(reference.size(withAttributes: [.font: font]).width)
-        elapsedMinimumWidthConstraint?.constant = width
-        durationMinimumWidthConstraint?.constant = width
-        NSLayoutConstraint.activate(constraints)
+        elapsedMinimumWidthConstraint.constant = width
+        elapsedMinimumWidthConstraint.isActive = true
     }
 
     private func updatePlaybackIcon() {
@@ -444,6 +453,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         if rebuildInteraction {
             configureRateInteraction(currentRate: rate)
         }
+        updateTimelineTrailingConstraint(rateIsHidden: rateButton.isHidden)
     }
 
     private func render(_ time: ABPlaybackTime) {
@@ -451,20 +461,27 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         seekBar.progress = time.progress ?? 0
         seekBar.bufferedProgress = time.bufferedProgress ?? 0
         seekBar.isSeekEnabled = time.duration != nil && controlsAreEnabled
-        elapsedLabel.text = ABTimeFormatter.string(from: time.currentTime)
+        updateTimeLabels(currentTime: time.currentTime, duration: time.duration)
         seekBar.accessibilityLabel = ABControlsLocalization.string("controls.timeline")
         seekBar.accessibilityValue = accessibilityTimelineValue(for: time)
+    }
+
+    private func updateTimeLabels(currentTime: CMTime, duration: CMTime?) {
+        let elapsed = ABTimeFormatter.string(from: currentTime)
+        let secondary: String?
         switch configuration.timeLabelLayout {
         case .elapsedAndTotal:
-            durationLabel.text = time.duration.map(ABTimeFormatter.string(from:)) ?? ABTimeFormatter.liveMarker
+            secondary = duration.map(ABTimeFormatter.string(from:)) ?? ABTimeFormatter.liveMarker
         case .elapsedAndRemaining:
-            durationLabel.text = ABTimeFormatter.remainingString(
-                current: CMTimeGetSeconds(time.currentTime),
-                duration: time.duration.map(CMTimeGetSeconds)
+            secondary = ABTimeFormatter.remainingString(
+                current: CMTimeGetSeconds(currentTime),
+                duration: duration.map(CMTimeGetSeconds)
             )
         case .elapsedOnly:
-            durationLabel.text = nil
+            secondary = nil
         }
+        durationLabel.text = secondary
+        elapsedLabel.text = secondary.map { "\(elapsed)/\($0)" } ?? elapsed
     }
 
     private func resetTimeline() {
@@ -472,8 +489,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         seekBar.progress = 0
         seekBar.bufferedProgress = 0
         seekBar.isSeekEnabled = false
-        elapsedLabel.text = ABTimeFormatter.string(from: 0)
-        durationLabel.text = ABTimeFormatter.liveMarker
+        updateTimeLabels(currentTime: .zero, duration: nil)
         seekBar.accessibilityLabel = ABControlsLocalization.string("controls.timeline")
         seekBar.accessibilityValue = ABControlsLocalization.string("controls.live")
     }
@@ -530,6 +546,12 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             rateButton.showsMenuAsPrimaryAction = false
             rateButton.menu = nil
         }
+        updateTimelineTrailingConstraint(rateIsHidden: rateButton.isHidden)
+    }
+
+    private func updateTimelineTrailingConstraint(rateIsHidden: Bool) {
+        timelineTrailingToRateConstraint?.isActive = !rateIsHidden
+        timelineTrailingToMarginConstraint?.isActive = rateIsHidden
     }
 
     private func rateButtonTapped() {
@@ -562,7 +584,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     private func scrubChanged(progress: Double) {
         guard let duration = currentPlaybackTime.duration,
               let time = ABSeekBarGeometry.time(forProgress: progress, duration: duration) else { return }
-        elapsedLabel.text = ABTimeFormatter.string(from: time)
+        updateTimeLabels(currentTime: time, duration: currentPlaybackTime.duration)
         scrubbingPlayer?.scrub(to: time)
     }
 
@@ -669,8 +691,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         isControlsVisible = visible
         let changes = {
             let alpha: CGFloat = visible ? 1 : 0
-            self.rootStack.alpha = alpha
-            self.rootStack.isUserInteractionEnabled = visible
+            self.controlsContentView.alpha = alpha
+            self.controlsContentView.isUserInteractionEnabled = visible
             self.controlsBackgroundView.alpha = alpha
         }
         let duration = style.respectsReduceMotion && isReduceMotionEnabledProvider()

@@ -82,6 +82,20 @@ struct ABPlayerControlsAttachmentTests {
 @Suite("Controls reflect engine events")
 @MainActor
 struct ABPlayerControlsEventReflectionTests {
+    @Test("Given finite playback, the timeline uses a combined fixed-hour label")
+    func finitePlaybackUsesCombinedClockLabel() {
+        let view = ABPlayerControlsView()
+
+        view.handlePlayerEvent(.periodicTime(ABPlaybackTime(
+            currentTime: CMTime(seconds: 83, preferredTimescale: 600),
+            duration: CMTime(seconds: 600, preferredTimescale: 600),
+            bufferedUntil: nil
+        )))
+
+        #expect(view.displayedElapsedText == "00:01:23/00:10:00")
+        #expect(view.displayedDurationText == "00:10:00")
+    }
+
     @Test("Given playing status, controls display the pause icon")
     func playingDisplaysPause() {
         let view = ABPlayerControlsView()
@@ -171,5 +185,47 @@ struct ABPlayerControlsEventReflectionTests {
         #expect(controlsEvents.contains(.scrubbingChanged(isScrubbing: false)))
         #expect(!controlsEvents.contains { if case .seekCommitted = $0 { true } else { false } })
         #expect(view.hasScheduledAutoHide)
+    }
+}
+
+@Suite("Controls follow the release overlay geometry")
+@MainActor
+struct ABPlayerControlsLayoutTests {
+    @Test("Given a video-sized overlay, transport is centered and timeline controls hug the bottom")
+    func releaseLayoutGeometry() {
+        let view = ABPlayerControlsView()
+        view.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
+
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+
+        let transport = view.renderedTransportControlsFrame
+        let seekBar = view.renderedSeekBarFrame
+        let timeLabel = view.renderedTimeLabelFrame
+        let rateButton = view.renderedRateButtonFrame
+        #expect(abs(transport.midX - view.bounds.midX) < 0.5)
+        #expect(abs(transport.midY - view.bounds.midY) < 0.5)
+        #expect(abs(seekBar.maxY - (view.bounds.maxY - view.style.contentInsets.bottom)) < 0.5)
+        #expect(seekBar.midY > view.bounds.midY)
+        #expect(abs(timeLabel.minX - seekBar.minX) < 0.5)
+        #expect(timeLabel.maxY <= seekBar.minY)
+        #expect(abs(rateButton.maxX - (view.bounds.maxX - view.style.contentInsets.trailing)) < 0.5)
+        #expect(abs(rateButton.midY - seekBar.midY) < 0.5)
+    }
+
+    @Test("Given a hidden rate control, the timeline expands to the trailing margin")
+    func hiddenRateExpandsTimeline() {
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.rateInteraction = .hidden
+        let view = ABPlayerControlsView(configuration: configuration)
+        view.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
+
+        view.layoutIfNeeded()
+
+        #expect(view.rateButton.isHidden)
+        #expect(abs(
+            view.renderedSeekBarFrame.maxX
+                - (view.bounds.maxX - view.style.contentInsets.trailing)
+        ) < 0.5)
     }
 }

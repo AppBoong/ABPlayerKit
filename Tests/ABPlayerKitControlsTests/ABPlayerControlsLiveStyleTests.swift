@@ -111,7 +111,7 @@ struct ABPlayerControlsLiveStyleTests {
         #expect(view.seekBar.renderedThumbSize == CGSize(width: 24, height: 20))
     }
 
-    @Test("Given fixed-width time labels, equal reserved widths toggle live")
+    @Test("Given a fixed-width timeline label, its reserved width toggles live")
     func fixedWidthTimeLabelsToggle() {
         let view = ABPlayerControlsView()
         #expect(view.hasFixedWidthTimeLabels)
