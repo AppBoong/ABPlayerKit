@@ -45,3 +45,59 @@ struct ABPlaybackRateTests {
         #expect(ABPlaybackRate.clamped(.nan) == 1.0)
     }
 }
+
+@Suite("ABPlaybackTime derives progress safely")
+struct ABPlaybackTimeTests {
+    private let duration = CMTime(seconds: 100, preferredTimescale: 600)
+
+    @Test("Given no duration, neither playback nor buffered progress is available")
+    func missingDurationHasNoProgress() {
+        let time = ABPlaybackTime(currentTime: .zero, duration: nil, bufferedUntil: .zero)
+
+        #expect(time.progress == nil)
+        #expect(time.bufferedProgress == nil)
+    }
+
+    @Test("Given a zero duration, progress derivation avoids division by zero")
+    func zeroDurationHasNoProgress() {
+        let time = ABPlaybackTime(currentTime: .zero, duration: .zero, bufferedUntil: nil)
+
+        #expect(time.duration == nil)
+        #expect(time.progress == nil)
+    }
+
+    @Test("Given current time beyond duration, playback progress clamps to one")
+    func clampsPlaybackProgress() {
+        let time = ABPlaybackTime(
+            currentTime: CMTime(seconds: 125, preferredTimescale: 600),
+            duration: duration,
+            bufferedUntil: nil
+        )
+
+        #expect(time.progress == 1)
+    }
+
+    @Test("Given an earlier buffered time, its independent progress is preserved")
+    func preservesIndependentBufferedProgress() {
+        let time = ABPlaybackTime(
+            currentTime: CMTime(seconds: 50, preferredTimescale: 600),
+            duration: duration,
+            bufferedUntil: CMTime(seconds: 25, preferredTimescale: 600)
+        )
+
+        #expect(time.progress == 0.5)
+        #expect(time.bufferedProgress == 0.25)
+    }
+
+    @Test("Given an indefinite duration, the snapshot normalizes it to nil")
+    func normalizesIndefiniteDuration() {
+        let time = ABPlaybackTime(
+            currentTime: .zero,
+            duration: .indefinite,
+            bufferedUntil: nil
+        )
+
+        #expect(time.duration == nil)
+        #expect(time.progress == nil)
+    }
+}
