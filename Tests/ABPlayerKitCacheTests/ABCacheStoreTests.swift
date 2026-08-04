@@ -468,17 +468,19 @@ struct ABCacheStoreTests {
 
     // MARK: - WP7: concurrency dedup
 
-    @Test("10 concurrent loads for the same key dedupe to a single fill GET and agree on the result")
+    @Test("10 concurrent loads for the same key dedupe to a single HEAD and a single fill GET, and agree on the result")
     func concurrentLoadsForSameKeyDedupeToOneFill() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = mediaSource("dedup.mp4")
         let response = ABHTTPResponse(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4")
-        // Buffer well past 10 in case concurrent tasks race ahead of each
-        // other's metadata caching and each issue their own HEAD — only the
-        // fill (GET, via `stream`) start is required to dedupe to one.
+        // Exactly one metadata reply queued (round3 Phase3 group C, M5):
+        // `resolvedMetadata` now coalesces concurrent cold-key HEAD requests
+        // onto a single in-flight `Task`, so a second reply being available
+        // would mask a regression back to "every racing caller issues its
+        // own HEAD" instead of catching it.
         let fetcher = ABFakeHTTPFetcher(
-            dataReplies: (0..<20).map { _ in metadataReply(length: 8) },
+            dataReplies: [metadataReply(length: 8)],
             streamReplies: [[.response(response), .data(Data("abcdefgh".utf8))]]
         )
         let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
@@ -502,10 +504,10 @@ struct ABCacheStoreTests {
 
         #expect(results.count == 10)
         #expect(results.allSatisfy { $0 == Data("abcdefgh".utf8) })
+        #expect(fetcher.requests.filter { $0.httpMethod == "HEAD" }.count == 1)
         // `fillRequest`/`stream(for:)` requests have no explicit HTTP
         // method set, so `URLRequest.httpMethod` defaults to "GET" —
-        // exactly one such request must have been issued for the fill,
-        // regardless of how many HEAD requests raced ahead of it.
+        // exactly one such request must have been issued for the fill.
         #expect(fetcher.requests.filter { $0.httpMethod == "GET" }.count == 1)
     }
 

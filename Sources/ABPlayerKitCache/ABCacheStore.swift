@@ -158,6 +158,13 @@ actor ABCacheStore {
     private var fills: [String: Task<Void, Never>] = [:]
     private var fillResponses: [String: ABHTTPResponse] = [:]
     private var fillErrors: [String: StoreError] = [:]
+    /// In-flight `remoteMetadata` requests, keyed by cache key, so N
+    /// concurrent cold-key callers share one HEAD instead of each issuing
+    /// their own (round3 Phase1+2 review M5 — `fills` already coalesced the
+    /// GET via the synchronous `guard fills[key] == nil` in
+    /// `startFillIfNeeded`, but `resolvedMetadata`/`metadata(for:)` had no
+    /// equivalent for the HEAD that precedes it).
+    private var pendingMetadataRequests: [String: Task<RemoteMetadata, Error>] = [:]
     nonisolated private let progressWaiters = ABCacheProgressWaiterRegistry()
     private var indexIsDirty = false
     private var indexFlushTask: Task<Void, Never>?
@@ -211,6 +218,19 @@ actor ABCacheStore {
         )
     }
 
+    /// Resolves any `waitForProgress` waiters still suspended when this
+    /// store deallocates — without it, their continuations (and whatever
+    /// `load(_:range:)` callers are awaiting them) leak forever, since
+    /// nothing else will ever call `resumeWaiters`/`resolveAll` for a
+    /// deallocated store (round3 Phase1+2 review m12; `resolveEverything()`
+    /// already existed for `removeAll()`, just not for teardown).
+    /// `progressWaiters` is `nonisolated`, so this is safe to run from
+    /// `deinit` (nonisolated even on an `actor`) without needing any
+    /// workaround for the actor-isolated storage elsewhere in this type.
+    deinit {
+        progressWaiters.resolveEverything()
+    }
+
     func totalSize() -> Int64 {
         index.totalSize
     }
@@ -259,6 +279,10 @@ actor ABCacheStore {
         fills.removeAll()
         fillResponses.removeAll()
         fillErrors.removeAll()
+        for task in pendingMetadataRequests.values {
+            task.cancel()
+        }
+        pendingMetadataRequests.removeAll()
         metadataCache.removeAll()
         metadataCacheOrder.removeAll()
         recordedEvictionShortfallCount = 0
@@ -278,23 +302,8 @@ actor ABCacheStore {
 
     func metadata(for source: ABMediaSource) async throws -> ABCachedMetadata {
         let key = ABCacheKey.derive(from: source)
-        if let entry = index.entries[key],
-           let contentLength = entry.contentLength,
-           let contentType = entry.contentType {
-            return ABCachedMetadata(contentLength: contentLength, contentType: contentType)
-        }
-        if let metadata = cachedMetadata(for: key) {
-            return ABCachedMetadata(
-                contentLength: metadata.contentLength,
-                contentType: metadata.contentType
-            )
-        }
-        let metadata = try await remoteMetadata(for: source)
-        cacheMetadata(metadata, for: key)
-        return ABCachedMetadata(
-            contentLength: metadata.contentLength,
-            contentType: metadata.contentType
-        )
+        let metadata = try await resolvedMetadata(for: source, key: key)
+        return ABCachedMetadata(contentLength: metadata.contentLength, contentType: metadata.contentType)
     }
 
     func load(_ source: ABMediaSource, range: ABByteRange) async throws -> ABCachedResource {
@@ -368,7 +377,21 @@ actor ABCacheStore {
         if let metadata = cachedMetadata(for: key) {
             return metadata
         }
-        let metadata = try await remoteMetadata(for: source)
+        // Coalesce concurrent cold-key requests onto a single in-flight
+        // HEAD (M5): the first caller creates the task and stores it before
+        // its first suspension point, so every other caller that arrives
+        // before it completes awaits the same `Task` instead of issuing its
+        // own request.
+        if let pending = pendingMetadataRequests[key] {
+            return try await pending.value
+        }
+        let request = Task { [weak self] () throws -> RemoteMetadata in
+            guard let self else { throw StoreError.requestFailed }
+            return try await self.remoteMetadata(for: source)
+        }
+        pendingMetadataRequests[key] = request
+        defer { pendingMetadataRequests[key] = nil }
+        let metadata = try await request.value
         cacheMetadata(metadata, for: key)
         return metadata
     }
