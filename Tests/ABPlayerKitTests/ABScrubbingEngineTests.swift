@@ -8,12 +8,19 @@ import Testing
 struct ABScrubbingEngineTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/scrub.mp4")!)
 
-    private func makePlayer(suspendedSeeks: Bool = false) -> (ABPlayer, ABFakePlaybackTarget) {
+    private func makePlayer(
+        suspendedSeeks: Bool = false,
+        periodicTimeInterval: TimeInterval? = nil
+    ) -> (ABPlayer, ABFakePlaybackTarget) {
         let target = ABFakePlaybackTarget()
         target.waitsForSeekContinuation = suspendedSeeks
         target.duration = CMTime(seconds: 100, preferredTimescale: 600)
         let player = ABPlayer(
-            configuration: ABPlayerConfiguration(prerollRate: nil, backgroundPolicy: .ignore),
+            configuration: ABPlayerConfiguration(
+                periodicTimeInterval: periodicTimeInterval,
+                prerollRate: nil,
+                backgroundPolicy: .ignore
+            ),
             target: target
         )
         player.set(source: source, grade: .current)
@@ -116,5 +123,69 @@ struct ABScrubbingEngineTests {
         target.completeNextSeek()
         target.waitsForSeekContinuation = false
         await player.endScrubbing()
+    }
+
+    @Test("Given a demotion during scrubbing, the session ends and periodic events resume")
+    func demotionEndsSessionAndRestoresPeriodicEvents() {
+        let (player, target) = makePlayer(periodicTimeInterval: 0.25)
+        var periodicEvents: [ABPlaybackTime] = []
+        let token = player.addObserver {
+            if case .periodicTime(let time) = $0 {
+                periodicEvents.append(time)
+            }
+        }
+        defer { token.cancel() }
+        player.beginScrubbing()
+
+        player.promote(to: .preloaded)
+        player.promote(to: .current)
+        target.tick(CMTime(seconds: 5, preferredTimescale: 600))
+
+        #expect(!player.isScrubbing)
+        #expect(periodicEvents.count == 1)
+    }
+
+    @Test("Given a source swap during scrubbing, the session ends and no stale seek issues")
+    func sourceSwapEndsSessionAndDiscardsStaleSeek() async {
+        let (player, target) = makePlayer(suspendedSeeks: true)
+        let staleDestination = CMTime(seconds: 25, preferredTimescale: 600)
+        let replacement = ABMediaSource(url: URL(string: "https://example.com/replacement.mp4")!)
+        var seekCompletions: [CMTime] = []
+        let token = player.addObserver {
+            if case .seekCompleted(let time) = $0 {
+                seekCompletions.append(time)
+            }
+        }
+        defer { token.cancel() }
+        player.beginScrubbing()
+        player.scrub(to: staleDestination)
+        while target.pendingSeekCount == 0 { await Task.yield() }
+
+        player.set(source: replacement, grade: .current)
+        target.completeNextSeek()
+        for _ in 0..<10 { await Task.yield() }
+
+        #expect(!player.isScrubbing)
+        #expect(seekCompletions.isEmpty)
+        #expect(target.calls.filter { if case .seek = $0 { true } else { false } }.count == 1)
+    }
+
+    @Test("Given a session ended by demotion, a later beginScrubbing emits its boundary event")
+    func beginAfterDemotionEmitsBoundaryEvent() {
+        let (player, _) = makePlayer()
+        var boundaries: [Bool] = []
+        let token = player.addObserver {
+            if case .scrubbingChanged(let isScrubbing) = $0 {
+                boundaries.append(isScrubbing)
+            }
+        }
+        defer { token.cancel() }
+        player.beginScrubbing()
+
+        player.promote(to: .preloaded)
+        player.promote(to: .current)
+        player.beginScrubbing()
+
+        #expect(boundaries == [true, false, true])
     }
 }

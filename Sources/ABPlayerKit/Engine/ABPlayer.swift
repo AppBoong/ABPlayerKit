@@ -126,6 +126,7 @@ public final class ABPlayer {
 
         if resolvedGrade != .current || sourceChanged {
             target.setPeriodicTimeObserver(interval: nil, onTick: nil)
+            resetSeeking()
         }
 
         interpret(actions, source: newSource, detachReason: detachReason)
@@ -378,7 +379,6 @@ public final class ABPlayer {
                 target.setRate(configuration.playbackRate)
 
             case .detachItem:
-                resetSeeking()
                 broadcast(.itemDetached(reason: detachReason))
                 target.detachItem()
 
