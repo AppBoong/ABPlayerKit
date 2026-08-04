@@ -104,7 +104,7 @@ struct ABPlayerReleasePathTests {
     }
 }
 
-@Suite("ABPlayer grade transitions broadcast the expected events")
+@Suite("ABPlayer grade transitions broadcast the expected events", .timeLimit(.minutes(1)))
 @MainActor
 struct ABPlayerEventBroadcastTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)
@@ -126,7 +126,7 @@ struct ABPlayerEventBroadcastTests {
     }
 
     @Test("Cancelling preload stops the readiness wait and emits once")
-    func cancelPreloadStopsWait() async {
+    func cancelPreloadStopsWait() async throws {
         let target = ABFakePlaybackTarget()
         target.waitsForPrerollCancellation = true
         let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore), target: target)
@@ -135,21 +135,17 @@ struct ABPlayerEventBroadcastTests {
         defer { token.cancel() }
 
         player.set(source: source, grade: .preloaded)
-        while !target.calls.contains(.preroll(rate: 1.0)) {
-            await Task.yield()
-        }
+        try await waitUntil { target.calls.contains(.preroll(rate: 1.0)) }
 
         player.cancelPreload()
-        while !target.prerollWasCancelled {
-            await Task.yield()
-        }
+        try await waitUntil { target.prerollWasCancelled }
         player.cancelPreload()
 
         #expect(events.filter { $0 == .preloadCancelled }.count == 1)
     }
 
-    @Test("Preroll timeout updates lastError and emits failure")
-    func prerollTimeoutEmitsFailure() async {
+    @Test("Preroll timeout threads configuration.prerollTimeout to the target and emits failure")
+    func prerollTimeoutThreadsConfiguredTimeoutAndEmitsFailure() async throws {
         let target = ABFakePlaybackTarget()
         target.prerollResult = .timedOut
         let timeout: TimeInterval = 0.25
@@ -160,18 +156,17 @@ struct ABPlayerEventBroadcastTests {
         defer { token.cancel() }
 
         player.set(source: source, grade: .preloaded)
-        while player.lastError == nil {
-            await Task.yield()
-        }
+        try await waitUntil { player.lastError != nil }
 
         let expectedError = ABPlayerError.prerollTimedOut(after: timeout)
         #expect(player.lastError == expectedError)
         #expect(events.contains(.failed(expectedError)))
         #expect(events.contains(.prerollCompleted(success: false)))
+        #expect(target.recordedPrerollTimeout == 0.25)
     }
 
     @Test("Preroll failure updates lastError and emits failure")
-    func prerollFailureEmitsFailure() async {
+    func prerollFailureEmitsFailure() async throws {
         let target = ABFakePlaybackTarget()
         target.prerollResult = .failed
         let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore), target: target)
@@ -180,9 +175,7 @@ struct ABPlayerEventBroadcastTests {
         defer { token.cancel() }
 
         player.set(source: source, grade: .preloaded)
-        while player.lastError == nil {
-            await Task.yield()
-        }
+        try await waitUntil { player.lastError != nil }
 
         #expect(player.lastError == .prerollFailed)
         #expect(events.contains(.failed(.prerollFailed)))
@@ -190,7 +183,7 @@ struct ABPlayerEventBroadcastTests {
     }
 
     @Test("Release cancels readiness waiting without retaining the item")
-    func releaseDoesNotRetainItem() async {
+    func releaseDoesNotRetainItem() async throws {
         let configuration = ABPlayerConfiguration(prerollTimeout: 10, backgroundPolicy: .ignore)
         let player = ABPlayer(configuration: configuration)
         let pendingSource = ABMediaSource(url: URL(fileURLWithPath: "/private/tmp/abplayerkit-pending.mp4"))
@@ -200,12 +193,7 @@ struct ABPlayerEventBroadcastTests {
         #expect(releasedItem.value != nil)
 
         player.release()
-        for _ in 0..<20 where releasedItem.value != nil {
-            await Task.yield()
-        }
-        if releasedItem.value != nil {
-            try? await Task.sleep(for: .milliseconds(100))
-        }
+        try await waitUntil { releasedItem.value == nil }
 
         #expect(releasedItem.value == nil)
     }
@@ -333,7 +321,7 @@ struct ABPlayerEventBroadcastTests {
     }
 
     @Test("Background demotion reports the background policy detach reason")
-    func backgroundDemotionReportsPolicyReason() async {
+    func backgroundDemotionReportsPolicyReason() async throws {
         let center = NotificationCenter()
         let target = ABFakePlaybackTarget()
         let player = ABPlayer(
@@ -347,9 +335,7 @@ struct ABPlayerEventBroadcastTests {
         player.set(source: source, grade: .current)
 
         center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
-        while !events.contains(.itemDetached(reason: .backgroundPolicy)) {
-            await Task.yield()
-        }
+        try await waitUntil { events.contains(.itemDetached(reason: .backgroundPolicy)) }
 
         #expect(player.grade == .instanceOnly)
         #expect(events.contains(.itemDetached(reason: .backgroundPolicy)))
@@ -391,7 +377,7 @@ struct ABPlayerViewLifecycleTests {
     }
 
     @Test("pauseAndDetachLayer detaches in background and reattaches in foreground")
-    func backgroundPolicyDetachesAndReattachesLayer() async {
+    func backgroundPolicyDetachesAndReattachesLayer() async throws {
         let center = NotificationCenter()
         let target = ABFakePlaybackTarget()
         let player = ABPlayer(
@@ -406,17 +392,93 @@ struct ABPlayerViewLifecycleTests {
         #expect((view.layer as? AVPlayerLayer)?.player === target.avPlayer)
 
         center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
-        while (view.layer as? AVPlayerLayer)?.player != nil {
-            await Task.yield()
-        }
+        try await waitUntil { (view.layer as? AVPlayerLayer)?.player == nil }
         #expect((view.layer as? AVPlayerLayer)?.player == nil)
 
         center.post(name: UIApplication.willEnterForegroundNotification, object: nil)
-        while (view.layer as? AVPlayerLayer)?.player == nil {
-            await Task.yield()
-        }
+        try await waitUntil { (view.layer as? AVPlayerLayer)?.player != nil }
         #expect((view.layer as? AVPlayerLayer)?.player === target.avPlayer)
         #expect(target.calls.contains(.play))
+    }
+}
+
+/// Coverage for `ABPlayer.handle(_ event: ABTargetEvent)` — every case has to
+/// broadcast its corresponding `ABPlayerEvent` (or, for `.failed`, also
+/// update `lastError`). Driven directly via `ABFakePlaybackTarget.emit(_:)`
+/// rather than through a real grade transition, so each case is isolated
+/// from the rest of the target-event pipeline.
+@Suite("ABPlayer.handle(_:) broadcasts every ABTargetEvent case")
+@MainActor
+struct ABPlayerHandleTargetEventTests {
+    private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)
+
+    private func makePlayer() -> (ABPlayer, ABFakePlaybackTarget) {
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore), target: target)
+        player.set(source: source, grade: .current)
+        return (player, target)
+    }
+
+    @Test(".failed updates lastError and broadcasts .failed")
+    func failedUpdatesLastErrorAndBroadcasts() {
+        let (player, target) = makePlayer()
+        var events: [ABPlayerEvent] = []
+        let token = player.addObserver { events.append($0) }
+        defer { token.cancel() }
+
+        let error = ABPlayerError.itemFailed(description: "boom")
+        target.emit(.failed(error))
+
+        #expect(player.lastError == error)
+        #expect(events.contains(.failed(error)))
+    }
+
+    @Test(".playedToEnd broadcasts .playedToEnd")
+    func playedToEndBroadcasts() {
+        let (player, target) = makePlayer()
+        var events: [ABPlayerEvent] = []
+        let token = player.addObserver { events.append($0) }
+        defer { token.cancel() }
+
+        target.emit(.playedToEnd)
+
+        #expect(events.contains(.playedToEnd))
+    }
+
+    @Test(".playbackStalled broadcasts .playbackStalled")
+    func playbackStalledBroadcasts() {
+        let (player, target) = makePlayer()
+        var events: [ABPlayerEvent] = []
+        let token = player.addObserver { events.append($0) }
+        defer { token.cancel() }
+
+        target.emit(.playbackStalled)
+
+        #expect(events.contains(.playbackStalled))
+    }
+
+    @Test(".itemStatusChanged broadcasts the matching .itemStatusChanged")
+    func itemStatusChangedBroadcasts() {
+        let (player, target) = makePlayer()
+        var events: [ABPlayerEvent] = []
+        let token = player.addObserver { events.append($0) }
+        defer { token.cancel() }
+
+        target.emit(.itemStatusChanged(.readyToPlay))
+
+        #expect(events.contains(.itemStatusChanged(.readyToPlay)))
+    }
+
+    @Test(".timeControlStatusChanged broadcasts the matching .timeControlStatusChanged")
+    func timeControlStatusChangedBroadcasts() {
+        let (player, target) = makePlayer()
+        var events: [ABPlayerEvent] = []
+        let token = player.addObserver { events.append($0) }
+        defer { token.cancel() }
+
+        target.emit(.timeControlStatusChanged(.playing))
+
+        #expect(events.contains(.timeControlStatusChanged(.playing)))
     }
 }
 
@@ -529,7 +591,7 @@ struct ABPlayerDeinitCleanupTests {
     private let source = ABMediaSource(url: URL(fileURLWithPath: "/private/tmp/abplayerkit-deinit-fixture.mp4"))
 
     @Test("ABAVPlaybackTarget deinit removes the periodic time observer")
-    func targetDeinitRemovesPeriodicTimeObserver() async {
+    func targetDeinitRemovesPeriodicTimeObserver() async throws {
         var target: ABAVPlaybackTarget? = ABAVPlaybackTarget()
         target?.makePlayer()
         target?.attachItem(source, tuning: .unrestricted, assetFactory: ABDefaultAssetFactory())
@@ -542,12 +604,7 @@ struct ABPlayerDeinitCleanupTests {
         // -Onone can extend a local's lifetime past its last use, so poll
         // deterministically (per existing convention in this file) instead
         // of asserting immediately after nil-ing the reference.
-        for _ in 0..<20 where weakPlayer.value != nil {
-            await Task.yield()
-        }
-        if weakPlayer.value != nil {
-            try? await Task.sleep(for: .milliseconds(100))
-        }
+        try await waitUntil { weakPlayer.value == nil }
 
         // If the periodic time observer were still registered, `AVPlayer`
         // would raise `NSInternalInconsistencyException` on dealloc instead
@@ -556,21 +613,17 @@ struct ABPlayerDeinitCleanupTests {
     }
 
     @Test("ABPlayer deinit cancels an outstanding preroll task")
-    func playerDeinitCancelsPrerollTask() async {
+    func playerDeinitCancelsPrerollTask() async throws {
         let target = ABFakePlaybackTarget()
         target.waitsForPrerollCancellation = true
         do {
             let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore), target: target)
             player.set(source: source, grade: .preloaded)
-            while !target.calls.contains(.preroll(rate: 1.0)) {
-                await Task.yield()
-            }
+            try await waitUntil { target.calls.contains(.preroll(rate: 1.0)) }
             // `player` goes out of scope here without `release()`, while the
             // preroll task is still awaiting cancellation.
         }
-        while !target.prerollWasCancelled {
-            await Task.yield()
-        }
+        try await waitUntil { target.prerollWasCancelled }
         #expect(target.prerollWasCancelled)
     }
 }

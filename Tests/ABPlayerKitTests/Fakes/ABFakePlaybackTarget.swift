@@ -44,6 +44,10 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
     var prerollResult: ABPrerollResult = .success
     var waitsForPrerollCancellation = false
     private(set) var prerollWasCancelled = false
+    /// Records the `timeout` argument passed to the most recent
+    /// `preroll(rate:timeout:)` call, so tests can assert `ABPlayer` actually
+    /// threads `configuration.prerollTimeout` through unchanged.
+    private(set) var recordedPrerollTimeout: TimeInterval?
     private var hasAttachedItem = false
 
     func makePlayer() {
@@ -104,6 +108,7 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
 
     func preroll(rate: Float, timeout: TimeInterval) async -> ABPrerollResult {
         calls.append(.preroll(rate: rate))
+        recordedPrerollTimeout = timeout
         if waitsForPrerollCancellation {
             while !Task.isCancelled {
                 await Task.yield()
@@ -152,5 +157,12 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
 
     func detachCount() -> Int {
         calls.filter { $0 == .detachItem }.count
+    }
+
+    /// Test-only helper that lets tests drive `ABPlayer.handle(_:)` directly
+    /// by simulating a target-originated event, exactly as
+    /// `ABAVPlaybackTarget.observeItem` would via `onEvent`.
+    func emit(_ event: ABTargetEvent) {
+        onEvent?(event)
     }
 }
