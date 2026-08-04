@@ -436,6 +436,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             if showsValueBadge {
                 rateButton.setTitle(value, for: .normal)
             }
+            rateButton.isHidden = configuration.rateInteraction == .hidden || configuration.rateOptions.isEmpty
         }
         rateButton.accessibilityLabel = ABControlsLocalization.string("controls.rate")
         rateButton.accessibilityValue = ABControlsLocalization.format("controls.rateValue", value)

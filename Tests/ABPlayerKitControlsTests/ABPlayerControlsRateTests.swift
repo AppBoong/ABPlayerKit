@@ -1,5 +1,6 @@
 import ABPlayerKit
 import Testing
+import UIKit
 @testable import ABPlayerKitControls
 
 @Suite("Controls support menu, cycle, and hidden rate interactions")
@@ -92,5 +93,38 @@ struct ABPlayerControlsRateTests {
         #expect(!view.rateButton.isHidden)
         #expect(view.rateButton.showsMenuAsPrimaryAction)
         #expect(view.rateButton.menu?.children.count == 2)
+    }
+
+    @Test("Given a hidden rate interaction and an icon label, a style change keeps the button hidden")
+    func hiddenIconRateStaysHiddenAfterStyleChange() {
+        var style = ABPlayerControlsStyle()
+        style.rateLabelStyle = .icon(.system("speedometer"), showsValueBadge: false)
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.rateInteraction = .hidden
+        let view = ABPlayerControlsView(style: style, configuration: configuration)
+        #expect(view.rateButton.isHidden)
+
+        var changedStyle = style
+        changedStyle.tintColor = .systemPink
+        view.style = changedStyle
+
+        #expect(view.rateButton.isHidden)
+    }
+
+    @Test("Given empty rate options and an icon label, a style change keeps the button hidden")
+    func emptyIconRateOptionsStayHiddenAfterStyleChange() {
+        var style = ABPlayerControlsStyle()
+        style.rateLabelStyle = .icon(.system("speedometer"), showsValueBadge: false)
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.rateInteraction = .menu
+        configuration.rateOptions = []
+        let view = ABPlayerControlsView(style: style, configuration: configuration)
+        #expect(view.rateButton.isHidden)
+
+        var changedStyle = style
+        changedStyle.tintColor = .systemPink
+        view.style = changedStyle
+
+        #expect(view.rateButton.isHidden)
     }
 }
