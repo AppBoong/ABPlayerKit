@@ -61,14 +61,18 @@ public final class ABPlayer {
     private var gradeBeforeBackground: ABPlaybackGrade?
     private var wasPlayingBeforeBackground = false
 
-    private let audioSessionController: any ABAudioSessionControlling
-    /// The `ABAudioSessionPolicy` currently applied via `audioSessionController`,
-    /// or `nil` if none is (Q4 in DESIGN-OPEN-QUESTIONS.md: opt-in, never
-    /// applied unless `audioSessionPolicy != .unmanaged`).
-    private var appliedAudioSessionPolicy: ABAudioSessionPolicy?
-    /// The `AVAudioSession` category/mode/options captured immediately
-    /// before the first apply, so restore can put them back exactly.
-    private var savedAudioSessionSnapshot: ABAudioSessionCategorySnapshot?
+    /// The process-wide owner of audio session apply/restore
+    /// (`Policy/ABAudioSessionCoordinator.swift`) — shared across every
+    /// `ABPlayer` instance so concurrent players (the feed scenario)
+    /// coordinate one snapshot/refcount instead of stomping each other's
+    /// state (round3 Phase1+2 review C1). Overridable only from the
+    /// test-only initializer below.
+    private let audioSessionCoordinator: ABAudioSessionCoordinator
+    /// This instance's stable identity for `audioSessionCoordinator`
+    /// bookkeeping. `nonisolated` (and computed fresh, not cached) so it
+    /// can be read from `deinit`, which is nonisolated even on this
+    /// `@MainActor` class.
+    private nonisolated var audioSessionToken: ObjectIdentifier { ObjectIdentifier(self) }
 
     public init(configuration: ABPlayerConfiguration = .init()) {
         var resolvedConfiguration = configuration
@@ -76,25 +80,28 @@ public final class ABPlayer {
         self.configuration = resolvedConfiguration
         self.target = ABAVPlaybackTarget()
         self.notificationCenter = .default
-        self.audioSessionController = ABAudioSessionAdapter()
+        self.audioSessionCoordinator = .shared
         wireTarget()
         reconcileBackgroundObserver()
     }
 
     /// Test-only entry point — lets `ABPlayerKitTests` substitute
-    /// `ABFakePlaybackTarget` without exposing `ABPlaybackTarget` publicly.
+    /// `ABFakePlaybackTarget` without exposing `ABPlaybackTarget` publicly,
+    /// and substitute an isolated `ABAudioSessionCoordinator` so tests can
+    /// exercise multi-player scenarios without polluting `.shared` across
+    /// parallel test runs.
     init(
         configuration: ABPlayerConfiguration = .init(),
         target: any ABPlaybackTarget,
         notificationCenter: NotificationCenter = .default,
-        audioSessionController: any ABAudioSessionControlling = ABAudioSessionAdapter()
+        audioSessionCoordinator: ABAudioSessionCoordinator = .shared
     ) {
         var resolvedConfiguration = configuration
         resolvedConfiguration.playbackRate = ABPlaybackRate.clamped(configuration.playbackRate)
         self.configuration = resolvedConfiguration
         self.target = target
         self.notificationCenter = notificationCenter
-        self.audioSessionController = audioSessionController
+        self.audioSessionCoordinator = audioSessionCoordinator
         wireTarget()
         reconcileBackgroundObserver()
     }
@@ -106,9 +113,19 @@ public final class ABPlayer {
     /// cleanup it performs. `Task.cancel()` is itself nonisolated, so this
     /// is safe to call from `deinit`. Idempotent — cancelling an already
     /// finished or nil `Task` is a no-op.
+    /// `audioSessionCoordinator.leave` is a no-op for a token that never
+    /// applied a policy, and its own internals are lock-protected rather
+    /// than actor-isolated, so it's safe to call unconditionally from this
+    /// nonisolated `deinit` — the fix for M4 ("WP1 and WP2 don't compose":
+    /// a consumer dropping this instance without calling `release()` used
+    /// to leave the audio session permanently in this player's category).
+    /// Any restore failure is dropped rather than surfaced — by the time
+    /// `deinit` runs there is no observer left to receive a `.failed`
+    /// event.
     deinit {
         prerollTask?.cancel()
         seekWorkerTask?.cancel()
+        audioSessionCoordinator.leave(audioSessionToken)
     }
 
     // MARK: - Grade
@@ -603,44 +620,33 @@ public final class ABPlayer {
 
     // MARK: - Audio session (Q4 in DESIGN-OPEN-QUESTIONS.md)
 
-    /// Applies `configuration.audioSessionPolicy` if it isn't `.unmanaged`
-    /// and isn't already the currently-applied policy. No-op while not
+    /// Applies `configuration.audioSessionPolicy` through
+    /// `audioSessionCoordinator` if it isn't `.unmanaged`. No-op while not
     /// `.current` — callers gate this at grade `.current` promotion and
-    /// `play()` (playback start), per the confirmed Q4 design. Snapshots the
-    /// prior category/mode/options exactly once, before the *first* apply,
-    /// so restoring later always reflects the host app's original state
-    /// even if the policy is switched between two managed values in between.
+    /// `play()` (playback start), per the confirmed Q4 design. Always
+    /// (re)activates — never memoized on "already applied" — so a
+    /// promotion or `play()` after an interruption reactivates the session
+    /// instead of silently staying inactive (round3 Phase1+2 review M1).
+    /// The coordinator itself snapshots the host's prior category/mode/
+    /// options exactly once, before its *first* participant's apply, and
+    /// keeps that snapshot across a failed activate (M2) or additional
+    /// participants (C1).
     private func applyAudioSessionPolicyIfNeeded() {
         guard grade == .current else { return }
         let policy = configuration.audioSessionPolicy
-        guard policy != .unmanaged, appliedAudioSessionPolicy != policy else { return }
-        if appliedAudioSessionPolicy == nil {
-            savedAudioSessionSnapshot = audioSessionController.snapshotCurrentCategory()
-        }
-        do {
-            try audioSessionController.activate(policy)
-            appliedAudioSessionPolicy = policy
-        } catch {
-            if appliedAudioSessionPolicy == nil {
-                savedAudioSessionSnapshot = nil
-            }
+        guard policy != .unmanaged else { return }
+        if case .failure(let error) = audioSessionCoordinator.apply(policy, for: audioSessionToken) {
             surfaceAudioSessionFailure(error)
         }
     }
 
-    /// Restores the snapshot captured by `applyAudioSessionPolicyIfNeeded()`
-    /// and deactivates the session. Callers gate this at the policy
-    /// switching back to `.unmanaged` and at `release()`, per Q4. A no-op if
-    /// nothing is currently applied — restoring is therefore safe to call
-    /// unconditionally from either trigger.
+    /// Leaves `audioSessionCoordinator`. Callers gate this at the policy
+    /// switching back to `.unmanaged` and at `release()`, per Q4. A no-op
+    /// if this instance never participated, and only actually restores the
+    /// host's snapshot once every other participating player has also left
+    /// (C1) — so this is safe to call unconditionally from either trigger.
     private func restoreAudioSessionPolicyIfNeeded() {
-        guard appliedAudioSessionPolicy != nil else { return }
-        appliedAudioSessionPolicy = nil
-        guard let snapshot = savedAudioSessionSnapshot else { return }
-        savedAudioSessionSnapshot = nil
-        do {
-            try audioSessionController.restore(snapshot)
-        } catch {
+        if case .failure(let error)? = audioSessionCoordinator.leave(audioSessionToken) {
             surfaceAudioSessionFailure(error)
         }
     }
