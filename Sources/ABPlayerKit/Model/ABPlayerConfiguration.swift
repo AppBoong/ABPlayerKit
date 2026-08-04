@@ -10,6 +10,8 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
     public var isMuted: Bool
     /// The desired playback rate. Values are clamped by ``ABPlayer``.
     public var playbackRate: Float
+    /// The tolerance used for intermediate interactive scrubbing seeks.
+    public var scrubTolerance: ABSeekTolerance
     /// `nil` means "do not preroll".
     public var prerollRate: Float?
     public var prerollTimeout: TimeInterval
@@ -26,6 +28,7 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
         isLooping: Bool = false,
         isMuted: Bool = false,
         playbackRate: Float = 1.0,
+        scrubTolerance: ABSeekTolerance = .scrubbing,
         prerollRate: Float? = 1.0,
         prerollTimeout: TimeInterval = 10,
         rewindOnDemotion: Bool = false,
@@ -39,6 +42,7 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
         self.isLooping = isLooping
         self.isMuted = isMuted
         self.playbackRate = playbackRate
+        self.scrubTolerance = scrubTolerance
         self.prerollRate = prerollRate
         self.prerollTimeout = prerollTimeout
         self.rewindOnDemotion = rewindOnDemotion
@@ -54,6 +58,7 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
             && lhs.isLooping == rhs.isLooping
             && lhs.isMuted == rhs.isMuted
             && lhs.playbackRate == rhs.playbackRate
+            && lhs.scrubTolerance == rhs.scrubTolerance
             && lhs.prerollRate == rhs.prerollRate
             && lhs.prerollTimeout == rhs.prerollTimeout
             && lhs.rewindOnDemotion == rhs.rewindOnDemotion

@@ -34,6 +34,8 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
     var currentTime: CMTime = .zero
     var duration: CMTime?
     var seekLandingTime: CMTime?
+    var waitsForSeekContinuation = false
+    private var seekContinuations: [CheckedContinuation<Void, Never>] = []
 
     /// Controls what `preroll(rate:timeout:)` returns.
     var prerollResult: ABPrerollResult = .success
@@ -115,8 +117,21 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
 
     func seek(to time: CMTime, tolerance: ABSeekTolerance) async -> CMTime {
         calls.append(.seek(time, tolerance))
-        currentTime = seekLandingTime ?? time
+        let landed = seekLandingTime ?? time
+        if waitsForSeekContinuation {
+            await withCheckedContinuation { continuation in
+                seekContinuations.append(continuation)
+            }
+        }
+        currentTime = landed
         return currentTime
+    }
+
+    var pendingSeekCount: Int { seekContinuations.count }
+
+    func completeNextSeek() {
+        guard !seekContinuations.isEmpty else { return }
+        seekContinuations.removeFirst().resume()
     }
 
     func detachCount() -> Int {

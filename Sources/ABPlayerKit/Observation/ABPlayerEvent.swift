@@ -1,4 +1,5 @@
 import Foundation
+@preconcurrency import AVFoundation
 
 public enum ABItemStatus: Sendable, Equatable {
     case unknown
@@ -33,6 +34,10 @@ public enum ABPlayerEvent: Sendable, Equatable {
     case timeControlStatusChanged(ABTimeControlStatus)
     /// Emitted after the desired playback rate actually changes.
     case rateChanged(Float)
+    /// Emitted at interactive scrubbing boundaries.
+    case scrubbingChanged(isScrubbing: Bool)
+    /// Emitted when any seek lands, including intermediate scrubbing seeks.
+    case seekCompleted(to: CMTime)
     case failed(ABPlayerError)
     case tuningApplied(ABTuningRole, ABPlaybackTuning)
     case itemDetached(reason: ABDetachReason)

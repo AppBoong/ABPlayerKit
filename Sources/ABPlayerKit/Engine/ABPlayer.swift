@@ -16,6 +16,7 @@ public final class ABPlayer {
     public private(set) var source: ABMediaSource?
     public private(set) var lastError: ABPlayerError?
     public private(set) var hasDisplayedFirstFrame = false
+    public private(set) var isScrubbing = false
 
     /// Escape hatch — kept public for study purposes and consumer
     /// fallback (DESIGN-ABPlayerKit.md §1). Grade-related state must still
@@ -39,6 +40,10 @@ public final class ABPlayer {
     private var reportedFirstFrameItem: ObjectIdentifier?
     private(set) var isLayerAttachmentEnabled = true
     private var isNormalizingPlaybackRate = false
+    private var seekCoalescer = ABSeekCoalescer()
+    private var seekWorkerTask: Task<Void, Never>?
+    private var seekGeneration = 0
+    private var lastScrubTime: CMTime?
 
     private var appStateObserver: ABApplicationStateObserver?
     private var gradeBeforeBackground: ABPlaybackGrade?
@@ -164,7 +169,8 @@ public final class ABPlayer {
             broadcast(.playbackRejected)
             return
         }
-        _ = await target.seek(to: time, tolerance: tolerance)
+        let landed = await target.seek(to: time, tolerance: tolerance)
+        broadcast(.seekCompleted(to: landed))
     }
 
     /// Moves relative to the current time, clamped to the playable range.
@@ -187,7 +193,63 @@ public final class ABPlayer {
             seconds: destinationSeconds,
             preferredTimescale: currentTime.timescale > 0 ? currentTime.timescale : 600
         )
-        _ = await target.seek(to: destination, tolerance: .precise)
+        if isScrubbing {
+            scrub(to: destination)
+        } else {
+            let landed = await target.seek(to: destination, tolerance: .precise)
+            broadcast(.seekCompleted(to: landed))
+        }
+    }
+
+    // MARK: - Scrubbing
+
+    /// Starts a coalesced interactive seek session.
+    public func beginScrubbing() {
+        guard grade == .current else {
+            broadcast(.playbackRejected)
+            return
+        }
+        guard !isScrubbing else { return }
+        isScrubbing = true
+        lastScrubTime = nil
+        broadcast(.scrubbingChanged(isScrubbing: true))
+    }
+
+    /// Requests the newest interactive destination without making callers await AVFoundation.
+    public func scrub(to time: CMTime) {
+        guard grade == .current else {
+            broadcast(.playbackRejected)
+            return
+        }
+        guard isScrubbing else {
+            Task { [weak self, target] in
+                guard let self else { return }
+                let landed = await target.seek(to: time, tolerance: self.configuration.scrubTolerance)
+                self.broadcast(.seekCompleted(to: landed))
+            }
+            return
+        }
+
+        lastScrubTime = time
+        let decision = seekCoalescer.request(time, tolerance: configuration.scrubTolerance)
+        startSeekWorker(for: decision)
+    }
+
+    /// Commits the newest scrub destination precisely before resuming normal updates.
+    public func endScrubbing() async {
+        guard isScrubbing else { return }
+        if let seekWorkerTask {
+            await seekWorkerTask.value
+            self.seekWorkerTask = nil
+        }
+        if let lastScrubTime {
+            let landed = await target.seek(to: lastScrubTime, tolerance: .precise)
+            broadcast(.seekCompleted(to: landed))
+        }
+        seekCoalescer.reset()
+        lastScrubTime = nil
+        isScrubbing = false
+        broadcast(.scrubbingChanged(isScrubbing: false))
     }
 
     public func setMuted(_ muted: Bool) {
@@ -299,6 +361,7 @@ public final class ABPlayer {
                 target.setRate(configuration.playbackRate)
 
             case .detachItem:
+                resetSeeking()
                 broadcast(.itemDetached(reason: detachReason))
                 target.detachItem()
 
@@ -449,6 +512,38 @@ public final class ABPlayer {
 
     private func broadcast(_ event: ABPlayerEvent) {
         observerRegistry.broadcast(event, from: self)
+    }
+
+    private func startSeekWorker(for decision: ABSeekCoalescer.Decision) {
+        guard case .issue = decision else { return }
+        let generation = seekGeneration
+        seekWorkerTask = Task { [weak self] in
+            await self?.runSeekWorker(startingWith: decision, generation: generation)
+        }
+    }
+
+    private func runSeekWorker(
+        startingWith decision: ABSeekCoalescer.Decision,
+        generation: Int
+    ) async {
+        var nextDecision = decision
+        while case .issue(let time, let tolerance) = nextDecision {
+            let landed = await target.seek(to: time, tolerance: tolerance)
+            guard generation == seekGeneration else { return }
+            broadcast(.seekCompleted(to: landed))
+            nextDecision = seekCoalescer.completed()
+        }
+    }
+
+    private func resetSeeking() {
+        seekGeneration += 1
+        seekWorkerTask?.cancel()
+        seekWorkerTask = nil
+        seekCoalescer.reset()
+        lastScrubTime = nil
+        guard isScrubbing else { return }
+        isScrubbing = false
+        broadcast(.scrubbingChanged(isScrubbing: false))
     }
 
     private func setLayerAttachmentEnabled(_ enabled: Bool) {
