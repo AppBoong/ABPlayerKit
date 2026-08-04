@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import ABPlayerKit
 
-@Suite("Skip clamps to the playable range")
+@Suite("Skip clamps to the playable range", .timeLimit(.minutes(1)))
 @MainActor
 struct ABSkipEngineTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/skip.mp4")!)

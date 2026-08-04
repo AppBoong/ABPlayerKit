@@ -20,7 +20,7 @@ Periodic time events pause during that session and resume with an immediate snap
 
 ``ABSeekBarGeometry`` provides UIKit-independent coordinate and time conversion for custom timelines. ``ABTimeFormatter`` supplies stable `M:SS`/`H:MM:SS` media-time labels, omitting the hours field under one hour. Use ``ABPlaybackTime`` from ``ABPlayer/playbackTime`` or ``ABPlayerEvent/periodicTime(_:)`` to render current and buffered progress.
 
-Treat ``ABPlayerEvent`` as non-exhaustive. Minor releases may add cases, so switches outside ABPlayerKit should include a `default` branch.
+Treat ``ABPlayerEvent`` and ``ABPlayerError`` as non-exhaustive. Minor releases may add cases, so switches outside ABPlayerKit should include a `default` branch.
 
 ## Topics
 

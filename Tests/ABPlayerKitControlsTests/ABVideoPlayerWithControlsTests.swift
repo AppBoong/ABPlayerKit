@@ -4,7 +4,7 @@ import SwiftUI
 import Testing
 @testable import ABPlayerKitControls
 
-@Suite("SwiftUI convenience player composes video and controls")
+@Suite("SwiftUI convenience player composes video and controls", .timeLimit(.minutes(1)))
 @MainActor
 struct ABVideoPlayerWithControlsTests {
     @Test("Given a player, the convenience view mounts a controls view carrying the requested style and configuration")

@@ -3,7 +3,7 @@ import CoreGraphics
 import Testing
 @testable import ABPlayerKit
 
-@Suite("Seek bar geometry maps touches to progress")
+@Suite("Seek bar geometry maps touches to progress", .timeLimit(.minutes(1)))
 struct ABSeekBarGeometryTests {
     @Test("Given thumb width, touches at corrected track ends map to zero and one")
     func correctedEndsMapExactly() {
@@ -85,7 +85,7 @@ struct ABSeekBarGeometryTests {
     }
 }
 
-@Suite("Time labels format every duration shape")
+@Suite("Time labels format every duration shape", .timeLimit(.minutes(1)))
 struct ABTimeFormatterTests {
     // Design contract (docs/DESIGN-v0.2-CONTROLS.md §5.4): minimal M:SS,
     // growing to H:MM:SS only once the hours field is needed — not a

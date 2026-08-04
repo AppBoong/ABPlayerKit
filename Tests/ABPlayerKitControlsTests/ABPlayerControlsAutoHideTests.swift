@@ -1,7 +1,7 @@
 import Testing
 @testable import ABPlayerKitControls
 
-@Suite("Controls view integrates auto-hide and scrubbing visibility")
+@Suite("Controls view integrates auto-hide and scrubbing visibility", .timeLimit(.minutes(1)))
 @MainActor
 struct ABPlayerControlsAutoHideTests {
     @Test("Given playing controls, playback state arms and fires auto-hide")
@@ -39,7 +39,14 @@ struct ABPlayerControlsAutoHideTests {
         view.handleVisibility(.playbackStateChanged(isPlaying: true), animated: false)
 
         view.handleVisibility(.scrubBegan, animated: false)
-        #expect(!view.hasScheduledAutoHide)
+        // `.cancelAutoHide` already made `hasScheduledAutoHide` false
+        // synchronously (above) — this sleep instead proves the *previous*
+        // hide `Task`'s in-flight `Task.sleep` genuinely observes its own
+        // cancellation and never reaches `handleVisibility(.autoHideFired)`,
+        // rather than losing a race against `autoHideDelay` (10ms) actually
+        // elapsing. That's a real-time property no synchronous state check
+        // or `waitUntil` predicate can substitute for (round3 Phase1+2
+        // review m6).
         try await Task.sleep(for: .milliseconds(30))
         #expect(view.isControlsVisible)
 

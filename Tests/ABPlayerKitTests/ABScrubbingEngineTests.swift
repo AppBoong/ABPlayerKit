@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import ABPlayerKit
 
-@Suite("Scrubbing coalesces engine seeks and commits the newest target")
+@Suite("Scrubbing coalesces engine seeks and commits the newest target", .timeLimit(.minutes(1)))
 @MainActor
 struct ABScrubbingEngineTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/scrub.mp4")!)
@@ -66,6 +66,13 @@ struct ABScrubbingEngineTests {
         player.scrub(to: latest)
 
         let endTask = Task { await player.endScrubbing() }
+        // `Task { ... }` created from this `@MainActor` test infers
+        // `@MainActor` isolation, so `endTask` cannot run its synchronous
+        // prefix (through `endScrubbing()`'s first `await`) until this test
+        // function itself yields the actor — a single `Task.yield()` is a
+        // deterministic hand-off, not a speculative poll (round3 Phase1+2
+        // review m6: distinguishing this from the busy-loop pattern WP8
+        // removed elsewhere).
         await Task.yield()
         target.completeNextSeek()
         try await waitUntil { target.pendingSeekCount > 0 }
@@ -183,6 +190,14 @@ struct ABScrubbingEngineTests {
 
         player.set(source: replacement, grade: .current)
         target.completeNextSeek()
+        // Asserting an *absence* (no `.seekCompleted` broadcast) has no
+        // positive predicate `waitUntil` can poll for — `set(source:grade:)`
+        // already bumped `seekGeneration` synchronously above, so the
+        // now-stale seek worker's `guard generation == seekGeneration`
+        // silently returns instead of broadcasting once it resumes past
+        // `completeNextSeek()`'s continuation. A bounded drain of pending
+        // main-actor work is the deterministic-enough substitute (round3
+        // Phase1+2 review m6).
         for _ in 0..<10 { await Task.yield() }
 
         #expect(!player.isScrubbing)
@@ -230,6 +245,13 @@ struct ABScrubbingEngineTests {
         player.scrub(to: destination)
         try await waitUntil { target.pendingSeekCount > 0 }
         let endTask = Task { await player.endScrubbing() }
+        // `Task { ... }` created from this `@MainActor` test infers
+        // `@MainActor` isolation, so `endTask` cannot run its synchronous
+        // prefix (through `endScrubbing()`'s first `await`) until this test
+        // function itself yields the actor — a single `Task.yield()` is a
+        // deterministic hand-off, not a speculative poll (round3 Phase1+2
+        // review m6: distinguishing this from the busy-loop pattern WP8
+        // removed elsewhere).
         await Task.yield()
 
         player.promote(to: .preloaded)

@@ -53,12 +53,10 @@ public struct ABPlaybackTuning: Sendable, Equatable {
     /// via `displaySizeSentinel`, resolved at apply time.
     public static let displaySizeSentinel = CGSize(width: -1, height: -1)
 
-    public static let displayCapped = ABPlaybackTuning(
-        preferredPeakBitRate: 0,
-        preferredForwardBufferDuration: 0,
-        preferredMaximumResolution: displaySizeSentinel,
-        automaticallyWaitsToMinimizeStalling: true
-    )
+    /// Delegates to the bare `init()` rather than repeating its defaults —
+    /// the two are byte-identical (round3 Phase1+2 review m11), and this
+    /// keeps them from drifting apart if either changes independently.
+    public static let displayCapped = ABPlaybackTuning()
 
     /// Alternative preset that caps the bandwidth ceiling via rendition
     /// selection instead (cellular-oriented).

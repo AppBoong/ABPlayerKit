@@ -27,7 +27,7 @@ private final class ABFakeClock: ABClock, @unchecked Sendable {
     }
 }
 
-@Suite("ABPlaybackStatistics aggregation")
+@Suite("ABPlaybackStatistics aggregation", .timeLimit(.minutes(1)))
 struct ABPlaybackStatisticsTests {
     @Test("Aggregates fixed samples with abandoned samples in rate denominators")
     func aggregatesFixedSamples() {

@@ -12,7 +12,7 @@ private final class WeakReference<Object: AnyObject> {
     }
 }
 
-@Suite("ABDefaultAssetFactory uses public AVFoundation API")
+@Suite("ABDefaultAssetFactory uses public AVFoundation API", .timeLimit(.minutes(1)))
 struct ABDefaultAssetFactoryTests {
     @Test("Custom headers remain stored on the source while core asset creation preserves the URL")
     func headersAreDeferredToCacheTarget() {
@@ -28,7 +28,7 @@ struct ABDefaultAssetFactoryTests {
     }
 }
 
-@Suite("Every release path calls detachItem exactly once")
+@Suite("Every release path calls detachItem exactly once", .timeLimit(.minutes(1)))
 @MainActor
 struct ABPlayerReleasePathTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)
@@ -310,6 +310,12 @@ struct ABPlayerEventBroadcastTests {
 
         player.configuration.backgroundPolicy = .pause
         center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        // `ABApplicationStateObserver` registers with `queue: .main` and
+        // wraps its callback in its own `Task { @MainActor in ... }`, so the
+        // actual `onBackground()` call is one more main-actor turn away
+        // from this synchronous `post(name:)` — a single `Task.yield()`
+        // deterministically hands the actor over long enough for both hops
+        // to run before this test resumes (round3 Phase1+2 review m6).
         await Task.yield()
         let pauseCount = target.calls.filter { $0 == .pause }.count
         #expect(pauseCount == 1)
@@ -342,7 +348,7 @@ struct ABPlayerEventBroadcastTests {
     }
 }
 
-@Suite("ABPlayerView follows player lifecycle")
+@Suite("ABPlayerView follows player lifecycle", .timeLimit(.minutes(1)))
 @MainActor
 struct ABPlayerViewLifecycleTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)
@@ -407,7 +413,7 @@ struct ABPlayerViewLifecycleTests {
 /// update `lastError`). Driven directly via `ABFakePlaybackTarget.emit(_:)`
 /// rather than through a real grade transition, so each case is isolated
 /// from the rest of the target-event pipeline.
-@Suite("ABPlayer.handle(_:) broadcasts every ABTargetEvent case")
+@Suite("ABPlayer.handle(_:) broadcasts every ABTargetEvent case", .timeLimit(.minutes(1)))
 @MainActor
 struct ABPlayerHandleTargetEventTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)
@@ -482,7 +488,7 @@ struct ABPlayerHandleTargetEventTests {
     }
 }
 
-@Suite("ABObservationToken lifecycle")
+@Suite("ABObservationToken lifecycle", .timeLimit(.minutes(1)))
 @MainActor
 struct ABObservationTokenLifecycleTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)
@@ -580,7 +586,7 @@ struct ABObservationTokenLifecycleTests {
 /// Regression coverage for the deinit-vs-`NSInternalInconsistencyException`
 /// fix: dropping a still-attached player/target without calling `release()`
 /// must not crash, and must actually clean up (not merely "not crash").
-@Suite("Dropping a player/target without release() cleans up deterministically")
+@Suite("Dropping a player/target without release() cleans up deterministically", .timeLimit(.minutes(1)))
 @MainActor
 struct ABPlayerDeinitCleanupTests {
     // A local, non-existent file URL — unlike an `https://` source, this
@@ -606,10 +612,13 @@ struct ABPlayerDeinitCleanupTests {
         // of asserting immediately after nil-ing the reference.
         try await waitUntil { weakPlayer.value == nil }
 
-        // If the periodic time observer were still registered, `AVPlayer`
-        // would raise `NSInternalInconsistencyException` on dealloc instead
-        // of reaching this line.
-        #expect(weakPlayer.value == nil)
+        // `waitUntil` above already proved `weakPlayer.value == nil` — a
+        // trailing `#expect` of the same predicate here can never fail
+        // (round3 Phase1+2 review m8). The real oracle for this test is
+        // that execution reaches this point at all: if the periodic time
+        // observer were still registered, `AVPlayer` would raise an
+        // uncaught `NSInternalInconsistencyException` on dealloc and abort
+        // the test process before this line ever runs.
     }
 
     @Test("ABPlayer deinit cancels an outstanding preroll task")

@@ -67,7 +67,7 @@ private final class ABFakeHLSDownloadSession: @unchecked Sendable {
     }
 }
 
-@Suite("ABMediaCache asset interception")
+@Suite("ABMediaCache asset interception", .timeLimit(.minutes(1)))
 struct ABMediaCacheTests {
     @Test("Asset factory intercepts progressive sources and passes HLS through")
     func interceptsOnlyProgressiveSources() throws {
@@ -98,7 +98,7 @@ struct ABMediaCacheTests {
     }
 }
 
-@Suite("ABHLSPrefetcher bookkeeping")
+@Suite("ABHLSPrefetcher bookkeeping", .timeLimit(.minutes(1)))
 struct ABHLSPrefetcherTests {
     @Test("Handle cancellation removes and cancels its fake download")
     func handleCancellation() async {

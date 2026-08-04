@@ -4,7 +4,7 @@ import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("Controls expose localized and stateful accessibility")
+@Suite("Controls expose localized and stateful accessibility", .timeLimit(.minutes(1)))
 @MainActor
 struct ABPlayerControlsAccessibilityTests {
     @Test("Given bundled localizations, English and Korean control labels are available")
@@ -63,15 +63,21 @@ struct ABPlayerControlsAccessibilityTests {
     }
 
     @Test("Given VoiceOver is running, automatic hiding is suppressed")
-    func voiceOverSuppressesAutoHide() async throws {
+    func voiceOverSuppressesAutoHide() {
         var configuration = ABPlayerControlsConfiguration()
         configuration.autoHideDelay = 0.001
         let view = ABPlayerControlsView(configuration: configuration)
         view.isVoiceOverRunningProvider = { true }
 
         view.handleVisibility(.playbackStateChanged(isPlaying: true), animated: false)
-        try await Task.sleep(for: .milliseconds(5))
 
+        // `scheduleAutoHide` checks `isVoiceOverRunningProvider()`
+        // synchronously before ever creating the hide `Task` — suppression
+        // is observable immediately, with no `Task.sleep` needed to prove
+        // it (round3 Phase1+2 review m6: the previous version slept 5ms
+        // against a 1ms `autoHideDelay`, in conflict with WP8's "no
+        // sleep-based waiting" rule, for a state change that was already
+        // synchronous).
         #expect(view.isControlsVisible)
         #expect(!view.hasScheduledAutoHide)
     }

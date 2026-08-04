@@ -1,6 +1,12 @@
 import Foundation
 import Testing
 
+// Intentionally duplicated verbatim across `ABPlayerKitTests`,
+// `ABPlayerKitCacheTests`, and `ABPlayerKitControlsTests` (round3 Phase1+2
+// review m7) — each is a separate SPM test target with no shared test
+// support target to host one copy, and introducing one is out of scope for
+// this cleanup. Keep all three in sync by hand if this helper changes.
+
 /// Deterministic polling helper (round-3 Phase 2, WP8): replaces ad hoc
 /// `while !x { await Task.yield() }` / `for _ in 0..<N { await Task.yield() }`
 /// busy-loops scattered across this target's tests with a single

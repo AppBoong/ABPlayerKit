@@ -5,7 +5,7 @@ import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("Controls attach and detach without leaking observation")
+@Suite("Controls attach and detach without leaking observation", .timeLimit(.minutes(1)))
 @MainActor
 struct ABPlayerControlsAttachmentTests {
     @Test("Given attachment, controls install their configured periodic interval")
@@ -88,7 +88,7 @@ struct ABPlayerControlsAttachmentTests {
     }
 }
 
-@Suite("Controls promote a non-current player to current on a play tap")
+@Suite("Controls promote a non-current player to current on a play tap", .timeLimit(.minutes(1)))
 @MainActor
 struct ABPlayerControlsPromotionTests {
     @Test("Given the default configuration, promotesToCurrentOnPlay is enabled")
@@ -349,7 +349,7 @@ struct ABPlayerControlsEventReflectionTests {
     }
 }
 
-@Suite("Controls follow the release overlay geometry")
+@Suite("Controls follow the release overlay geometry", .timeLimit(.minutes(1)))
 @MainActor
 struct ABPlayerControlsLayoutTests {
     @Test("Given a video-sized overlay, the seek bar spans the full width and its visible track sits exactly 10pt above the bottom row")
