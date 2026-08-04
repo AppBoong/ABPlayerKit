@@ -15,6 +15,7 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
 
     private let observations = ABObservationBag()
     private var isLooping = false
+    private var desiredRate: Float = 1.0
 
     var isPlaying: Bool {
         guard let avPlayer else { return false }
@@ -64,11 +65,19 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
     }
 
     func play() {
-        avPlayer?.play()
+        avPlayer?.rate = desiredRate
     }
 
     func pause() {
         avPlayer?.pause()
+    }
+
+    func setRate(_ rate: Float) {
+        let wasPlaying = isPlaying
+        desiredRate = rate
+        if wasPlaying {
+            avPlayer?.rate = rate
+        }
     }
 
     func setMuted(_ muted: Bool) {

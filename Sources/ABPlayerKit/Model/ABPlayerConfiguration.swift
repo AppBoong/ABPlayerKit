@@ -8,6 +8,8 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
     public var currentTuning: ABPlaybackTuning
     public var isLooping: Bool
     public var isMuted: Bool
+    /// The desired playback rate. Values are clamped by ``ABPlayer``.
+    public var playbackRate: Float
     /// `nil` means "do not preroll".
     public var prerollRate: Float?
     public var prerollTimeout: TimeInterval
@@ -23,6 +25,7 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
         currentTuning: ABPlaybackTuning = .displayCapped,
         isLooping: Bool = false,
         isMuted: Bool = false,
+        playbackRate: Float = 1.0,
         prerollRate: Float? = 1.0,
         prerollTimeout: TimeInterval = 10,
         rewindOnDemotion: Bool = false,
@@ -35,6 +38,7 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
         self.currentTuning = currentTuning
         self.isLooping = isLooping
         self.isMuted = isMuted
+        self.playbackRate = playbackRate
         self.prerollRate = prerollRate
         self.prerollTimeout = prerollTimeout
         self.rewindOnDemotion = rewindOnDemotion
@@ -49,6 +53,7 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
             && lhs.currentTuning == rhs.currentTuning
             && lhs.isLooping == rhs.isLooping
             && lhs.isMuted == rhs.isMuted
+            && lhs.playbackRate == rhs.playbackRate
             && lhs.prerollRate == rhs.prerollRate
             && lhs.prerollTimeout == rhs.prerollTimeout
             && lhs.rewindOnDemotion == rhs.rewindOnDemotion

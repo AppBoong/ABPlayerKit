@@ -24,6 +24,8 @@ public final class ABPlayer {
     public var avPlayerItem: AVPlayerItem? { target.avPlayerItem }
 
     public var isPlaying: Bool { target.isPlaying }
+    /// The desired playback rate, retained while playback is paused.
+    public var rate: Float { configuration.playbackRate }
     public var currentTime: CMTime { target.currentTime }
     public var duration: CMTime? { target.duration }
 
@@ -36,13 +38,16 @@ public final class ABPlayer {
     private var prerollTask: Task<Void, Never>?
     private var reportedFirstFrameItem: ObjectIdentifier?
     private(set) var isLayerAttachmentEnabled = true
+    private var isNormalizingPlaybackRate = false
 
     private var appStateObserver: ABApplicationStateObserver?
     private var gradeBeforeBackground: ABPlaybackGrade?
     private var wasPlayingBeforeBackground = false
 
     public init(configuration: ABPlayerConfiguration = .init()) {
-        self.configuration = configuration
+        var resolvedConfiguration = configuration
+        resolvedConfiguration.playbackRate = ABPlaybackRate.clamped(configuration.playbackRate)
+        self.configuration = resolvedConfiguration
         self.target = ABAVPlaybackTarget()
         self.notificationCenter = .default
         wireTarget()
@@ -56,7 +61,9 @@ public final class ABPlayer {
         target: any ABPlaybackTarget,
         notificationCenter: NotificationCenter = .default
     ) {
-        self.configuration = configuration
+        var resolvedConfiguration = configuration
+        resolvedConfiguration.playbackRate = ABPlaybackRate.clamped(configuration.playbackRate)
+        self.configuration = resolvedConfiguration
         self.target = target
         self.notificationCenter = notificationCenter
         wireTarget()
@@ -140,6 +147,11 @@ public final class ABPlayer {
             return
         }
         target.pause()
+    }
+
+    /// Changes the desired rate without starting paused playback.
+    public func setRate(_ rate: Float) {
+        configuration.playbackRate = ABPlaybackRate.clamped(rate)
     }
 
     public func seek(to time: CMTime) async {
@@ -256,6 +268,7 @@ public final class ABPlayer {
                 broadcast(.tuningApplied(lastAppliedTuningRole, tuning(for: lastAppliedTuningRole)))
                 target.setMuted(configuration.isMuted)
                 target.setLooping(configuration.isLooping)
+                target.setRate(configuration.playbackRate)
 
             case .detachItem:
                 broadcast(.itemDetached(reason: detachReason))
@@ -312,6 +325,13 @@ public final class ABPlayer {
     }
 
     private func applyConfigurationChange(from previousConfiguration: ABPlayerConfiguration) {
+        guard !isNormalizingPlaybackRate else { return }
+        let clampedRate = ABPlaybackRate.clamped(configuration.playbackRate)
+        if configuration.playbackRate != clampedRate {
+            isNormalizingPlaybackRate = true
+            configuration.playbackRate = clampedRate
+            isNormalizingPlaybackRate = false
+        }
         if previousConfiguration.backgroundPolicy != configuration.backgroundPolicy {
             if previousConfiguration.backgroundPolicy == .pauseAndDetachLayer,
                configuration.backgroundPolicy != .pauseAndDetachLayer {
@@ -324,6 +344,10 @@ public final class ABPlayer {
         }
         if previousConfiguration.isLooping != configuration.isLooping {
             target.setLooping(configuration.isLooping)
+        }
+        if ABPlaybackRate.clamped(previousConfiguration.playbackRate) != configuration.playbackRate {
+            target.setRate(configuration.playbackRate)
+            broadcast(.rateChanged(configuration.playbackRate))
         }
 
         guard grade.holdsItem else { return }

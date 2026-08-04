@@ -51,6 +51,7 @@ protocol ABPlaybackTarget: AnyObject {
     func applyTuning(_ tuning: ABPlaybackTuning) -> Bool
     func play()
     func pause()
+    func setRate(_ rate: Float)
     func setMuted(_ muted: Bool)
     func setLooping(_ isLooping: Bool)
     /// Waits for `status == .readyToPlay` (or `prerollTimeout` to elapse),

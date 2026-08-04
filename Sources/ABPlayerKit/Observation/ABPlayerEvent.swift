@@ -31,6 +31,8 @@ public enum ABPlayerEvent: Sendable, Equatable {
     case playbackStalled
     case playedToEnd
     case timeControlStatusChanged(ABTimeControlStatus)
+    /// Emitted after the desired playback rate actually changes.
+    case rateChanged(Float)
     case failed(ABPlayerError)
     case tuningApplied(ABTuningRole, ABPlaybackTuning)
     case itemDetached(reason: ABDetachReason)

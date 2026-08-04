@@ -15,6 +15,7 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
         case applyTuning(ABPlaybackTuning)
         case play
         case pause
+        case setRate(Float)
         case setMuted(Bool)
         case setLooping(Bool)
         case preroll(rate: Float)
@@ -28,6 +29,8 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
     var avPlayer: AVPlayer?
     var avPlayerItem: AVPlayerItem?
     var isPlaying = false
+    private(set) var desiredRate: Float = 1.0
+    private(set) var appliedRate: Float = 0
     var currentTime: CMTime = .zero
     var duration: CMTime?
 
@@ -68,11 +71,21 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
     func play() {
         calls.append(.play)
         isPlaying = true
+        appliedRate = desiredRate
     }
 
     func pause() {
         calls.append(.pause)
         isPlaying = false
+        appliedRate = 0
+    }
+
+    func setRate(_ rate: Float) {
+        calls.append(.setRate(rate))
+        desiredRate = rate
+        if isPlaying {
+            appliedRate = rate
+        }
     }
 
     func setMuted(_ muted: Bool) {
