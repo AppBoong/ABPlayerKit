@@ -259,14 +259,19 @@ public final class ABPlayer {
             await seekWorkerTask.value
             self.seekWorkerTask = nil
         }
-        if let lastScrubTime {
+        if grade == .current, let lastScrubTime {
             let landed = await target.seek(to: lastScrubTime, tolerance: .precise)
             broadcast(.seekCompleted(to: landed))
+        } else if grade != .current {
+            broadcast(.playbackRejected)
         }
+        let shouldBroadcastBoundary = isScrubbing
         seekCoalescer.reset()
         lastScrubTime = nil
         isScrubbing = false
-        broadcast(.scrubbingChanged(isScrubbing: false))
+        if shouldBroadcastBoundary {
+            broadcast(.scrubbingChanged(isScrubbing: false))
+        }
         broadcastPeriodicTime(at: target.currentTime)
     }
 

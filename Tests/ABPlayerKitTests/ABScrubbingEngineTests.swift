@@ -188,4 +188,37 @@ struct ABScrubbingEngineTests {
 
         #expect(boundaries == [true, false, true])
     }
+
+    @Test("Given demotion while ending, no non-current seek issues and state cleanup remains")
+    func demotionWhileEndingRejectsCommitAndKeepsCleanup() async {
+        let (player, target) = makePlayer(suspendedSeeks: true)
+        let destination = CMTime(seconds: 50, preferredTimescale: 600)
+        var boundaries: [Bool] = []
+        var rejections = 0
+        let token = player.addObserver {
+            switch $0 {
+            case .scrubbingChanged(let isScrubbing):
+                boundaries.append(isScrubbing)
+            case .playbackRejected:
+                rejections += 1
+            default:
+                break
+            }
+        }
+        defer { token.cancel() }
+        player.beginScrubbing()
+        player.scrub(to: destination)
+        while target.pendingSeekCount == 0 { await Task.yield() }
+        let endTask = Task { await player.endScrubbing() }
+        await Task.yield()
+
+        player.promote(to: .preloaded)
+        target.completeNextSeek()
+        await endTask.value
+
+        #expect(!player.isScrubbing)
+        #expect(boundaries == [true, false])
+        #expect(rejections == 1)
+        #expect(target.calls.filter { if case .seek = $0 { true } else { false } }.count == 1)
+    }
 }
