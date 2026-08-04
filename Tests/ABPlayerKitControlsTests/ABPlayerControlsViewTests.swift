@@ -183,6 +183,19 @@ struct ABPlayerControlsEventReflectionTests {
         #expect(view.displayedDurationText == "00:10:00")
     }
 
+    @Test("Given .fixedHours, labels stay always-padded HH:MM:SS even under a minute — independent of ABTimeFormatter.string(from:)'s own (minimal M:SS) default")
+    func fixedHoursStaysAlwaysPaddedEvenUnderAMinute() {
+        let view = ABPlayerControlsView()
+
+        view.handlePlayerEvent(.periodicTime(ABPlaybackTime(
+            currentTime: CMTime(seconds: 5, preferredTimescale: 600),
+            duration: CMTime(seconds: 30, preferredTimescale: 600),
+            bufferedUntil: nil
+        )))
+
+        #expect(view.displayedElapsedText == "00:00:05/00:00:30")
+    }
+
     @Test("Given automatic time format, labels use MM:SS under an hour and add hours once the duration reaches one")
     func automaticTimeFormatAdaptsToDuration() {
         var configuration = ABPlayerControlsConfiguration()

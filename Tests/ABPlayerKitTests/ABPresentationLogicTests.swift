@@ -87,12 +87,16 @@ struct ABSeekBarGeometryTests {
 
 @Suite("Time labels format every duration shape")
 struct ABTimeFormatterTests {
-    @Test("Given boundary second values, labels always include two-digit hours", arguments: [
-        (0.0, "00:00:00"),
-        (59.0, "00:00:59"),
-        (60.0, "00:01:00"),
-        (3_599.0, "00:59:59"),
-        (3_600.0, "01:00:00")
+    // Design contract (docs/DESIGN-v0.2-CONTROLS.md §5.4): minimal M:SS,
+    // growing to H:MM:SS only once the hours field is needed — not a
+    // permanently-padded HH:MM:SS. `ABPlayerControlsConfiguration.TimeLabelFormat.fixedHours`
+    // is where the always-padded clock look lives instead.
+    @Test("Given boundary second values, labels use the minimal M:SS/H:MM:SS form", arguments: [
+        (0.0, "0:00"),
+        (59.0, "0:59"),
+        (60.0, "1:00"),
+        (3_599.0, "59:59"),
+        (3_600.0, "1:00:00")
     ])
     func formatsBoundaries(seconds: TimeInterval, expected: String) {
         #expect(ABTimeFormatter.string(from: seconds) == expected)
@@ -100,34 +104,34 @@ struct ABTimeFormatterTests {
 
     @Test("Given negative seconds, the label clamps to zero")
     func clampsNegativeSeconds() {
-        #expect(ABTimeFormatter.string(from: -12) == "00:00:00")
+        #expect(ABTimeFormatter.string(from: -12) == "0:00")
     }
 
     @Test("Given non-finite seconds, the label uses a placeholder")
     func rejectsNonFiniteSeconds() {
-        #expect(ABTimeFormatter.string(from: .nan) == "--:--:--")
-        #expect(ABTimeFormatter.string(from: .infinity) == "--:--:--")
+        #expect(ABTimeFormatter.string(from: .nan) == "--:--")
+        #expect(ABTimeFormatter.string(from: .infinity) == "--:--")
     }
 
     @Test("Given invalid or indefinite CMTime, the label uses a placeholder")
     func rejectsInvalidMediaTime() {
-        #expect(ABTimeFormatter.string(from: .invalid) == "--:--:--")
-        #expect(ABTimeFormatter.string(from: .indefinite) == "--:--:--")
+        #expect(ABTimeFormatter.string(from: .invalid) == "--:--")
+        #expect(ABTimeFormatter.string(from: .indefinite) == "--:--")
     }
 
     @Test("Given elapsed and total time, the remaining label is derived")
     func derivesRemainingTime() {
-        #expect(ABTimeFormatter.remainingString(current: 12, duration: 225) == "-00:03:33")
+        #expect(ABTimeFormatter.remainingString(current: 12, duration: 225) == "-3:33")
     }
 
     @Test("Given elapsed time beyond duration, remaining clamps to negative zero")
     func clampsRemainingTime() {
-        #expect(ABTimeFormatter.remainingString(current: 250, duration: 225) == "-00:00:00")
+        #expect(ABTimeFormatter.remainingString(current: 250, duration: 225) == "-0:00")
     }
 
     @Test("Given no duration, remaining uses a placeholder")
     func missingDurationHasNoRemainingTime() {
-        #expect(ABTimeFormatter.remainingString(current: 12, duration: nil) == "--:--:--")
+        #expect(ABTimeFormatter.remainingString(current: 12, duration: nil) == "--:--")
     }
 
     @Test("Given no reference duration, automatic formatting derives hours from the value itself", arguments: [

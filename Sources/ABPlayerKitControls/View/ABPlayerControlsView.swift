@@ -728,10 +728,25 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         case .automatic:
             ABTimeFormatter.automaticString(from: seconds, referenceDuration: referenceDuration)
         case .fixedHours:
-            ABTimeFormatter.string(from: seconds)
+            Self.fixedHoursString(from: seconds)
         case .custom(let formatter):
             formatter(seconds, referenceDuration)
         }
+    }
+
+    /// Always `HH:MM:SS`, zero-padded, including the hours field even when
+    /// zero. `.fixedHours`'s own formatter, not `ABTimeFormatter.string(from:)`
+    /// — that core API's default contract is the minimal `M:SS`/`H:MM:SS` form
+    /// (see `docs/DESIGN-v0.2-CONTROLS.md` §5.4); `.fixedHours` exists
+    /// specifically for consumers who want the always-padded clock look
+    /// instead, so it can't delegate to a formatter with different semantics.
+    private static func fixedHoursString(from seconds: TimeInterval) -> String {
+        guard seconds.isFinite else { return "--:--:--" }
+        let totalSeconds = Int(max(0, seconds).rounded(.down))
+        let hours = totalSeconds / 3_600
+        let minutes = (totalSeconds % 3_600) / 60
+        let remainingSeconds = totalSeconds % 60
+        return String(format: "%02d:%02d:%02d", hours, minutes, remainingSeconds)
     }
 
     private func timePlaceholder(referenceDuration: TimeInterval?) -> String {
