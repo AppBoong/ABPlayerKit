@@ -355,6 +355,17 @@ actor ABCacheStore {
                     isEndOfResource: true
                 )
             }
+            // WP11: a request far ahead of the linear fill's current
+            // prefix would otherwise wait for that fill to sequentially
+            // crawl all the way there — unbounded for a distant seek
+            // against a non-faststart file. Serve it directly instead of
+            // ever calling `waitForProgress` for it. The background fill
+            // keeps crawling forward untouched; this is a one-off
+            // passthrough for this caller only, not a fill restart.
+            let currentPrefixEnd = index.entries[key]?.size ?? 0
+            if resolvedRange.lowerBound - currentPrefixEnd >= configuration.passthroughGapThreshold {
+                return try await passthrough(source, range: resolvedRange, metadata: metadata)
+            }
             if fills[key] == nil, let error = fillErrors[key] {
                 if error == .entryTooLarge {
                     removeCachedEntry(for: key)
@@ -547,17 +558,27 @@ actor ABCacheStore {
               let resolvedRange = range.resolved(contentLength: contentLength) else {
             throw StoreError.invalidResponse
         }
+        let fullUpperBound = Swift.min(
+            resolvedRange.upperBound ?? (contentLength - 1),
+            contentLength - 1
+        )
+        // Cap each round trip to `passthroughChunkSize` (round3 Phase4
+        // WP11.2) so a caller streaming a large range —
+        // `ABResourceLoaderDelegate`'s loop, which already re-requests
+        // from `currentOffset` after every response — gets it back in
+        // bounded pieces instead of one large in-memory `Data` allocation
+        // per round trip.
+        let requestedUpperBound = Swift.min(fullUpperBound, resolvedRange.lowerBound + passthroughChunkSize - 1)
         var request = request(for: source)
-        request.setValue(resolvedRange.headerValue, forHTTPHeaderField: "Range")
+        request.setValue(
+            ABByteRange(lowerBound: resolvedRange.lowerBound, upperBound: requestedUpperBound).headerValue,
+            forHTTPHeaderField: "Range"
+        )
         let (receivedData, response) = try await httpFetcher.data(for: request)
         guard (200...299).contains(response.statusCode) else {
             throw StoreError.invalidResponse
         }
 
-        let requestedUpperBound = Swift.min(
-            resolvedRange.upperBound ?? (contentLength - 1),
-            contentLength - 1
-        )
         let expectedCount = Int(requestedUpperBound - resolvedRange.lowerBound + 1)
         let data: Data
         if response.statusCode == 200 {
@@ -814,6 +835,11 @@ actor ABCacheStore {
     private var cacheableEntryLimit: Int64 {
         Swift.max(0, Swift.min(configuration.maximumEntrySize, configuration.maximumDiskSize))
     }
+
+    /// Per-round-trip cap for `passthrough` responses (round3 Phase4
+    /// WP11.2) — fixed, not configurable, since it bounds an in-memory
+    /// `Data` allocation rather than expressing a cache policy tradeoff.
+    private var passthroughChunkSize: Int64 { 1_024 * 1_024 }
 
     private static func metadata(
         from response: ABHTTPResponse,

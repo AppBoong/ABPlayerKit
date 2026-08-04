@@ -511,6 +511,77 @@ struct ABCacheStoreTests {
         #expect(fetcher.requests.filter { $0.httpMethod == "GET" }.count == 1)
     }
 
+    // MARK: - round3 Phase4 WP11: passthrough fallback for a distant offset
+
+    @Test("A request far ahead of the fill prefix returns via passthrough without waiting for the fill")
+    func distantOffsetRequestUsesPassthroughWithoutWaitingForFill() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("distant.mp4")
+        let contentLength: Int64 = 5 * 1_024 * 1_024
+        let payload = Data("distant-bytes".utf8)
+        let passthroughResponse = ABHTTPResponse(
+            statusCode: 206,
+            expectedContentLength: Int64(payload.count),
+            mimeType: "video/mp4"
+        )
+        // The fill's stream never yields anything (`initialStreamEvents:
+        // [[]]`, and `finishStreams` is never called) — its prefix stays
+        // stuck at 0 for the entire test, so a distant-offset `load` can
+        // only return promptly if it genuinely bypasses waiting on it.
+        let fetcher = ABControlledHTTPFetcher(
+            dataReplies: [
+                metadataReply(length: contentLength),
+                ABFakeHTTPFetcher.DataReply(data: payload, response: passthroughResponse)
+            ],
+            initialStreamEvents: [[]]
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory, passthroughGapThreshold: 2 * 1_024 * 1_024),
+            httpFetcher: fetcher
+        )
+
+        let distantOffset: Int64 = 3 * 1_024 * 1_024
+        let resource = try await store.load(
+            source,
+            range: ABByteRange(lowerBound: distantOffset, upperBound: distantOffset + Int64(payload.count) - 1)
+        )
+
+        #expect(resource.data == payload)
+        // Nothing was ever written to the cache file — proves this really
+        // was served by a direct network passthrough, not by the fill
+        // somehow having made progress.
+        #expect(await store.totalSize() == 0)
+    }
+
+    @Test("A request within the gap threshold still waits for the fill instead of using passthrough")
+    func nearOffsetRequestStillWaitsForFill() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("near.mp4")
+        let fetcher = ABControlledHTTPFetcher(
+            dataReplies: [metadataReply(length: 6)],
+            initialStreamEvents: [[
+                .response(.init(statusCode: 200, expectedContentLength: 6, mimeType: "video/mp4")),
+                .data(Data("abc".utf8))
+            ]]
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory, passthroughGapThreshold: 2 * 1_024 * 1_024),
+            httpFetcher: fetcher
+        )
+
+        // Offset 1 is well within the 2MB gap threshold of prefix 0, so
+        // this must resolve through the normal cached-prefix path once the
+        // fill's already-queued "abc" lands — not through passthrough
+        // (which would need a second queued `dataReplies` entry this test
+        // never supplies; an accidental passthrough here would throw
+        // instead of hanging, making this a real regression guard).
+        let resource = try await store.load(source, range: ABByteRange(lowerBound: 1, upperBound: 2))
+
+        #expect(resource.data == Data("bc".utf8))
+    }
+
     // MARK: - WP7: error paths
 
     @Test("A non-2xx fill response throws StoreError.invalidResponse")
