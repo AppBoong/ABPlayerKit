@@ -23,13 +23,14 @@ public struct ABVideoPlayerWithControls: View {
     }
 
     public var body: some View {
-        ZStack {
-            ABVideoPlayer(player: player, videoGravity: videoGravity)
-            ABPlayerControls(
-                player: player,
-                style: style,
-                configuration: configuration
-            )
-        }
+        ABVideoPlayer(player: player, videoGravity: videoGravity)
+            .overlay {
+                ABPlayerControls(
+                    player: player,
+                    style: style,
+                    configuration: configuration
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
     }
 }
