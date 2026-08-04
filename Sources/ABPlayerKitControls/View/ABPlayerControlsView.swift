@@ -41,7 +41,6 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     let rateButton = ABControlButton(type: .custom)
     let seekBar = ABSeekBar()
     let elapsedLabel = UILabel()
-    let durationLabel = UILabel()
     private let accessoryStack = UIStackView()
     private let buttonStack = UIStackView()
     private let bottomStack = UIStackView()
@@ -80,7 +79,6 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     var displayedPlayPauseImage: UIImage? { playPauseButton.image(for: .normal) }
     var displayedRateText: String? { rateButton.title(for: .normal) }
     var displayedElapsedText: String? { elapsedLabel.text }
-    var displayedDurationText: String? { durationLabel.text }
     var controlsAreEnabled: Bool { playPauseButton.isEnabled }
     var isShowingPauseIcon: Bool { isPlayingState }
     var hasScheduledAutoHide: Bool { hideTask != nil }
@@ -238,7 +236,6 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: ABPlayerControlsView, _: UITraitCollection) in
             let scaledTimeFont = view.scaledTimeLabelFont(for: view.style)
             view.elapsedLabel.font = scaledTimeFont
-            view.durationLabel.font = scaledTimeFont
             view.updateTimeLabelWidthConstraints(using: scaledTimeFont)
             view.rootStack.spacing = view.rootStackSpacing(for: view.style)
         }
@@ -521,15 +518,12 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         buttonStack.spacing = style.buttonSpacing
         seekBar.style = style
         elapsedLabel.textColor = style.timeLabelColor
-        durationLabel.textColor = style.timeLabelColor
         if previous == nil
             || style.timeLabelFont != previous?.timeLabelFont
             || style.usesFixedWidthTimeLabels != previous?.usesFixedWidthTimeLabels {
             let scaledTimeFont = scaledTimeLabelFont(for: style)
             elapsedLabel.font = scaledTimeFont
-            durationLabel.font = scaledTimeFont
             elapsedLabel.adjustsFontForContentSizeCategory = true
-            durationLabel.adjustsFontForContentSizeCategory = true
             updateTimeLabelWidthConstraints(using: scaledTimeFont)
         }
         playWidthConstraint?.constant = style.playPauseButtonSize.width
@@ -559,7 +553,6 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         seekBar.showsBufferedProgress = configuration.showsBufferedProgress
         seekBar.allowsTrackTapToSeek = configuration.allowsTrackTapToSeek
         elapsedLabel.isHidden = !configuration.showsTimeLabels
-        durationLabel.isHidden = true
         skipBackwardButton.isHidden = !configuration.showsSkipButtons
         skipForwardButton.isHidden = !configuration.showsSkipButtons
         updateSkipIcons()
@@ -716,7 +709,6 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         case .elapsedOnly:
             secondary = nil
         }
-        durationLabel.text = secondary
         elapsedLabel.text = secondary.map { "\(elapsed)/\($0)" } ?? elapsed
     }
 

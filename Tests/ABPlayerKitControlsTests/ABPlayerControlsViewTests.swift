@@ -180,7 +180,6 @@ struct ABPlayerControlsEventReflectionTests {
         )))
 
         #expect(view.displayedElapsedText == "00:01:23/00:10:00")
-        #expect(view.displayedDurationText == "00:10:00")
     }
 
     @Test("Given .fixedHours, labels stay always-padded HH:MM:SS even under a minute — independent of ABTimeFormatter.string(from:)'s own (minimal M:SS) default")
@@ -318,7 +317,7 @@ struct ABPlayerControlsEventReflectionTests {
         )))
 
         #expect(!view.seekBar.isSeekEnabled)
-        #expect(view.displayedDurationText == ABTimeFormatter.liveMarker)
+        #expect(view.displayedElapsedText?.hasSuffix(ABTimeFormatter.liveMarker) == true)
     }
 
     @Test("Given duration disappears during scrubbing, controls always end the session")

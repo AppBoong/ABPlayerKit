@@ -92,6 +92,5 @@ struct ABPlayerControlsAccessibilityTests {
         let view = ABPlayerControlsView()
 
         #expect(view.elapsedLabel.adjustsFontForContentSizeCategory)
-        #expect(view.durationLabel.adjustsFontForContentSizeCategory)
     }
 }
