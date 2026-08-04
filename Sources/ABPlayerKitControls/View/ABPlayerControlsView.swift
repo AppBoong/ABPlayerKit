@@ -100,6 +100,17 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     var renderedBottomRowFrame: CGRect { bottomStack.convert(bottomStack.bounds, to: self) }
     var renderedTimeLabelFrame: CGRect { elapsedLabel.convert(elapsedLabel.bounds, to: self) }
     var renderedRateButtonFrame: CGRect { rateButton.convert(rateButton.bounds, to: self) }
+    /// The rate button's *drawn* title/icon — smaller than `renderedRateButtonFrame`,
+    /// which is the full 44pt-tall touch-target the content is centered inside.
+    var renderedRateButtonVisibleContentFrame: CGRect {
+        if let titleLabel = rateButton.titleLabel, !(titleLabel.text ?? "").isEmpty {
+            return titleLabel.convert(titleLabel.bounds, to: self)
+        }
+        if let imageView = rateButton.imageView, imageView.image != nil {
+            return imageView.convert(imageView.bounds, to: self)
+        }
+        return renderedRateButtonFrame
+    }
 
     public init(
         style: ABPlayerControlsStyle = .default,
@@ -186,16 +197,57 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     private static let seekBarTouchRowHeight: CGFloat = 44
 
     /// `style.seekBarBottomSpacing` is a gap between the seek bar's *visible*
-    /// track and the row below it, not between the full 44pt touch-target row
-    /// and that row. Since the track sits centered inside the touch row, half
-    /// of the touch row's slack below the track must be subtracted from the
-    /// stack spacing to land the track itself at the requested distance — this
-    /// routinely goes negative, deliberately overlapping the touch row with the
+    /// track and the row below it's *visible glyphs* — not between either
+    /// side's full 44pt touch-target frame and the other. Both sides center
+    /// their visible content inside a taller accessible touch area (the seek
+    /// bar's track inside its 44pt row; the rate button's title/icon inside
+    /// its own 44pt `rateButtonSize.height`), so half of each side's slack
+    /// must be subtracted from the stack spacing to land the two visible
+    /// surfaces at the requested distance. This routinely goes negative,
+    /// deliberately overlapping the touch rows with each other and with the
     /// row below (hit-test priority in `hitTest(_:with:)` already resolves any
     /// resulting ambiguity in favor of the more specific control).
     private func rootStackSpacing(for style: ABPlayerControlsStyle) -> CGFloat {
         let touchRowSlackBelowTrack = (Self.seekBarTouchRowHeight - style.trackHeight) / 2
-        return style.seekBarBottomSpacing - touchRowSlackBelowTrack
+        return style.seekBarBottomSpacing - touchRowSlackBelowTrack - bottomRowVisibleContentSlack(for: style)
+    }
+
+    /// How much of the bottom row's 44pt cross-axis height sits above its
+    /// visible *ink*, on the *tightest* side (the row's accessible height is
+    /// dictated by the rate button, while the time label — much shorter — sits
+    /// centered in that same 44pt cross-axis with more slack above it). Uses
+    /// `capHeight`, not `lineHeight`: a `UILabel`/`UIButton` title's own frame
+    /// is sized to the font's full line height (ascender + |descender| +
+    /// leading), but numeral glyphs only draw ink from the baseline up to cap
+    /// height — measuring against line height leaves the frame's internal
+    /// leading/ascent slack uncounted, and the visible text lands well below
+    /// the intended distance from the track (confirmed by on-device pixel
+    /// measurement, not just frame math). Using the smaller of the two sides'
+    /// slack keeps the tighter side at exactly `seekBarBottomSpacing`, while
+    /// the looser side lands within a point or two of it.
+    private func bottomRowVisibleContentSlack(for style: ABPlayerControlsStyle) -> CGFloat {
+        let elapsedSlack = max(0, (Self.seekBarTouchRowHeight - style.timeLabelFont.capHeight) / 2)
+        let rateSlack = max(0, (Self.seekBarTouchRowHeight - rateButtonVisibleContentHeight(for: style)) / 2)
+        return min(elapsedSlack, rateSlack) + Self.capHeightToInkTopCalibration
+    }
+
+    /// A `UILabel`/`UIButton` title's frame top sits `ascender - capHeight`
+    /// above its glyphs' actual ink, on top of the (44 - capHeight)/2 centering
+    /// slack already modeled above — `ascender` isn't queried directly (it
+    /// would need per-side font branching for no real benefit at these sizes),
+    /// so this is a fixed calibration measured on-device against the shipping
+    /// default fonts (`ABPlayerControlsStyle.timeLabelFont`/`rateLabelStyle`),
+    /// closing the residual gap between the capHeight-only estimate and the
+    /// true rendered pixel distance (see VISUAL-GAP-FIXED in IMPL-v0.2-RESULT.md).
+    private static let capHeightToInkTopCalibration: CGFloat = 1.7
+
+    private func rateButtonVisibleContentHeight(for style: ABPlayerControlsStyle) -> CGFloat {
+        switch style.rateLabelStyle {
+        case .text(let font, _):
+            font.capHeight
+        case .icon:
+            style.iconPointSize
+        }
     }
 
     private func buildViewHierarchy() {

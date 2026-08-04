@@ -356,6 +356,7 @@ struct ABPlayerControlsLayoutTests {
         let bottomRow = view.renderedBottomRowFrame
         let timeLabel = view.renderedTimeLabelFrame
         let rateButton = view.renderedRateButtonFrame
+        let rateContent = view.renderedRateButtonVisibleContentFrame
         #expect(abs(transport.midX - view.bounds.midX) < 0.5)
         #expect(abs(transport.midY - view.bounds.midY) < 0.5)
         // The seek bar's touch-target row stays a full 44pt tall (HIG/a11y) and
@@ -365,42 +366,63 @@ struct ABPlayerControlsLayoutTests {
         #expect(abs(seekBar.minX - view.style.contentInsets.leading) < 0.5)
         #expect(abs(seekBar.maxX - (view.bounds.maxX - view.style.contentInsets.trailing)) < 0.5)
         #expect(seekBar.midY > view.bounds.midY)
-        // The default spacing between the seek bar and the row below it is pinned
-        // to exactly 10pt — a regression test for the default value itself, not
-        // just for whatever `style.seekBarBottomSpacing` happens to be set to.
-        // Critically, this is measured from the *visible track*'s bottom edge,
-        // not the touch row's — the track is centered inside the taller 44pt
-        // touch row, so the touch row necessarily extends upward past this gap
-        // (and can overlap the transport row above; hit-test priority resolves
-        // that, see `bottomClusterOverlapFavorsButtonsOverSeekBar`).
-        #expect(view.style.seekBarBottomSpacing == 10)
-        #expect(abs(bottomRow.minY - visibleTrack.maxY - 10) < 0.5)
         #expect(visibleTrack.minY > seekBar.minY, "the visible track must be inset within the taller touch row, not flush with its top")
-        // The row (time label + rate button) sits at the very bottom of the
-        // overlay, inset only by contentInsets.bottom — nothing floats below it.
+        #expect(view.style.seekBarBottomSpacing == 10)
+        // The touch-row-to-touch-row gap is derived, not the literal 10pt:
+        // seekBarBottomSpacing targets the gap between *visible ink*, not
+        // between either side's 44pt touch frame, so the frames themselves
+        // sit closer together than 10pt by the row's font-metric slack (using
+        // capHeight, since digits/':'/'/' have no descenders — see
+        // `bottomRowVisibleContentSlack(for:)`). This asserts the touch-row
+        // math is wired correctly; the true visible-ink-to-ink distance can
+        // only be confirmed empirically (on-device pixel measurement — see
+        // IMPL-v0.2-RESULT.md's VISUAL-GAP-FIXED entry), since UILabel/UIButton
+        // report line-height-sized frames, not the glyph ink's own bounds.
+        let elapsedContentSlack = max(0, (44 - view.style.timeLabelFont.capHeight) / 2)
+        let rateContentSlack: CGFloat
+        switch view.style.rateLabelStyle {
+        case .text(let font, _):
+            rateContentSlack = max(0, (44 - font.capHeight) / 2)
+        case .icon:
+            rateContentSlack = max(0, (44 - view.style.iconPointSize) / 2)
+        }
+        // +1.7pt mirrors ABPlayerControlsView.capHeightToInkTopCalibration — an
+        // empirical, on-device-measured correction for the residual gap between
+        // a capHeight-only estimate and a label/button title's true rendered
+        // ink position (private, so re-declared here rather than referenced).
+        let expectedBottomRowSlack = min(elapsedContentSlack, rateContentSlack) + 1.7
+        #expect(abs((bottomRow.minY - visibleTrack.maxY) - (10 - expectedBottomRowSlack)) < 0.5)
+        // Both visible glyphs sit somewhere inside the row's touch frame, below
+        // the visible track — the exact ink-to-track distance is a rendering
+        // detail unit tests can't observe, but this bounds them sanely.
+        #expect(timeLabel.minY >= visibleTrack.maxY)
+        #expect(rateContent.minY >= visibleTrack.maxY)
+        #expect(bottomRow.minY < visibleTrack.maxY, "the bottom row's 44pt touch frame must extend upward past the visible gap to reach its centered content")
+        // The row's touch frame sits at the very bottom of the overlay, inset
+        // only by contentInsets.bottom — nothing floats below it.
         #expect(abs(view.bounds.maxY - view.style.contentInsets.bottom - bottomRow.maxY) < 0.5)
-        // The whole *visible* cluster (track + 10pt gap + row) hugs the bottom
-        // edge: no extra slack between the track and the row below it.
-        let visibleClusterHeight = view.bounds.maxY - view.style.contentInsets.bottom - visibleTrack.minY
-        #expect(abs(visibleClusterHeight - (visibleTrack.height + 10 + bottomRow.height)) < 0.5)
         // Time label sits below the visible track, flush with the seek bar's leading edge.
         #expect(abs(timeLabel.minX - seekBar.minX) < 0.5)
-        #expect(timeLabel.minY >= visibleTrack.maxY)
         // Rate button sits below the visible track, flush with the seek bar's trailing edge.
         #expect(abs(rateButton.maxX - seekBar.maxX) < 0.5)
-        #expect(rateButton.minY >= visibleTrack.maxY)
     }
 
     @Test("Given a short overlay where the bottom cluster's touch row vertically overlaps the centered transport row, buttons still win hit testing over the seek bar")
     func bottomClusterOverlapFavorsButtonsOverSeekBar() {
         let view = ABPlayerControlsView()
-        view.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
+        // 180pt, not the standard ~220pt (16:9-at-390pt-wide) demo overlay: the
+        // extra negative spacing from compensating for the bottom row's visible-
+        // glyph slack (on top of the seek-bar-track compensation) pushes the seek
+        // bar down enough that it no longer overlaps the transport row at ~220pt.
+        // A shorter overlay (a plausible aspect ratio for some embeds) still
+        // produces real overlap, so this keeps the hit-test priority fix under
+        // an active regression test rather than a permanently-vacuous one.
+        view.frame = CGRect(x: 0, y: 0, width: 390, height: 180)
         view.layoutIfNeeded()
 
         // Confirm the overlap this test guards against is real, not hypothetical:
         // the seek bar's 44pt touch row and the centered transport row's 44pt
-        // touch row actually intersect at this (realistic, 16:9-at-390pt-wide)
-        // overlay size.
+        // touch row actually intersect at this overlay size.
         let seekBar = view.renderedSeekBarFrame
         let transport = view.renderedTransportControlsFrame
         #expect(seekBar.intersects(transport))
