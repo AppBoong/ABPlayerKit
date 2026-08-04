@@ -32,6 +32,17 @@ struct ABPlayerControlsAttachmentTests {
         #expect(player.configuration.periodicTimeInterval == 1)
     }
 
+    @Test("Given a fresh controls view over a fresh player, the rate label always starts at 1×")
+    func freshAttachmentShowsDefaultRate() {
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        let view = ABPlayerControlsView()
+
+        view.player = player
+
+        #expect(player.rate == 1)
+        #expect(view.displayedRateText == "1×")
+    }
+
     @Test("Given player replacement, old-player events no longer update the view")
     func replacementStopsOldEvents() {
         let first = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
@@ -96,6 +107,44 @@ struct ABPlayerControlsEventReflectionTests {
         #expect(view.displayedDurationText == "00:10:00")
     }
 
+    @Test("Given automatic time format, labels use MM:SS under an hour and add hours once the duration reaches one")
+    func automaticTimeFormatAdaptsToDuration() {
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.timeFormat = .automatic
+        let view = ABPlayerControlsView(configuration: configuration)
+
+        view.handlePlayerEvent(.periodicTime(ABPlaybackTime(
+            currentTime: CMTime(seconds: 83, preferredTimescale: 600),
+            duration: CMTime(seconds: 300, preferredTimescale: 600),
+            bufferedUntil: nil
+        )))
+        #expect(view.displayedElapsedText == "01:23/05:00")
+
+        view.handlePlayerEvent(.periodicTime(ABPlaybackTime(
+            currentTime: CMTime(seconds: 83, preferredTimescale: 600),
+            duration: CMTime(seconds: 4_000, preferredTimescale: 600),
+            bufferedUntil: nil
+        )))
+        #expect(view.displayedElapsedText == "00:01:23/01:06:40")
+    }
+
+    @Test("Given a custom time format, its formatter receives elapsed seconds and duration seconds")
+    func customTimeFormatReceivesSecondsAndDuration() {
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.timeFormat = .custom { seconds, duration in
+            "\(Int(seconds))s/\(duration.map { "\(Int($0))s" } ?? "?")"
+        }
+        let view = ABPlayerControlsView(configuration: configuration)
+
+        view.handlePlayerEvent(.periodicTime(ABPlaybackTime(
+            currentTime: CMTime(seconds: 12, preferredTimescale: 600),
+            duration: CMTime(seconds: 90, preferredTimescale: 600),
+            bufferedUntil: nil
+        )))
+
+        #expect(view.displayedElapsedText == "12s/90s/90s/90s")
+    }
+
     @Test("Given playing status, controls display the pause icon")
     func playingDisplaysPause() {
         let view = ABPlayerControlsView()
@@ -104,6 +153,32 @@ struct ABPlayerControlsEventReflectionTests {
 
         #expect(view.displayedPlayPauseImage != nil)
         #expect(view.isShowingPauseIcon)
+    }
+
+    @Test("Given a play/pause tap, the button bounces quickly")
+    func playPauseTapBounces() {
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        let view = ABPlayerControlsView()
+        view.player = player
+
+        view.playPauseButton.sendActions(for: .touchUpInside)
+
+        #expect(view.lastPlayPauseBounceDuration != nil)
+        #expect((view.lastPlayPauseBounceDuration ?? 1) < 0.35)
+        #expect(view.playPauseButton.layer.animation(forKey: "abplayerkit.playPauseBounce") != nil)
+    }
+
+    @Test("Given Reduce Motion enabled, the play/pause bounce is skipped")
+    func playPauseBounceSkippedForReduceMotion() {
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        let view = ABPlayerControlsView()
+        view.isReduceMotionEnabledProvider = { true }
+        view.player = player
+
+        view.playPauseButton.sendActions(for: .touchUpInside)
+
+        #expect(view.lastPlayPauseBounceDuration == nil)
+        #expect(view.playPauseButton.layer.animation(forKey: "abplayerkit.playPauseBounce") == nil)
     }
 
     @Test("Given demotion, controls disable and reset the timeline")
@@ -191,7 +266,7 @@ struct ABPlayerControlsEventReflectionTests {
 @Suite("Controls follow the release overlay geometry")
 @MainActor
 struct ABPlayerControlsLayoutTests {
-    @Test("Given a video-sized overlay, transport is centered and timeline controls hug the bottom")
+    @Test("Given a video-sized overlay, the seek bar spans the full width and the row below it hugs the bottom")
     func releaseLayoutGeometry() {
         let view = ABPlayerControlsView()
         view.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
@@ -201,21 +276,30 @@ struct ABPlayerControlsLayoutTests {
 
         let transport = view.renderedTransportControlsFrame
         let seekBar = view.renderedSeekBarFrame
+        let bottomRow = view.renderedBottomRowFrame
         let timeLabel = view.renderedTimeLabelFrame
         let rateButton = view.renderedRateButtonFrame
         #expect(abs(transport.midX - view.bounds.midX) < 0.5)
         #expect(abs(transport.midY - view.bounds.midY) < 0.5)
         #expect(abs(seekBar.height - 44) < 0.5)
-        #expect(abs(seekBar.maxY - (view.bounds.maxY - view.style.contentInsets.bottom)) < 0.5)
+        // Seek bar spans the full overlay width with equal padding on both sides.
+        #expect(abs(seekBar.minX - view.style.contentInsets.leading) < 0.5)
+        #expect(abs(seekBar.maxX - (view.bounds.maxX - view.style.contentInsets.trailing)) < 0.5)
         #expect(seekBar.midY > view.bounds.midY)
+        // The compact row (time label + rate button) sits directly below the bar,
+        // separated by exactly the tight seek-bar-to-row gap.
+        #expect(abs(bottomRow.minY - seekBar.maxY - view.style.seekBarBottomSpacing) < 0.5)
+        #expect(abs(view.bounds.maxY - view.style.contentInsets.bottom - bottomRow.maxY) < 0.5)
+        // Time label sits below the bar, flush with its leading edge.
         #expect(abs(timeLabel.minX - seekBar.minX) < 0.5)
-        #expect(timeLabel.maxY <= seekBar.minY)
-        #expect(abs(rateButton.maxX - (view.bounds.maxX - view.style.contentInsets.trailing)) < 0.5)
-        #expect(abs(rateButton.midY - seekBar.midY) < 0.5)
+        #expect(timeLabel.minY >= seekBar.maxY)
+        // Rate button sits below the bar, flush with its trailing edge.
+        #expect(abs(rateButton.maxX - seekBar.maxX) < 0.5)
+        #expect(rateButton.minY >= seekBar.maxY)
     }
 
-    @Test("Given a hidden rate control, the timeline expands to the trailing margin")
-    func hiddenRateExpandsTimeline() {
+    @Test("Given a hidden rate control, the seek bar still spans the full width and the row below collapses")
+    func hiddenRateKeepsFullWidthSeekBar() {
         var configuration = ABPlayerControlsConfiguration()
         configuration.rateInteraction = .hidden
         let view = ABPlayerControlsView(configuration: configuration)
@@ -227,6 +311,10 @@ struct ABPlayerControlsLayoutTests {
         #expect(abs(
             view.renderedSeekBarFrame.maxX
                 - (view.bounds.maxX - view.style.contentInsets.trailing)
+        ) < 0.5)
+        #expect(abs(
+            view.renderedSeekBarFrame.minX
+                - view.style.contentInsets.leading
         ) < 0.5)
     }
 

@@ -74,7 +74,9 @@ public struct ABPlayerControlsStyle: Equatable {
     )
     public var contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
     public var containerCornerRadius: CGFloat = 0
-    public var seekBarBottomSpacing: CGFloat = 8
+    /// Vertical gap between the seek bar and the compact row below it
+    /// (the time label and rate button). Kept tight by default.
+    public var seekBarBottomSpacing: CGFloat = 4
 
     public var visibilityAnimationDuration: TimeInterval = 0.25
     public var respectsReduceMotion = true

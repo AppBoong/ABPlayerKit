@@ -76,11 +76,34 @@ struct ABPlayerControlsLiveStyleTests {
         view.configuration = configuration
         #expect(view.skipBackwardButton.resolvedIcon == .system("gobackward.15"))
         #expect(view.skipForwardButton.resolvedIcon == .system("goforward.15"))
+        #expect(view.skipBackwardButton.resolvedSkipBadgeNumber == nil)
+
+        // 20 is a valid clamped interval (a multiple of 5 in 5...60) but has no
+        // native SF Symbol variant — the number badges over the generic arrow.
+        configuration.skipInterval = 20
+        view.configuration = configuration
+        #expect(configuration.skipInterval == 20)
+        #expect(view.skipBackwardButton.resolvedIcon == .system("gobackward"))
+        #expect(view.skipForwardButton.resolvedIcon == .system("goforward"))
+        #expect(view.skipBackwardButton.resolvedSkipBadgeNumber == 20)
+        #expect(view.skipForwardButton.resolvedSkipBadgeNumber == 20)
+    }
+
+    @Test("Given an out-of-step or out-of-range skip interval, assignment clamps it")
+    func skipIntervalClampsToSupportedSteps() {
+        var configuration = ABPlayerControlsConfiguration()
 
         configuration.skipInterval = 7
-        view.configuration = configuration
-        #expect(view.skipBackwardButton.resolvedIcon == .system("gobackward.10"))
-        #expect(view.skipForwardButton.resolvedIcon == .system("goforward.10"))
+        #expect(configuration.skipInterval == 5)
+
+        configuration.skipInterval = 63
+        #expect(configuration.skipInterval == 60)
+
+        configuration.skipInterval = 3
+        #expect(configuration.skipInterval == 5)
+
+        configuration.skipInterval = 32
+        #expect(configuration.skipInterval == 30)
     }
 
     @Test("Given explicit skip icons, interval synchronization never replaces them")

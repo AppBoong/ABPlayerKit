@@ -3,6 +3,10 @@ import UIKit
 @MainActor
 final class ABControlButton: UIButton {
     private(set) var resolvedIcon: ABControlIcon?
+    /// The number composited onto `resolvedIcon` when no SF Symbol variant exists
+    /// for the configured skip interval (e.g. `gobackward.20`). `nil` when the
+    /// button renders a plain icon.
+    private(set) var resolvedSkipBadgeNumber: Int?
 
     private var highlightedAlpha: CGFloat = 0.5
 
@@ -17,6 +21,29 @@ final class ABControlButton: UIButton {
     }
 
     func apply(icon: ABControlIcon, style: ABPlayerControlsStyle) {
+        resolvedSkipBadgeNumber = nil
+        applyBaseIcon(icon, style: style)
+    }
+
+    /// Applies a skip-button icon, optionally compositing `badgeNumber` over it when
+    /// no SF Symbol exists for the configured interval (e.g. `gobackward.20`).
+    func applySkip(icon: ABControlIcon, badgeNumber: Int?, style: ABPlayerControlsStyle) {
+        resolvedSkipBadgeNumber = badgeNumber
+        guard let badgeNumber, case .system(let name) = icon else {
+            applyBaseIcon(icon, style: style)
+            return
+        }
+        resolvedIcon = icon
+        highlightedAlpha = min(max(style.buttonHighlightedAlpha, 0), 1)
+        let image = Self.badgedSymbolImage(named: name, number: badgeNumber, style: style)
+        setImage(image, for: .normal)
+        isHidden = image == nil
+        tintColor = style.tintColor
+        accessibilityTraits.insert(.button)
+        invalidateIntrinsicContentSize()
+    }
+
+    private func applyBaseIcon(_ icon: ABControlIcon, style: ABPlayerControlsStyle) {
         resolvedIcon = icon
         highlightedAlpha = min(max(style.buttonHighlightedAlpha, 0), 1)
         switch icon {
@@ -40,5 +67,33 @@ final class ABControlButton: UIButton {
         tintColor = style.tintColor
         accessibilityTraits.insert(.button)
         invalidateIntrinsicContentSize()
+    }
+
+    /// Draws `number` centered over the symbol as a template image (alpha channel
+    /// only), mimicking the built-in `gobackward.N`/`goforward.N` glyphs for
+    /// intervals none of them cover. Staying template-rendered lets the button's
+    /// `tintColor` (including the disabled-state color) recolor it live, the same
+    /// as every other icon on this button.
+    private static func badgedSymbolImage(named name: String, number: Int, style: ABPlayerControlsStyle) -> UIImage? {
+        let configuration = UIImage.SymbolConfiguration(pointSize: style.iconPointSize, weight: style.iconWeight)
+        guard let base = UIImage(systemName: name, withConfiguration: configuration) else { return nil }
+        let opaqueBase = base.withTintColor(.black, renderingMode: .alwaysOriginal)
+        let renderer = UIGraphicsImageRenderer(size: opaqueBase.size)
+        let composed = renderer.image { _ in
+            opaqueBase.draw(in: CGRect(origin: .zero, size: opaqueBase.size))
+            let fontSize = opaqueBase.size.height * 0.36
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold),
+                .foregroundColor: UIColor.black
+            ]
+            let text = "\(number)" as NSString
+            let textSize = text.size(withAttributes: attributes)
+            let origin = CGPoint(
+                x: (opaqueBase.size.width - textSize.width) / 2,
+                y: (opaqueBase.size.height - textSize.height) / 2 + opaqueBase.size.height * 0.05
+            )
+            text.draw(at: origin, withAttributes: attributes)
+        }
+        return composed.withRenderingMode(.alwaysTemplate)
     }
 }

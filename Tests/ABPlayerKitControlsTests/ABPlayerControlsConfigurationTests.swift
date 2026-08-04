@@ -24,6 +24,7 @@ struct ABPlayerControlsConfigurationTests {
         #expect(configuration.showsBufferedProgress)
         #expect(configuration.showsTimeLabels)
         #expect(configuration.timeLabelLayout == .elapsedAndTotal)
+        #expect(configuration.timeFormat == .fixedHours)
         #expect(configuration.showsSkipButtons)
         #expect(configuration.handlesBackgroundTap)
         #expect(configuration.allowsTrackTapToSeek)

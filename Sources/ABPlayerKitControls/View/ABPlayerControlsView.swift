@@ -59,6 +59,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     var isVoiceOverRunningProvider: @MainActor () -> Bool = { UIAccessibility.isVoiceOverRunning }
     var isReduceMotionEnabledProvider: @MainActor () -> Bool = { UIAccessibility.isReduceMotionEnabled }
     private(set) var lastVisibilityAnimationDuration: TimeInterval?
+    /// The duration of the most recently triggered play/pause bounce, or `nil`
+    /// if the last tap skipped it (Reduce Motion). Exposes the trigger path for tests.
+    private(set) var lastPlayPauseBounceDuration: TimeInterval?
     private lazy var backgroundTapRecognizer = UITapGestureRecognizer(
         target: self,
         action: #selector(backgroundTapped)
@@ -73,8 +76,6 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     private var rateWidthConstraint: NSLayoutConstraint?
     private var rateHeightConstraint: NSLayoutConstraint?
     private var elapsedMinimumWidthConstraint: NSLayoutConstraint?
-    private var timelineTrailingToRateConstraint: NSLayoutConstraint?
-    private var timelineTrailingToMarginConstraint: NSLayoutConstraint?
 
     var displayedPlayPauseImage: UIImage? { playPauseButton.image(for: .normal) }
     var displayedRateText: String? { rateButton.title(for: .normal) }
@@ -93,6 +94,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     var fixedTimeLabelMinimumWidth: CGFloat { elapsedMinimumWidthConstraint?.constant ?? 0 }
     var renderedTransportControlsFrame: CGRect { buttonStack.convert(buttonStack.bounds, to: self) }
     var renderedSeekBarFrame: CGRect { seekBar.convert(seekBar.bounds, to: self) }
+    var renderedBottomRowFrame: CGRect { bottomStack.convert(bottomStack.bounds, to: self) }
     var renderedTimeLabelFrame: CGRect { elapsedLabel.convert(elapsedLabel.bounds, to: self) }
     var renderedRateButtonFrame: CGRect { rateButton.convert(rateButton.bounds, to: self) }
 
@@ -194,9 +196,12 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         bottomStack.addArrangedSubview(elapsedLabel)
         bottomStack.addArrangedSubview(UIView())
         bottomStack.addArrangedSubview(accessoryStack)
+        bottomStack.addArrangedSubview(rateButton)
 
-        rootStack.addArrangedSubview(bottomStack)
+        // Seek bar first, compact row (time label + rate) below it — both share the
+        // root stack's leading/trailing anchors, so they line up with the bar's edges.
         rootStack.addArrangedSubview(seekBar)
+        rootStack.addArrangedSubview(bottomStack)
         controlsContentView.translatesAutoresizingMaskIntoConstraints = false
         controlsBackgroundView.translatesAutoresizingMaskIntoConstraints = false
         controlsBackgroundView.isUserInteractionEnabled = false
@@ -204,18 +209,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         addSubview(controlsContentView)
         controlsContentView.addSubview(buttonStack)
         controlsContentView.addSubview(rootStack)
-        controlsContentView.addSubview(rateButton)
-        rateButton.translatesAutoresizingMaskIntoConstraints = false
         backgroundTapRecognizer.cancelsTouchesInView = false
         backgroundTapRecognizer.delegate = self
         addGestureRecognizer(backgroundTapRecognizer)
-        timelineTrailingToRateConstraint = rootStack.trailingAnchor.constraint(
-            equalTo: rateButton.leadingAnchor,
-            constant: -8
-        )
-        timelineTrailingToMarginConstraint = rootStack.trailingAnchor.constraint(
-            equalTo: layoutMarginsGuide.trailingAnchor
-        )
         NSLayoutConstraint.activate([
             controlsBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
             controlsBackgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -228,13 +224,11 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             buttonStack.centerXAnchor.constraint(equalTo: controlsContentView.centerXAnchor),
             buttonStack.centerYAnchor.constraint(equalTo: controlsContentView.centerYAnchor),
             rootStack.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            rootStack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
             rootStack.topAnchor.constraint(greaterThanOrEqualTo: layoutMarginsGuide.topAnchor),
             rootStack.bottomAnchor.constraint(equalTo: layoutMarginsGuide.bottomAnchor),
-            rateButton.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            rateButton.centerYAnchor.constraint(equalTo: seekBar.centerYAnchor),
             seekBar.heightAnchor.constraint(equalToConstant: 44)
         ])
-        updateTimelineTrailingConstraint(rateIsHidden: false)
 
         playWidthConstraint = playPauseButton.widthAnchor.constraint(equalToConstant: style.playPauseButtonSize.width)
         playHeightConstraint = playPauseButton.heightAnchor.constraint(equalToConstant: style.playPauseButtonSize.height)
@@ -434,25 +428,47 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         )
     }
 
+    /// Skip intervals with a matching `gobackward.N`/`goforward.N` SF Symbol.
+    /// `skipInterval` is clamped to 5-second steps in 5...60, so this is exactly
+    /// the subset of that range the system ships a numbered glyph for.
+    private static let symbolSupportedSkipIntervals: Set<Int> = [5, 10, 15, 30, 45, 60]
+
+    private enum SkipDirection {
+        case backward, forward
+        var baseSymbolName: String { self == .backward ? "gobackward" : "goforward" }
+    }
+
     private func updateSkipIcons() {
-        let interval = configuration.skipInterval
-        let supported = [5, 10, 15, 30, 45, 60, 75, 90]
-        let integerInterval = Int(interval.rounded())
-        let synchronized = configuration.synchronizesSkipIconWithInterval
-            && interval == Double(integerInterval)
-            && supported.contains(integerInterval)
-        let backward = style.skipBackwardIcon
-            ?? .system("gobackward.\(synchronized ? integerInterval : 10)")
-        let forward = style.skipForwardIcon
-            ?? .system("goforward.\(synchronized ? integerInterval : 10)")
-        skipBackwardButton.apply(icon: backward, style: style)
-        skipForwardButton.apply(icon: forward, style: style)
+        let backwardPlan = skipIconPlan(direction: .backward, explicitIcon: style.skipBackwardIcon)
+        let forwardPlan = skipIconPlan(direction: .forward, explicitIcon: style.skipForwardIcon)
+        skipBackwardButton.applySkip(icon: backwardPlan.icon, badgeNumber: backwardPlan.badgeNumber, style: style)
+        skipForwardButton.applySkip(icon: forwardPlan.icon, badgeNumber: forwardPlan.badgeNumber, style: style)
         skipBackwardButton.accessibilityLabel = ABControlsLocalization.string("controls.skipBackward")
         skipForwardButton.accessibilityLabel = ABControlsLocalization.string("controls.skipForward")
         if !configuration.showsSkipButtons {
             skipBackwardButton.isHidden = true
             skipForwardButton.isHidden = true
         }
+    }
+
+    /// Resolves the icon (and, when no SF Symbol variant exists for the configured
+    /// interval, the number to badge over a generic arrow) for one skip button.
+    /// An explicit `style` icon always wins and is never badged.
+    private func skipIconPlan(
+        direction: SkipDirection,
+        explicitIcon: ABControlIcon?
+    ) -> (icon: ABControlIcon, badgeNumber: Int?) {
+        if let explicitIcon {
+            return (explicitIcon, nil)
+        }
+        guard configuration.synchronizesSkipIconWithInterval else {
+            return (.system("\(direction.baseSymbolName).10"), nil)
+        }
+        let integerInterval = Int(configuration.skipInterval.rounded())
+        if Self.symbolSupportedSkipIntervals.contains(integerInterval) {
+            return (.system("\(direction.baseSymbolName).\(integerInterval)"), nil)
+        }
+        return (.system(direction.baseSymbolName), integerInterval)
     }
 
     private func updateRate(_ rate: Float, rebuildInteraction: Bool = true) {
@@ -478,7 +494,6 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         if rebuildInteraction {
             configureRateInteraction(currentRate: rate)
         }
-        updateTimelineTrailingConstraint(rateIsHidden: rateButton.isHidden)
     }
 
     private func render(_ time: ABPlaybackTime) {
@@ -492,21 +507,51 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func updateTimeLabels(currentTime: CMTime, duration: CMTime?) {
-        let elapsed = ABTimeFormatter.string(from: currentTime)
+        let durationSeconds = duration.flatMap { $0.isNumeric ? CMTimeGetSeconds($0) : nil }
+        let currentSeconds = CMTimeGetSeconds(currentTime)
+        let elapsed = currentTime.isNumeric
+            ? formattedTime(currentSeconds, referenceDuration: durationSeconds)
+            : timePlaceholder(referenceDuration: durationSeconds)
         let secondary: String?
         switch configuration.timeLabelLayout {
         case .elapsedAndTotal:
-            secondary = duration.map(ABTimeFormatter.string(from:)) ?? ABTimeFormatter.liveMarker
+            secondary = durationSeconds.map { formattedTime($0, referenceDuration: durationSeconds) }
+                ?? ABTimeFormatter.liveMarker
         case .elapsedAndRemaining:
-            secondary = ABTimeFormatter.remainingString(
-                current: CMTimeGetSeconds(currentTime),
-                duration: duration.map(CMTimeGetSeconds)
-            )
+            if let durationSeconds, currentSeconds.isFinite {
+                let remaining = max(0, durationSeconds - currentSeconds)
+                secondary = "-\(formattedTime(remaining, referenceDuration: durationSeconds))"
+            } else {
+                secondary = timePlaceholder(referenceDuration: durationSeconds)
+            }
         case .elapsedOnly:
             secondary = nil
         }
         durationLabel.text = secondary
         elapsedLabel.text = secondary.map { "\(elapsed)/\($0)" } ?? elapsed
+    }
+
+    /// Formats `seconds` per ``ABPlayerControlsConfiguration/timeFormat``.
+    /// `referenceDuration` is passed to `.automatic`/`.custom` so every label in a
+    /// render pass (elapsed, total, remaining) agrees on field width.
+    private func formattedTime(_ seconds: TimeInterval, referenceDuration: TimeInterval?) -> String {
+        switch configuration.timeFormat {
+        case .automatic:
+            ABTimeFormatter.automaticString(from: seconds, referenceDuration: referenceDuration)
+        case .fixedHours:
+            ABTimeFormatter.string(from: seconds)
+        case .custom(let formatter):
+            formatter(seconds, referenceDuration)
+        }
+    }
+
+    private func timePlaceholder(referenceDuration: TimeInterval?) -> String {
+        switch configuration.timeFormat {
+        case .automatic:
+            (referenceDuration ?? 0) >= 3_600 ? "--:--:--" : "--:--"
+        case .fixedHours, .custom:
+            "--:--:--"
+        }
     }
 
     private func resetTimeline() {
@@ -538,8 +583,34 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             isPlayingState = true
         }
         updatePlaybackIcon()
+        bouncePlayPauseButton()
         handleVisibility(.controlInteracted)
         observerRegistry.broadcast(.playPauseTapped(isPlayingAfterTap: isPlayingState))
+    }
+
+    private static let playPauseBounceKey = "abplayerkit.playPauseBounce"
+    private static let playPauseBounceDuration: TimeInterval = 0.3
+
+    /// Quick scale-up-then-down bounce (0.85 → 1.1 → 1.0) on tap, skipped when
+    /// Reduce Motion is on (respecting ``ABPlayerControlsStyle/respectsReduceMotion``,
+    /// as every other controls animation does).
+    private func bouncePlayPauseButton() {
+        playPauseButton.layer.removeAnimation(forKey: Self.playPauseBounceKey)
+        guard !(style.respectsReduceMotion && isReduceMotionEnabledProvider()) else {
+            lastPlayPauseBounceDuration = nil
+            return
+        }
+        let animation = CAKeyframeAnimation(keyPath: "transform.scale")
+        animation.values = [1.0, 0.85, 1.1, 1.0]
+        animation.keyTimes = [0, 0.28, 0.72, 1.0]
+        animation.duration = Self.playPauseBounceDuration
+        animation.timingFunctions = [
+            CAMediaTimingFunction(name: .easeIn),
+            CAMediaTimingFunction(name: .easeOut),
+            CAMediaTimingFunction(name: .easeInEaseOut)
+        ]
+        playPauseButton.layer.add(animation, forKey: Self.playPauseBounceKey)
+        lastPlayPauseBounceDuration = Self.playPauseBounceDuration
     }
 
     private func skip(by interval: TimeInterval) {
@@ -571,12 +642,6 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             rateButton.showsMenuAsPrimaryAction = false
             rateButton.menu = nil
         }
-        updateTimelineTrailingConstraint(rateIsHidden: rateButton.isHidden)
-    }
-
-    private func updateTimelineTrailingConstraint(rateIsHidden: Bool) {
-        timelineTrailingToRateConstraint?.isActive = !rateIsHidden
-        timelineTrailingToMarginConstraint?.isActive = rateIsHidden
     }
 
     private func rateButtonTapped() {
