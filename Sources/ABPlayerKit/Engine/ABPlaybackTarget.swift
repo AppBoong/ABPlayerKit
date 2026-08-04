@@ -38,6 +38,7 @@ protocol ABPlaybackTarget: AnyObject {
     var isPlaying: Bool { get }
     var currentTime: CMTime { get }
     var duration: CMTime? { get }
+    var bufferedUntil: CMTime? { get }
 
     /// Fired for events the target observes on its own (item status,
     /// stalls, end-of-playback, time control status, failures).
@@ -60,4 +61,8 @@ protocol ABPlaybackTarget: AnyObject {
     func preroll(rate: Float, timeout: TimeInterval) async -> ABPrerollResult
     func seekToStart() async
     func seek(to time: CMTime, tolerance: ABSeekTolerance) async -> CMTime
+    func setPeriodicTimeObserver(
+        interval: TimeInterval?,
+        onTick: (@MainActor @Sendable (CMTime) -> Void)?
+    )
 }

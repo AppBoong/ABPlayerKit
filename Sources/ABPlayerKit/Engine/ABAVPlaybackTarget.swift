@@ -16,6 +16,8 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
     private let observations = ABObservationBag()
     private var isLooping = false
     private var desiredRate: Float = 1.0
+    private var periodicTimeObserverToken: Any?
+    private weak var periodicTimeObserverPlayer: AVPlayer?
 
     var isPlaying: Bool {
         guard let avPlayer else { return false }
@@ -30,18 +32,32 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         avPlayerItem?.duration
     }
 
+    var bufferedUntil: CMTime? {
+        guard let item = avPlayerItem else { return nil }
+        let current = currentTime
+        for value in item.loadedTimeRanges {
+            let range = value.timeRangeValue
+            if CMTimeRangeContainsTime(range, time: current) {
+                return CMTimeRangeGetEnd(range)
+            }
+        }
+        return nil
+    }
+
     func makePlayer() {
         avPlayer = AVPlayer()
         avPlayer?.automaticallyWaitsToMinimizeStalling = true
     }
 
     func releasePlayer() {
+        removePeriodicTimeObserver()
         observations.invalidateAll()
         avPlayerItem = nil
         avPlayer = nil
     }
 
     func attachItem(_ source: ABMediaSource, tuning: ABPlaybackTuning, assetFactory: any ABAssetFactory) {
+        removePeriodicTimeObserver()
         observations.invalidateAll()
         let asset = assetFactory.makeAsset(for: source)
         let item = AVPlayerItem(asset: asset)
@@ -52,6 +68,7 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
     }
 
     func detachItem() {
+        removePeriodicTimeObserver()
         observations.invalidateAll()
         avPlayer?.replaceCurrentItem(with: nil)
         avPlayerItem = nil
@@ -116,6 +133,40 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             toleranceAfter: tolerance.after
         )
         return avPlayer.currentTime()
+    }
+
+    func setPeriodicTimeObserver(
+        interval: TimeInterval?,
+        onTick: (@MainActor @Sendable (CMTime) -> Void)?
+    ) {
+        removePeriodicTimeObserver()
+        guard let interval,
+              interval.isFinite,
+              interval > 0,
+              let onTick,
+              let avPlayer,
+              let capturedItem = avPlayerItem else { return }
+        let observerInterval = CMTime(seconds: interval, preferredTimescale: 600)
+        periodicTimeObserverPlayer = avPlayer
+        periodicTimeObserverToken = avPlayer.addPeriodicTimeObserver(
+            forInterval: observerInterval,
+            queue: nil
+        ) { [weak self, weak capturedItem] time in
+            Task { @MainActor in
+                guard let self,
+                      let capturedItem,
+                      self.avPlayerItem === capturedItem else { return }
+                onTick(time)
+            }
+        }
+    }
+
+    private func removePeriodicTimeObserver() {
+        if let periodicTimeObserverToken, let periodicTimeObserverPlayer {
+            periodicTimeObserverPlayer.removeTimeObserver(periodicTimeObserverToken)
+        }
+        periodicTimeObserverToken = nil
+        periodicTimeObserverPlayer = nil
     }
 
     private func apply(_ tuning: ABPlaybackTuning, to item: AVPlayerItem) {

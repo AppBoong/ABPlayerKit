@@ -21,6 +21,7 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
         case preroll(rate: Float)
         case seekToStart
         case seek(CMTime, ABSeekTolerance)
+        case setPeriodicObserver(TimeInterval?)
     }
 
     private(set) var calls: [Call] = []
@@ -33,9 +34,11 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
     private(set) var appliedRate: Float = 0
     var currentTime: CMTime = .zero
     var duration: CMTime?
+    var bufferedUntil: CMTime?
     var seekLandingTime: CMTime?
     var waitsForSeekContinuation = false
     private var seekContinuations: [CheckedContinuation<Void, Never>] = []
+    private var periodicTimeHandler: (@MainActor @Sendable (CMTime) -> Void)?
 
     /// Controls what `preroll(rate:timeout:)` returns.
     var prerollResult: ABPrerollResult = .success
@@ -132,6 +135,19 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
     func completeNextSeek() {
         guard !seekContinuations.isEmpty else { return }
         seekContinuations.removeFirst().resume()
+    }
+
+    func setPeriodicTimeObserver(
+        interval: TimeInterval?,
+        onTick: (@MainActor @Sendable (CMTime) -> Void)?
+    ) {
+        calls.append(.setPeriodicObserver(interval))
+        periodicTimeHandler = onTick
+    }
+
+    func tick(_ time: CMTime) {
+        currentTime = time
+        periodicTimeHandler?(time)
     }
 
     func detachCount() -> Int {

@@ -38,6 +38,8 @@ public enum ABPlayerEvent: Sendable, Equatable {
     case scrubbingChanged(isScrubbing: Bool)
     /// Emitted when any seek lands, including intermediate scrubbing seeks.
     case seekCompleted(to: CMTime)
+    /// Emitted at the configured interval while current and not scrubbing.
+    case periodicTime(ABPlaybackTime)
     case failed(ABPlayerError)
     case tuningApplied(ABTuningRole, ABPlaybackTuning)
     case itemDetached(reason: ABDetachReason)

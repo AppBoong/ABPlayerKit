@@ -29,6 +29,14 @@ public final class ABPlayer {
     public var rate: Float { configuration.playbackRate }
     public var currentTime: CMTime { target.currentTime }
     public var duration: CMTime? { target.duration }
+    /// A synchronous snapshot for initial rendering and state restoration.
+    public var playbackTime: ABPlaybackTime {
+        ABPlaybackTime(
+            currentTime: target.currentTime,
+            duration: target.duration,
+            bufferedUntil: target.bufferedUntil
+        )
+    }
 
     private let target: any ABPlaybackTarget
     private let notificationCenter: NotificationCenter
@@ -116,7 +124,14 @@ public final class ABPlayer {
         source = newSource
         grade = resolvedGrade
 
+        if resolvedGrade != .current || sourceChanged {
+            target.setPeriodicTimeObserver(interval: nil, onTick: nil)
+        }
+
         interpret(actions, source: newSource, detachReason: detachReason)
+        if resolvedGrade == .current {
+            reconcilePeriodicTimeObserver()
+        }
 
         if previousGrade != resolvedGrade {
             broadcast(.gradeChanged(from: previousGrade, to: resolvedGrade))
@@ -250,6 +265,7 @@ public final class ABPlayer {
         lastScrubTime = nil
         isScrubbing = false
         broadcast(.scrubbingChanged(isScrubbing: false))
+        broadcastPeriodicTime(at: target.currentTime)
     }
 
     public func setMuted(_ muted: Bool) {
@@ -440,6 +456,9 @@ public final class ABPlayer {
             target.setRate(configuration.playbackRate)
             broadcast(.rateChanged(configuration.playbackRate))
         }
+        if previousConfiguration.periodicTimeInterval != configuration.periodicTimeInterval {
+            reconcilePeriodicTimeObserver()
+        }
 
         guard grade.holdsItem else { return }
         let role: ABTuningRole = grade == .current ? .current : .preload
@@ -544,6 +563,30 @@ public final class ABPlayer {
         guard isScrubbing else { return }
         isScrubbing = false
         broadcast(.scrubbingChanged(isScrubbing: false))
+    }
+
+    private func reconcilePeriodicTimeObserver() {
+        guard grade == .current,
+              let interval = configuration.periodicTimeInterval,
+              interval.isFinite,
+              interval > 0 else {
+            target.setPeriodicTimeObserver(interval: nil, onTick: nil)
+            return
+        }
+        target.setPeriodicTimeObserver(interval: interval) { [weak self] time in
+            self?.broadcastPeriodicTime(at: time)
+        }
+    }
+
+    private func broadcastPeriodicTime(at time: CMTime) {
+        guard grade == .current,
+              !isScrubbing,
+              configuration.periodicTimeInterval != nil else { return }
+        broadcast(.periodicTime(ABPlaybackTime(
+            currentTime: time,
+            duration: target.duration,
+            bufferedUntil: target.bufferedUntil
+        )))
     }
 
     private func setLayerAttachmentEnabled(_ enabled: Bool) {

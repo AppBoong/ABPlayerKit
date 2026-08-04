@@ -12,6 +12,8 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
     public var playbackRate: Float
     /// The tolerance used for intermediate interactive scrubbing seeks.
     public var scrubTolerance: ABSeekTolerance
+    /// `nil` disables periodic playback-time events.
+    public var periodicTimeInterval: TimeInterval?
     /// `nil` means "do not preroll".
     public var prerollRate: Float?
     public var prerollTimeout: TimeInterval
@@ -29,6 +31,7 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
         isMuted: Bool = false,
         playbackRate: Float = 1.0,
         scrubTolerance: ABSeekTolerance = .scrubbing,
+        periodicTimeInterval: TimeInterval? = nil,
         prerollRate: Float? = 1.0,
         prerollTimeout: TimeInterval = 10,
         rewindOnDemotion: Bool = false,
@@ -43,6 +46,7 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
         self.isMuted = isMuted
         self.playbackRate = playbackRate
         self.scrubTolerance = scrubTolerance
+        self.periodicTimeInterval = periodicTimeInterval
         self.prerollRate = prerollRate
         self.prerollTimeout = prerollTimeout
         self.rewindOnDemotion = rewindOnDemotion
@@ -59,6 +63,7 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
             && lhs.isMuted == rhs.isMuted
             && lhs.playbackRate == rhs.playbackRate
             && lhs.scrubTolerance == rhs.scrubTolerance
+            && lhs.periodicTimeInterval == rhs.periodicTimeInterval
             && lhs.prerollRate == rhs.prerollRate
             && lhs.prerollTimeout == rhs.prerollTimeout
             && lhs.rewindOnDemotion == rhs.rewindOnDemotion
