@@ -108,8 +108,14 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         await avPlayer?.seek(to: .zero)
     }
 
-    func seek(to time: CMTime) async {
-        await avPlayer?.seek(to: time)
+    func seek(to time: CMTime, tolerance: ABSeekTolerance) async -> CMTime {
+        guard let avPlayer else { return time }
+        await avPlayer.seek(
+            to: time,
+            toleranceBefore: tolerance.before,
+            toleranceAfter: tolerance.after
+        )
+        return avPlayer.currentTime()
     }
 
     private func apply(_ tuning: ABPlaybackTuning, to item: AVPlayerItem) {

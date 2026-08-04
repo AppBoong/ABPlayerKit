@@ -59,5 +59,5 @@ protocol ABPlaybackTarget: AnyObject {
     /// separately so `ABPlayer` can surface the correct public event.
     func preroll(rate: Float, timeout: TimeInterval) async -> ABPrerollResult
     func seekToStart() async
-    func seek(to time: CMTime) async
+    func seek(to time: CMTime, tolerance: ABSeekTolerance) async -> CMTime
 }

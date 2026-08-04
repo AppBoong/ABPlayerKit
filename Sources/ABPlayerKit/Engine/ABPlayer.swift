@@ -155,11 +155,39 @@ public final class ABPlayer {
     }
 
     public func seek(to time: CMTime) async {
+        await seek(to: time, tolerance: .precise)
+    }
+
+    /// Seeks with explicit tolerances when this player is current.
+    public func seek(to time: CMTime, tolerance: ABSeekTolerance) async {
         guard grade == .current else {
             broadcast(.playbackRejected)
             return
         }
-        await target.seek(to: time)
+        _ = await target.seek(to: time, tolerance: tolerance)
+    }
+
+    /// Moves relative to the current time, clamped to the playable range.
+    public func skip(by interval: TimeInterval) async {
+        guard grade == .current else {
+            broadcast(.playbackRejected)
+            return
+        }
+        let currentSeconds = currentTime.isNumeric ? CMTimeGetSeconds(currentTime) : 0
+        let proposedSeconds = max(0, currentSeconds + (interval.isFinite ? interval : 0))
+        let upperBound: TimeInterval?
+        if let duration, duration.isNumeric {
+            let seconds = CMTimeGetSeconds(duration)
+            upperBound = seconds.isFinite && seconds >= 0 ? seconds : nil
+        } else {
+            upperBound = nil
+        }
+        let destinationSeconds = upperBound.map { min(proposedSeconds, $0) } ?? proposedSeconds
+        let destination = CMTime(
+            seconds: destinationSeconds,
+            preferredTimescale: currentTime.timescale > 0 ? currentTime.timescale : 600
+        )
+        _ = await target.seek(to: destination, tolerance: .precise)
     }
 
     public func setMuted(_ muted: Bool) {

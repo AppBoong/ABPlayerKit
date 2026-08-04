@@ -20,7 +20,7 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
         case setLooping(Bool)
         case preroll(rate: Float)
         case seekToStart
-        case seek(CMTime)
+        case seek(CMTime, ABSeekTolerance)
     }
 
     private(set) var calls: [Call] = []
@@ -33,6 +33,7 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
     private(set) var appliedRate: Float = 0
     var currentTime: CMTime = .zero
     var duration: CMTime?
+    var seekLandingTime: CMTime?
 
     /// Controls what `preroll(rate:timeout:)` returns.
     var prerollResult: ABPrerollResult = .success
@@ -112,8 +113,10 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
         calls.append(.seekToStart)
     }
 
-    func seek(to time: CMTime) async {
-        calls.append(.seek(time))
+    func seek(to time: CMTime, tolerance: ABSeekTolerance) async -> CMTime {
+        calls.append(.seek(time, tolerance))
+        currentTime = seekLandingTime ?? time
+        return currentTime
     }
 
     func detachCount() -> Int {
