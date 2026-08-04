@@ -9,17 +9,20 @@ public struct ABVideoPlayerWithControls: View {
     private let videoGravity: AVLayerVideoGravity
     private let style: ABPlayerControlsStyle
     private let configuration: ABPlayerControlsConfiguration
+    private let accessoryViews: [UIView]
 
     public init(
         player: ABPlayer,
         videoGravity: AVLayerVideoGravity = .resizeAspectFill,
         style: ABPlayerControlsStyle = .default,
-        configuration: ABPlayerControlsConfiguration = .init()
+        configuration: ABPlayerControlsConfiguration = .init(),
+        accessoryViews: [UIView] = []
     ) {
         self.player = player
         self.videoGravity = videoGravity
         self.style = style
         self.configuration = configuration
+        self.accessoryViews = accessoryViews
     }
 
     public var body: some View {
@@ -28,7 +31,8 @@ public struct ABVideoPlayerWithControls: View {
                 ABPlayerControls(
                     player: player,
                     style: style,
-                    configuration: configuration
+                    configuration: configuration,
+                    accessoryViews: accessoryViews
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

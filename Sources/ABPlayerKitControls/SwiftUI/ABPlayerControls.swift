@@ -7,17 +7,20 @@ public struct ABPlayerControls: UIViewRepresentable {
     private let player: ABPlayer
     private let style: ABPlayerControlsStyle
     private let configuration: ABPlayerControlsConfiguration
+    private let accessoryViews: [UIView]
     private let onEvent: (@MainActor (ABControlsEvent) -> Void)?
 
     public init(
         player: ABPlayer,
         style: ABPlayerControlsStyle = .default,
         configuration: ABPlayerControlsConfiguration = .init(),
+        accessoryViews: [UIView] = [],
         onEvent: (@MainActor (ABControlsEvent) -> Void)? = nil
     ) {
         self.player = player
         self.style = style
         self.configuration = configuration
+        self.accessoryViews = accessoryViews
         self.onEvent = onEvent
     }
 
@@ -44,6 +47,9 @@ public struct ABPlayerControls: UIViewRepresentable {
         }
         if view.configuration != configuration {
             view.configuration = configuration
+        }
+        if view.accessoryViews != accessoryViews {
+            view.accessoryViews = accessoryViews
         }
         coordinator.onEvent = onEvent
         coordinator.attach(to: view)
