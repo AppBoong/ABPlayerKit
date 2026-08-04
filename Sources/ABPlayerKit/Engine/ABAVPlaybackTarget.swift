@@ -16,8 +16,12 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
     private let observations = ABObservationBag()
     private var isLooping = false
     private var desiredRate: Float = 1.0
-    private var periodicTimeObserverToken: Any?
-    private weak var periodicTimeObserverPlayer: AVPlayer?
+    /// `nonisolated(unsafe)` so `deinit` (which is nonisolated even on a
+    /// `@MainActor` class) can remove the observer without racing normal
+    /// `@MainActor` access — safe because by the time `deinit` runs there is
+    /// no other owner left to access these concurrently.
+    private nonisolated(unsafe) var periodicTimeObserverToken: Any?
+    private nonisolated(unsafe) weak var periodicTimeObserverPlayer: AVPlayer?
 
     var isPlaying: Bool {
         guard let avPlayer else { return false }
@@ -54,6 +58,20 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         observations.invalidateAll()
         avPlayerItem = nil
         avPlayer = nil
+    }
+
+    /// Guards against a consumer dropping `ABPlayer` (and therefore this
+    /// target) without calling `release()`: an `AVPlayer` deallocating with
+    /// a still-registered periodic time observer raises
+    /// `NSInternalInconsistencyException`. Mirrors
+    /// `removePeriodicTimeObserver()`'s logic inline because `deinit` is
+    /// nonisolated and cannot call an actor-isolated method. Idempotent —
+    /// running after `releasePlayer()` already cleared both properties is a
+    /// no-op.
+    deinit {
+        if let periodicTimeObserverToken, let periodicTimeObserverPlayer {
+            periodicTimeObserverPlayer.removeTimeObserver(periodicTimeObserverToken)
+        }
     }
 
     func attachItem(_ source: ABMediaSource, tuning: ABPlaybackTuning, assetFactory: any ABAssetFactory) {

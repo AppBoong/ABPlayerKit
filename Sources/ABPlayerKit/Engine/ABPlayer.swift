@@ -44,12 +44,16 @@ public final class ABPlayer {
     private let observerRegistry = ABObserverRegistry()
     private let layerAttachmentObserverRegistry = ABLayerAttachmentObserverRegistry()
     private var lastAppliedTuningRole: ABTuningRole = .preload
-    private var prerollTask: Task<Void, Never>?
+    /// `nonisolated(unsafe)` so `deinit` (nonisolated even on this
+    /// `@MainActor` class) can cancel outstanding work when a consumer drops
+    /// this instance without calling `release()`. Safe because no other
+    /// owner remains to access these concurrently once `deinit` runs.
+    private nonisolated(unsafe) var prerollTask: Task<Void, Never>?
     private var reportedFirstFrameItem: ObjectIdentifier?
     private(set) var isLayerAttachmentEnabled = true
     private var isNormalizingPlaybackRate = false
     private var seekCoalescer = ABSeekCoalescer()
-    private var seekWorkerTask: Task<Void, Never>?
+    private nonisolated(unsafe) var seekWorkerTask: Task<Void, Never>?
     private var seekGeneration = 0
     private var lastScrubTime: CMTime?
 
@@ -81,6 +85,18 @@ public final class ABPlayer {
         self.notificationCenter = notificationCenter
         wireTarget()
         reconcileBackgroundObserver()
+    }
+
+    /// Guards against a consumer dropping this instance without calling
+    /// `release()`: an outstanding preroll/seek `Task` can otherwise keep
+    /// `target` alive (strongly captured) indefinitely, delaying
+    /// `ABAVPlaybackTarget`'s own `deinit` and the periodic time observer
+    /// cleanup it performs. `Task.cancel()` is itself nonisolated, so this
+    /// is safe to call from `deinit`. Idempotent — cancelling an already
+    /// finished or nil `Task` is a no-op.
+    deinit {
+        prerollTask?.cancel()
+        seekWorkerTask?.cancel()
     }
 
     // MARK: - Grade

@@ -478,3 +478,63 @@ struct ABObservationTokenLifecycleTests {
         }.value
     }
 }
+
+/// Regression coverage for the deinit-vs-`NSInternalInconsistencyException`
+/// fix: dropping a still-attached player/target without calling `release()`
+/// must not crash, and must actually clean up (not merely "not crash").
+@Suite("Dropping a player/target without release() cleans up deterministically")
+@MainActor
+struct ABPlayerDeinitCleanupTests {
+    // A local, non-existent file URL — unlike an `https://` source, this
+    // fails immediately with no real network round trip, so it does not
+    // keep `AVPlayer`/`AVPlayerItem` alive via in-flight loading and skew
+    // the deinit-timing assertions below (matches the fixture used by
+    // "Release cancels readiness waiting without retaining the item").
+    private let source = ABMediaSource(url: URL(fileURLWithPath: "/private/tmp/abplayerkit-deinit-fixture.mp4"))
+
+    @Test("ABAVPlaybackTarget deinit removes the periodic time observer")
+    func targetDeinitRemovesPeriodicTimeObserver() async {
+        var target: ABAVPlaybackTarget? = ABAVPlaybackTarget()
+        target?.makePlayer()
+        target?.attachItem(source, tuning: .unrestricted, assetFactory: ABDefaultAssetFactory())
+        target?.setPeriodicTimeObserver(interval: 0.1) { _ in }
+        let weakPlayer = WeakReference(target!.avPlayer!)
+
+        // Drop the only strong reference without calling `releasePlayer()`.
+        target = nil
+
+        // -Onone can extend a local's lifetime past its last use, so poll
+        // deterministically (per existing convention in this file) instead
+        // of asserting immediately after nil-ing the reference.
+        for _ in 0..<20 where weakPlayer.value != nil {
+            await Task.yield()
+        }
+        if weakPlayer.value != nil {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+
+        // If the periodic time observer were still registered, `AVPlayer`
+        // would raise `NSInternalInconsistencyException` on dealloc instead
+        // of reaching this line.
+        #expect(weakPlayer.value == nil)
+    }
+
+    @Test("ABPlayer deinit cancels an outstanding preroll task")
+    func playerDeinitCancelsPrerollTask() async {
+        let target = ABFakePlaybackTarget()
+        target.waitsForPrerollCancellation = true
+        do {
+            let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore), target: target)
+            player.set(source: source, grade: .preloaded)
+            while !target.calls.contains(.preroll(rate: 1.0)) {
+                await Task.yield()
+            }
+            // `player` goes out of scope here without `release()`, while the
+            // preroll task is still awaiting cancellation.
+        }
+        while !target.prerollWasCancelled {
+            await Task.yield()
+        }
+        #expect(target.prerollWasCancelled)
+    }
+}
