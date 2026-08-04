@@ -148,7 +148,7 @@ struct PlaybackScreen: View {
 
     private var controlsConfiguration: ABPlayerControlsConfiguration {
         var configuration = ABPlayerControlsConfiguration()
-        configuration.skipInterval = 15
+        configuration.skipInterval = 20
         configuration.rateOptions = [0.5, 1, 1.5, 2]
         configuration.rateInteraction = .menu
         return configuration
