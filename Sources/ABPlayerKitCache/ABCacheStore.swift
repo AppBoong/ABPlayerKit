@@ -223,6 +223,15 @@ actor ABCacheStore {
         metadataCache.count
     }
 
+    /// Test-only introspection (WP7): a snapshot of the metadata LRU order,
+    /// oldest (next to evict) first. Lets tests assert that re-touching a
+    /// key (a second `metadata(for:)` call) moves it to the
+    /// most-recently-used end instead of letting it evict on the next
+    /// insert.
+    func metadataCacheOrderSnapshot() -> [String] {
+        metadataCacheOrder
+    }
+
     /// Test-only introspection (WP4 regression coverage): the set of keys
     /// `load(_:range:)` currently has an active reader for. A cancelled
     /// `waitForProgress` waiter that fails to unwind `load(_:range:)`

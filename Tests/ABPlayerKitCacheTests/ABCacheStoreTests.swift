@@ -3,6 +3,14 @@ import Foundation
 import Testing
 @testable import ABPlayerKitCache
 
+/// WP7 error-injection struct — a generic, `Equatable` marker error distinct
+/// from any `StoreError` case, so injected-error tests can assert the
+/// *store's own* error mapping (e.g. `.requestFailed`) rather than
+/// accidentally passing because the injected error happened to match.
+private struct ABFakeFetchError: Error, Equatable {
+    let id: String
+}
+
 private final class ABFakeHTTPFetcher: ABHTTPFetching, @unchecked Sendable {
     struct DataReply: Sendable {
         let data: Data
@@ -11,12 +19,28 @@ private final class ABFakeHTTPFetcher: ABHTTPFetching, @unchecked Sendable {
 
     private let lock = NSLock()
     private var dataReplies: [DataReply]
+    /// Parallel to `dataReplies`: if non-nil for a given `data(for:)` call,
+    /// thrown instead of returning a reply (WP7 error-injection).
+    private var dataErrors: [Error?]
     private var streamReplies: [[ABHTTPFetchEvent]]
+    /// Parallel to `streamReplies`: if non-nil for a given `stream(for:)`
+    /// call, the returned stream yields that call's queued events (if any)
+    /// and then finishes by throwing this error instead of finishing
+    /// normally (WP7 error-injection, including "mid-stream throw" after
+    /// some data already yielded).
+    private var streamErrors: [Error?]
     private var recordedRequests: [URLRequest] = []
 
-    init(dataReplies: [DataReply], streamReplies: [[ABHTTPFetchEvent]]) {
+    init(
+        dataReplies: [DataReply],
+        dataErrors: [Error?] = [],
+        streamReplies: [[ABHTTPFetchEvent]],
+        streamErrors: [Error?] = []
+    ) {
         self.dataReplies = dataReplies
+        self.dataErrors = dataErrors
         self.streamReplies = streamReplies
+        self.streamErrors = streamErrors
     }
 
     var requests: [URLRequest] {
@@ -27,31 +51,42 @@ private final class ABFakeHTTPFetcher: ABHTTPFetching, @unchecked Sendable {
     }
 
     func data(for request: URLRequest) async throws -> (Data, ABHTTPResponse) {
-        guard let reply = takeDataReply(for: request) else {
-            throw URLError(.resourceUnavailable)
-        }
+        let (error, reply) = takeDataReply(for: request)
+        if let error { throw error }
+        guard let reply else { throw URLError(.resourceUnavailable) }
         return (reply.data, reply.response)
     }
 
-    private func takeDataReply(for request: URLRequest) -> DataReply? {
+    private func takeDataReply(for request: URLRequest) -> (Error?, DataReply?) {
         lock.lock()
         recordedRequests.append(request)
+        let error = dataErrors.isEmpty ? nil : dataErrors.removeFirst()
         let reply = dataReplies.isEmpty ? nil : dataReplies.removeFirst()
         lock.unlock()
-        return reply
+        return (error, reply)
     }
 
     func stream(for request: URLRequest) -> AsyncThrowingStream<ABHTTPFetchEvent, any Error> {
-        lock.lock()
-        recordedRequests.append(request)
-        let events = streamReplies.isEmpty ? [] : streamReplies.removeFirst()
-        lock.unlock()
+        let (events, error) = takeStreamReply(for: request)
         return AsyncThrowingStream { continuation in
             for event in events {
                 continuation.yield(event)
             }
-            continuation.finish()
+            if let error {
+                continuation.finish(throwing: error)
+            } else {
+                continuation.finish()
+            }
         }
+    }
+
+    private func takeStreamReply(for request: URLRequest) -> ([ABHTTPFetchEvent], Error?) {
+        lock.lock()
+        recordedRequests.append(request)
+        let events = streamReplies.isEmpty ? [] : streamReplies.removeFirst()
+        let error = streamErrors.isEmpty ? nil : streamErrors.removeFirst()
+        lock.unlock()
+        return (events, error)
     }
 }
 
@@ -114,7 +149,7 @@ private final class ABControlledHTTPFetcher: ABHTTPFetching, @unchecked Sendable
     }
 }
 
-@Suite("ABCacheStore scenarios")
+@Suite("ABCacheStore scenarios", .timeLimit(.minutes(1)))
 struct ABCacheStoreTests {
     @Test("Unknown content length bypasses caching and serves the raw range")
     func unknownLengthPassesThrough() async throws {
@@ -431,6 +466,235 @@ struct ABCacheStoreTests {
         #expect(cacheFileExists(for: newSource, directory: directory))
     }
 
+    // MARK: - WP7: concurrency dedup
+
+    @Test("10 concurrent loads for the same key dedupe to a single fill GET and agree on the result")
+    func concurrentLoadsForSameKeyDedupeToOneFill() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("dedup.mp4")
+        let response = ABHTTPResponse(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4")
+        // Buffer well past 10 in case concurrent tasks race ahead of each
+        // other's metadata caching and each issue their own HEAD — only the
+        // fill (GET, via `stream`) start is required to dedupe to one.
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: (0..<20).map { _ in metadataReply(length: 8) },
+            streamReplies: [[.response(response), .data(Data("abcdefgh".utf8))]]
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        let results = try await withThrowingTaskGroup(of: Data.self) { group in
+            for _ in 0..<10 {
+                group.addTask {
+                    let resource = try await store.load(
+                        source,
+                        range: ABByteRange(lowerBound: 0, upperBound: 7)
+                    )
+                    return resource.data
+                }
+            }
+            var collected: [Data] = []
+            for try await data in group {
+                collected.append(data)
+            }
+            return collected
+        }
+
+        #expect(results.count == 10)
+        #expect(results.allSatisfy { $0 == Data("abcdefgh".utf8) })
+        // `fillRequest`/`stream(for:)` requests have no explicit HTTP
+        // method set, so `URLRequest.httpMethod` defaults to "GET" —
+        // exactly one such request must have been issued for the fill,
+        // regardless of how many HEAD requests raced ahead of it.
+        #expect(fetcher.requests.filter { $0.httpMethod == "GET" }.count == 1)
+    }
+
+    // MARK: - WP7: error paths
+
+    @Test("A non-2xx fill response throws StoreError.invalidResponse")
+    func nonSuccessFillResponseThrowsInvalidResponse() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("invalid-response.mp4")
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [metadataReply(length: 8)],
+            streamReplies: [[
+                .response(.init(statusCode: 404, expectedContentLength: 8, mimeType: "video/mp4"))
+            ]]
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        await #expect(throws: ABCacheStore.StoreError.invalidResponse) {
+            _ = try await store.load(source, range: ABByteRange(lowerBound: 0, upperBound: 7))
+        }
+    }
+
+    @Test("An entry that grows past maximumEntrySize mid-fill falls back to an uncached passthrough instead of throwing")
+    func entryTooLargeMidFillFallsBackToPassthrough() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("entry-too-large.mp4")
+        // Metadata declares a length (8) that fits the configured limit
+        // (8), so `load(_:range:)`'s early bypass check does not trigger —
+        // this exercises the *internal* `prepareFill` "entry.contentLength
+        // > cacheableEntryLimit" throw instead, by having the fill response
+        // itself report a much larger length (1000) than metadata did.
+        let fillResponse = ABHTTPResponse(statusCode: 200, expectedContentLength: 1000, mimeType: "video/mp4")
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [
+                metadataReply(length: 8),
+                .init(
+                    data: Data("abcdef".utf8),
+                    response: .init(
+                        statusCode: 206,
+                        expectedContentLength: 6,
+                        mimeType: "video/mp4",
+                        headers: ["Content-Range": "bytes 0-5/8"]
+                    )
+                )
+            ],
+            streamReplies: [[.response(fillResponse)]]
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory, maximumDiskSize: 100, maximumEntrySize: 8),
+            httpFetcher: fetcher
+        )
+
+        // `StoreError.entryTooLarge` is intentionally recovered, not
+        // propagated: `load(_:range:)`'s wait loop special-cases it to
+        // remove the (now-invalid) cached entry and retry via
+        // `passthrough`, so the caller observes a successful, uncached
+        // read rather than a thrown error — verified below by asserting
+        // `totalSize() == 0` alongside the correct data.
+        let resource = try await store.load(source, range: ABByteRange(lowerBound: 0, upperBound: 5))
+
+        #expect(resource.data == Data("abcdef".utf8))
+        #expect(await store.totalSize() == 0)
+    }
+
+    @Test("A fill stream that throws before any event surfaces as StoreError.requestFailed")
+    func fillStreamThrowingImmediatelySurfacesAsRequestFailed() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("request-failed.mp4")
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [metadataReply(length: 8)],
+            streamReplies: [[]],
+            streamErrors: [ABFakeFetchError(id: "immediate")]
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        await #expect(throws: ABCacheStore.StoreError.requestFailed) {
+            _ = try await store.load(source, range: ABByteRange(lowerBound: 0, upperBound: 7))
+        }
+    }
+
+    @Test("A fill stream that throws mid-stream, after partial data, surfaces as StoreError.requestFailed for a range beyond what landed")
+    func fillStreamThrowingMidStreamSurfacesAsRequestFailed() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("mid-stream-failure.mp4")
+        let response = ABHTTPResponse(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4")
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [metadataReply(length: 8)],
+            streamReplies: [[.response(response), .data(Data("ab".utf8))]],
+            streamErrors: [ABFakeFetchError(id: "mid-stream")]
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        // Requesting a range beyond the 2 bytes that landed before the
+        // stream failed forces the wait loop past its "prefix already
+        // available" fast path and into the fill-error branch, instead of
+        // silently succeeding with a short/partial read.
+        await #expect(throws: ABCacheStore.StoreError.requestFailed) {
+            _ = try await store.load(source, range: ABByteRange(lowerBound: 5, upperBound: 7))
+        }
+    }
+
+    // MARK: - WP7: index recovery
+
+    @Test("A corrupted index file recovers as an empty index instead of throwing")
+    func corruptedIndexRecoversAsEmpty() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("{ not valid json at all".utf8).write(
+            to: directory.appendingPathComponent("progressive-index.json")
+        )
+        let fetcher = ABFakeHTTPFetcher(dataReplies: [], streamReplies: [])
+
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        #expect(await store.totalSize() == 0)
+    }
+
+    @Test("An index entry whose backing file is missing is dropped on load instead of crashing")
+    func indexEntryWithMissingFileIsDropped() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("missing-file.mp4")
+        let key = ABCacheKey.derive(from: source)
+        let entry = ABCacheIndex.Entry(
+            key: key,
+            size: 4,
+            contentLength: 4,
+            contentType: "public.mpeg-4",
+            isComplete: true,
+            lastAccessedAt: Date()
+        )
+        // Write only the index — deliberately never create
+        // `Progressive/<key>.data` on disk, simulating an index that
+        // outlived its backing file (e.g. an external process/crash
+        // deleted the data directory contents but not the index).
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let index = ABCacheIndex(entries: [key: entry])
+        try JSONEncoder().encode(index).write(to: directory.appendingPathComponent("progressive-index.json"))
+        let fetcher = ABFakeHTTPFetcher(dataReplies: [], streamReplies: [])
+
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        #expect(await store.totalSize() == 0)
+        #expect(!cacheFileExists(for: source, directory: directory))
+    }
+
+    // MARK: - WP7: metadata LRU correctness
+
+    @Test("Re-touching the oldest metadata cache key protects it from eviction on the next insert")
+    func retouchingOldestMetadataKeyProtectsItFromEviction() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: (0..<33).map { _ in metadataReply(length: 10) },
+            streamReplies: []
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        var sources: [ABMediaSource] = []
+        for index in 0..<32 {
+            let source = mediaSource("lru-\(index).mp4")
+            sources.append(source)
+            _ = try await store.metadata(for: source)
+        }
+        #expect(await store.metadataCacheCount() == 32)
+
+        // Re-touch the oldest (first-inserted) key — a cache *hit*, so it
+        // consumes no additional `dataReplies` entry — moving it to the
+        // most-recently-used end of the LRU order.
+        _ = try await store.metadata(for: sources[0])
+
+        // One more distinct key forces an eviction. Without the re-touch,
+        // `sources[0]` would be the true LRU victim; with it,
+        // `sources[1]` becomes the victim instead.
+        _ = try await store.metadata(for: mediaSource("lru-new.mp4"))
+
+        let order = await store.metadataCacheOrderSnapshot()
+        let retouchedKey = ABCacheKey.derive(from: sources[0])
+        let evictedKey = ABCacheKey.derive(from: sources[1])
+        #expect(order.contains(retouchedKey))
+        #expect(!order.contains(evictedKey))
+        #expect(await store.metadataCacheCount() == 32)
+    }
+
     /// WP4 regression: `waitForProgress` used to be a bare
     /// `withCheckedContinuation` that ignored cancellation. A `load(_:range:)`
     /// call waiting on a fill that never makes progress would then hang
@@ -459,9 +723,7 @@ struct ABCacheStoreTests {
 
         // Wait for `load` to actually retain a reader (i.e. it has reached
         // the stalled-fill wait loop) before cancelling.
-        for _ in 0..<200 where store.activeReaderKeys().isEmpty {
-            await Task.yield()
-        }
+        try await waitUntil { !store.activeReaderKeys().isEmpty }
         #expect(!store.activeReaderKeys().isEmpty)
 
         loadTask.cancel()
@@ -494,9 +756,7 @@ struct ABCacheStoreTests {
 
         // The cancelled waiter must not linger in `readerRegistry` — that
         // would keep this key excluded from LRU eviction forever.
-        for _ in 0..<200 where !store.activeReaderKeys().isEmpty {
-            await Task.yield()
-        }
+        try await waitUntil { store.activeReaderKeys().isEmpty }
         #expect(store.activeReaderKeys().isEmpty)
 
         fetcher.finishStreams()
