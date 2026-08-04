@@ -14,7 +14,11 @@ public final class ABObservationToken: @unchecked Sendable, Hashable {
     private let lock = NSLock()
     private var onCancel: (() -> Void)?
 
-    init(onCancel: @escaping () -> Void) {
+    /// Creates a token around an idempotent cancellation closure.
+    ///
+    /// Extension targets can use this initializer to expose observation APIs
+    /// with the same lifetime contract as ABPlayerKit.
+    public init(onCancel: @escaping () -> Void) {
         self.onCancel = onCancel
     }
 
