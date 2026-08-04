@@ -191,6 +191,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         playPauseButton.addAction(UIAction { [weak self] _ in self?.togglePlayback() }, for: .touchUpInside)
         skipBackwardButton.addAction(UIAction { [weak self] _ in self?.skip(by: -(self?.configuration.skipInterval ?? 0)) }, for: .touchUpInside)
         skipForwardButton.addAction(UIAction { [weak self] _ in self?.skip(by: self?.configuration.skipInterval ?? 0) }, for: .touchUpInside)
+        rateButton.addAction(UIAction { [weak self] _ in self?.rateButtonTapped() }, for: .touchUpInside)
         seekBar.onScrubBegan = { [weak self] in self?.scrubBegan() }
         seekBar.onScrubChanged = { [weak self] progress in self?.scrubChanged(progress: progress) }
         seekBar.onScrubEnded = { [weak self] progress in self?.scrubEnded(progress: progress) }
@@ -305,6 +306,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         skipBackwardButton.isHidden = !configuration.showsSkipButtons
         skipForwardButton.isHidden = !configuration.showsSkipButtons
         updateSkipIcons()
+        updateRate(player?.rate ?? 1)
         render(currentPlaybackTime)
         if previous?.periodicTimeInterval != configuration.periodicTimeInterval,
            let player,
@@ -353,10 +355,14 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             rateButton.titleLabel?.font = font
             rateButton.setTitleColor(style.tintColor, for: .normal)
             rateButton.isHidden = configuration.rateInteraction == .hidden || configuration.rateOptions.isEmpty
-        case .icon(let icon, _):
+        case .icon(let icon, let showsValueBadge):
             rateButton.setTitle(nil, for: .normal)
             rateButton.apply(icon: icon, style: style)
+            if showsValueBadge {
+                rateButton.setTitle(value, for: .normal)
+            }
         }
+        configureRateInteraction(currentRate: rate)
     }
 
     private func render(_ time: ABPlaybackTime) {
@@ -415,6 +421,50 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         Task { await player.skip(by: interval) }
         handleVisibility(.controlInteracted)
         observerRegistry.broadcast(.skipTapped(by: interval))
+    }
+
+    private func configureRateInteraction(currentRate: Float) {
+        switch configuration.rateInteraction {
+        case .menu:
+            rateButton.isHidden = configuration.rateOptions.isEmpty
+            rateButton.showsMenuAsPrimaryAction = true
+            rateButton.menu = UIMenu(children: configuration.rateOptions.map { [weak self] option in
+                UIAction(
+                    title: "\(String(format: "%g", option))×",
+                    state: abs(option - currentRate) < 0.000_1 ? .on : .off
+                ) { [weak self] _ in
+                    self?.selectRate(option)
+                }
+            })
+        case .cycle:
+            rateButton.isHidden = configuration.rateOptions.isEmpty
+            rateButton.showsMenuAsPrimaryAction = false
+            rateButton.menu = nil
+        case .hidden:
+            rateButton.isHidden = true
+            rateButton.showsMenuAsPrimaryAction = false
+            rateButton.menu = nil
+        }
+    }
+
+    private func rateButtonTapped() {
+        guard configuration.rateInteraction == .cycle,
+              !configuration.rateOptions.isEmpty else { return }
+        let currentRate = player?.rate ?? 1
+        let currentIndex = configuration.rateOptions.firstIndex {
+            abs($0 - currentRate) < 0.000_1
+        }
+        let nextIndex = currentIndex.map { configuration.rateOptions.index(after: $0) } ?? 0
+        let wrappedIndex = nextIndex == configuration.rateOptions.endIndex ? 0 : nextIndex
+        selectRate(configuration.rateOptions[wrappedIndex])
+    }
+
+    func selectRate(_ rate: Float) {
+        let resolvedRate = ABPlaybackRate.clamped(rate)
+        player?.setRate(resolvedRate)
+        updateRate(resolvedRate)
+        handleVisibility(.controlInteracted)
+        observerRegistry.broadcast(.rateSelected(resolvedRate))
     }
 
     private func scrubBegan() {
