@@ -26,10 +26,15 @@ public struct ABPlayerControlsConfiguration: Sendable, Equatable {
         case automatic
         /// Always `HH:MM:SS`, matching the elapsed/total labels shown by default.
         case fixedHours
-        /// Consumer-provided formatter, called with `(seconds, referenceDurationSeconds)`.
-        /// `referenceDurationSeconds` is the same value for every label in a render pass
-        /// (the media duration, or the remaining-time base), so a formatter can keep
-        /// field widths consistent across the elapsed/total/remaining labels it renders.
+        /// Consumer-provided formatter, called once per update with
+        /// `(elapsedSeconds, referenceDurationSeconds)` — `referenceDurationSeconds`
+        /// is the media duration (or `nil` while unknown/live). Its return value is
+        /// used verbatim as the *entire* time-label text; `timeLabelLayout`'s
+        /// elapsed/total/remaining combination does not apply to `.custom`, since the
+        /// formatter already receives both values and is expected to lay out the
+        /// whole label itself (round3 Phase4 WP12 — layering the automatic
+        /// combination on top of an already-complete `.custom` string previously
+        /// produced doubled output, e.g. `"12s/90s/90s/90s"`).
         case custom(@Sendable (TimeInterval, TimeInterval?) -> String)
     }
 
