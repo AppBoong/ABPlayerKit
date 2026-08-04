@@ -95,6 +95,39 @@ struct ABPlayerControlsRateTests {
         #expect(view.rateButton.menu?.children.count == 2)
     }
 
+    @Test("Given a custom time format, the configuration never compares equal to a copy of itself")
+    func customTimeFormatConfigurationNeverComparesEqual() {
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.timeFormat = .custom { seconds, _ in "\(seconds)" }
+        let copy = configuration
+
+        // Documents the known, deliberate limitation of TimeLabelFormat's
+        // Equatable conformance (closures aren't comparable) — this is the
+        // premise `repeatedCustomTimeFormatUpdatesDoNotRebuildTheRateMenu`
+        // guards against staying broken: SwiftUI's ABPlayerControls reassigns
+        // `configuration` whenever `!=` its previous value, so this being
+        // true means that guard is permanently open for `.custom` users.
+        #expect(configuration != copy)
+    }
+
+    @Test("Given repeated configuration reassignments with a custom time format, the rate menu is not rebuilt")
+    func repeatedCustomTimeFormatUpdatesDoNotRebuildTheRateMenu() {
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.timeFormat = .custom { seconds, _ in "\(seconds)" }
+        let view = ABPlayerControlsView(configuration: configuration)
+        let firstMenu = view.rateButton.menu
+
+        // Simulates what ABPlayerControls.updateUIView does on every SwiftUI
+        // render pass: since `.custom` values never compare equal (see the
+        // test above), its `!=` guard never blocks this reassignment, even
+        // though nothing about the configuration actually changed.
+        for _ in 0..<5 {
+            view.configuration = configuration
+        }
+
+        #expect(view.rateButton.menu === firstMenu, "reassigning an unchanged .custom configuration must not recreate the UIMenu — doing so could close one a user has open mid-interaction")
+    }
+
     @Test("Given a hidden rate interaction and an icon label, a style change keeps the button hidden")
     func hiddenIconRateStaysHiddenAfterStyleChange() {
         var style = ABPlayerControlsStyle()

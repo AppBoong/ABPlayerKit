@@ -563,7 +563,19 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         skipBackwardButton.isHidden = !configuration.showsSkipButtons
         skipForwardButton.isHidden = !configuration.showsSkipButtons
         updateSkipIcons()
-        updateRate(player?.rate ?? 1)
+        // Only rebuild the rate menu (a real, visible UIMenu recreation — can
+        // close one a user has open mid-interaction) when something that
+        // actually changes its *contents* did. `configuration != previous`
+        // firing (checked by the SwiftUI wrapper before assigning here) isn't
+        // itself a reliable signal: a `.custom` TimeLabelFormat makes every
+        // ABPlayerControlsConfiguration compare unequal to its own copy (see
+        // TimeLabelFormat's Equatable conformance), so on every SwiftUI update
+        // pass this method runs regardless of whether anything meaningful
+        // changed. previous == nil (first call, from init) always rebuilds.
+        let rateMenuContentsChanged = previous == nil
+            || previous?.rateOptions != configuration.rateOptions
+            || previous?.rateInteraction != configuration.rateInteraction
+        updateRate(player?.rate ?? 1, rebuildInteraction: rateMenuContentsChanged)
         render(currentPlaybackTime)
         if previous?.periodicTimeInterval != configuration.periodicTimeInterval,
            let player,

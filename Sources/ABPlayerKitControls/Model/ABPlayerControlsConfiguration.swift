@@ -79,8 +79,16 @@ public struct ABPlayerControlsConfiguration: Sendable, Equatable {
 
 extension ABPlayerControlsConfiguration.TimeLabelFormat: Equatable {
     /// `.custom` formatters are functions and cannot be compared for equality;
-    /// two `.custom` values always compare unequal, which only costs an extra
-    /// (harmless) label re-render on a configuration reassignment.
+    /// two `.custom` values — even two copies of the exact same configuration —
+    /// always compare unequal. Since `ABPlayerControls` (the SwiftUI wrapper)
+    /// reassigns `configuration` whenever `!=` its previous value, a `.custom`
+    /// time format makes that guard permanently open: `updateUIView` calls
+    /// through on *every* SwiftUI update pass, not just on an actual
+    /// reassignment. `applyConfiguration(previous:)` only rebuilds the rate
+    /// menu when `rateOptions`/`rateInteraction` actually changed (not on
+    /// every call `.custom` forces), so the churn this causes is bounded to
+    /// cheap, idempotent re-renders (labels, icons) — not a `UIMenu` rebuild
+    /// that could close one a user has open mid-interaction.
     public static func == (lhs: Self, rhs: Self) -> Bool {
         switch (lhs, rhs) {
         case (.automatic, .automatic), (.fixedHours, .fixedHours):
