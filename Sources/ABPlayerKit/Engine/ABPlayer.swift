@@ -174,6 +174,7 @@ public final class ABPlayer {
         configuration.playbackRate = ABPlaybackRate.clamped(rate)
     }
 
+    /// Performs the precise seek behavior provided in v0.1.
     public func seek(to time: CMTime) async {
         await seek(to: time, tolerance: .precise)
     }

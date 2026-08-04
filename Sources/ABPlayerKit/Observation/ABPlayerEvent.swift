@@ -20,6 +20,10 @@ public enum ABDetachReason: Sendable, Equatable {
     case backgroundPolicy
 }
 
+/// A lifecycle or playback event emitted by ``ABPlayer``.
+///
+/// Treat this enum as non-exhaustive: minor releases may add cases. Consumer
+/// switches should include a `default` branch to remain source-compatible.
 public enum ABPlayerEvent: Sendable, Equatable {
     case gradeChanged(from: ABPlaybackGrade, to: ABPlaybackGrade)
     case sourceChanged(ABMediaSource?)

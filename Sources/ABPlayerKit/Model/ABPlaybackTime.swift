@@ -9,6 +9,7 @@ public struct ABPlaybackTime: Sendable, Equatable {
     /// The end of the loaded range containing ``currentTime``.
     public let bufferedUntil: CMTime?
 
+    /// Creates a snapshot, normalizing invalid, indefinite, and zero durations to `nil`.
     public init(currentTime: CMTime, duration: CMTime?, bufferedUntil: CMTime?) {
         self.currentTime = currentTime
         self.duration = Self.validDuration(duration)
