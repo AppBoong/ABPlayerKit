@@ -11,4 +11,11 @@ public enum ABPlayerError: Error, Sendable, Equatable {
     case invalidGradeForSource(requested: ABPlaybackGrade)
     /// Reserved for the Cache target (Phase 3).
     case cacheUnavailable(description: String)
+    /// An opt-in `ABAudioSessionPolicy` (Model/ABPlayerConfiguration.swift)
+    /// failed to apply or restore against `AVAudioSession`. `NSError`
+    /// stringified for `Equatable`/`Sendable` safety, same as `itemFailed`.
+    /// Added in a minor release — this enum is `@frozen`-free by
+    /// convention, but exhaustive `switch` sites outside ABPlayerKit should
+    /// still carry a `default` branch (see `ABPlayerEvent`'s doc comment).
+    case audioSessionOperationFailed(description: String)
 }

@@ -124,7 +124,7 @@
 | Q1 | HLS 캐싱 v1 범위 | **A** — MP4 투명 캐싱 + HLS 명시 프리페치(AVAssetDownloadTask), 투명 HLS(리버스 프록시)는 v2 | 추천안 채택 |
 | Q2 | 프리로드/재생 기본 튜닝값 | **B** — current 기본에 `preferredMaximumResolution` = 화면 크기 상한 추가. Phase 5에서 A/B 벤치마크 | 추천안 채택 |
 | Q3 | 이벤트 API 형태 | **A** — 다중 옵저버 + `ABObservationToken` | 추천안 채택 |
-| Q4 | AVAudioSession 소유권 | **C** — 기본 `.unmanaged` + 설정으로 자동 적용 옵트인(이전 카테고리 복원 포함), README 명시 | 추천안 채택 |
+| Q4 | AVAudioSession 소유권 | **C** — 기본 `.unmanaged` + 설정으로 자동 적용 옵트인(이전 카테고리 복원 포함), README 명시 | 추천안 채택. **구현 완료**(리뷰 라운드3 Phase 1 WP2) — `ABPlayer`가 grade `.current` 승격/`play()` 시 `audioSessionPolicy`가 `.unmanaged`가 아니면 `ABAudioSessionControlling`(테스트 심 protocol, 실 구현은 `ABAudioSessionAdapter`)를 통해 이전 카테고리/모드/옵션을 저장 후 적용하고, `.unmanaged`로 되돌리거나 `release()` 시 복원한다. 적용/복원 실패는 삼키지 않고 `ABPlayerError.audioSessionOperationFailed`로 `.failed` 이벤트 방송. 테스트: `Tests/ABPlayerKitTests/ABAudioSessionPolicyTests.swift` |
 | Q5 | 백그라운드 기본 정책 | **A** — `.pause` 기본, `.pauseAndDetachLayer` 권장 옵션 문서화 | 추천안 채택 |
 | Q6 | 오버레이 주입 방식 | **A** — **UIKit `UIView` 오버레이만 지원.** SwiftUI 소비자는 직접 `UIHostingController` 래핑. 원본이 겪은 호스팅 어긋남 위험을 라이브러리가 떠안지 않음 | 추천(C)과 다른 사용자 결정 |
 | Q7 | 언어 모드/최소 버전 | **B** — **iOS 17+ · Swift 6 언어 모드.** `@Observable` 사용 가능해짐(단 Q3 결정에 따라 이벤트는 옵저버+토큰 유지). PLANNING.md 갱신됨 | 추천(A)과 다른 사용자 결정 — Phase 0의 iOS 16+를 변경 |

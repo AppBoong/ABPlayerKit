@@ -61,12 +61,22 @@ public final class ABPlayer {
     private var gradeBeforeBackground: ABPlaybackGrade?
     private var wasPlayingBeforeBackground = false
 
+    private let audioSessionController: any ABAudioSessionControlling
+    /// The `ABAudioSessionPolicy` currently applied via `audioSessionController`,
+    /// or `nil` if none is (Q4 in DESIGN-OPEN-QUESTIONS.md: opt-in, never
+    /// applied unless `audioSessionPolicy != .unmanaged`).
+    private var appliedAudioSessionPolicy: ABAudioSessionPolicy?
+    /// The `AVAudioSession` category/mode/options captured immediately
+    /// before the first apply, so restore can put them back exactly.
+    private var savedAudioSessionSnapshot: ABAudioSessionCategorySnapshot?
+
     public init(configuration: ABPlayerConfiguration = .init()) {
         var resolvedConfiguration = configuration
         resolvedConfiguration.playbackRate = ABPlaybackRate.clamped(configuration.playbackRate)
         self.configuration = resolvedConfiguration
         self.target = ABAVPlaybackTarget()
         self.notificationCenter = .default
+        self.audioSessionController = ABAudioSessionAdapter()
         wireTarget()
         reconcileBackgroundObserver()
     }
@@ -76,13 +86,15 @@ public final class ABPlayer {
     init(
         configuration: ABPlayerConfiguration = .init(),
         target: any ABPlaybackTarget,
-        notificationCenter: NotificationCenter = .default
+        notificationCenter: NotificationCenter = .default,
+        audioSessionController: any ABAudioSessionControlling = ABAudioSessionAdapter()
     ) {
         var resolvedConfiguration = configuration
         resolvedConfiguration.playbackRate = ABPlaybackRate.clamped(configuration.playbackRate)
         self.configuration = resolvedConfiguration
         self.target = target
         self.notificationCenter = notificationCenter
+        self.audioSessionController = audioSessionController
         wireTarget()
         reconcileBackgroundObserver()
     }
@@ -148,6 +160,14 @@ public final class ABPlayer {
         interpret(actions, source: newSource, detachReason: detachReason)
         if resolvedGrade == .current {
             reconcilePeriodicTimeObserver()
+            applyAudioSessionPolicyIfNeeded()
+        }
+        if resolvedGrade == .released {
+            // `release()` is one of the two explicit restore triggers
+            // (Q4 in DESIGN-OPEN-QUESTIONS.md) — the other is the policy
+            // itself switching back to `.unmanaged`, handled in
+            // `applyConfigurationChange`.
+            restoreAudioSessionPolicyIfNeeded()
         }
 
         if previousGrade != resolvedGrade {
@@ -175,6 +195,10 @@ public final class ABPlayer {
             broadcast(.playbackRejected)
             return
         }
+        // Also covers "playback start" from Q4's apply trigger — e.g. the
+        // policy was switched to a managed one after promotion but before
+        // the first `play()`.
+        applyAudioSessionPolicyIfNeeded()
         target.play()
     }
 
@@ -487,6 +511,13 @@ public final class ABPlayer {
         if previousConfiguration.periodicTimeInterval != configuration.periodicTimeInterval {
             reconcilePeriodicTimeObserver()
         }
+        if previousConfiguration.audioSessionPolicy != configuration.audioSessionPolicy {
+            if configuration.audioSessionPolicy == .unmanaged {
+                restoreAudioSessionPolicyIfNeeded()
+            } else {
+                applyAudioSessionPolicyIfNeeded()
+            }
+        }
 
         guard grade.holdsItem else { return }
         let role: ABTuningRole = grade == .current ? .current : .preload
@@ -559,6 +590,61 @@ public final class ABPlayer {
 
     private func broadcast(_ event: ABPlayerEvent) {
         observerRegistry.broadcast(event, from: self)
+    }
+
+    // MARK: - Audio session (Q4 in DESIGN-OPEN-QUESTIONS.md)
+
+    /// Applies `configuration.audioSessionPolicy` if it isn't `.unmanaged`
+    /// and isn't already the currently-applied policy. No-op while not
+    /// `.current` — callers gate this at grade `.current` promotion and
+    /// `play()` (playback start), per the confirmed Q4 design. Snapshots the
+    /// prior category/mode/options exactly once, before the *first* apply,
+    /// so restoring later always reflects the host app's original state
+    /// even if the policy is switched between two managed values in between.
+    private func applyAudioSessionPolicyIfNeeded() {
+        guard grade == .current else { return }
+        let policy = configuration.audioSessionPolicy
+        guard policy != .unmanaged, appliedAudioSessionPolicy != policy else { return }
+        if appliedAudioSessionPolicy == nil {
+            savedAudioSessionSnapshot = audioSessionController.snapshotCurrentCategory()
+        }
+        do {
+            try audioSessionController.activate(policy)
+            appliedAudioSessionPolicy = policy
+        } catch {
+            if appliedAudioSessionPolicy == nil {
+                savedAudioSessionSnapshot = nil
+            }
+            surfaceAudioSessionFailure(error)
+        }
+    }
+
+    /// Restores the snapshot captured by `applyAudioSessionPolicyIfNeeded()`
+    /// and deactivates the session. Callers gate this at the policy
+    /// switching back to `.unmanaged` and at `release()`, per Q4. A no-op if
+    /// nothing is currently applied — restoring is therefore safe to call
+    /// unconditionally from either trigger.
+    private func restoreAudioSessionPolicyIfNeeded() {
+        guard appliedAudioSessionPolicy != nil else { return }
+        appliedAudioSessionPolicy = nil
+        guard let snapshot = savedAudioSessionSnapshot else { return }
+        savedAudioSessionSnapshot = nil
+        do {
+            try audioSessionController.restore(snapshot)
+        } catch {
+            surfaceAudioSessionFailure(error)
+        }
+    }
+
+    /// Q4 explicitly rules out swallowing apply/restore failures — surface
+    /// them the same way every other asynchronous failure in this type is
+    /// surfaced (DESIGN-ABPlayerKit.md §6).
+    private func surfaceAudioSessionFailure(_ error: Error) {
+        let policyError = ABPlayerError.audioSessionOperationFailed(
+            description: (error as NSError).localizedDescription
+        )
+        lastError = policyError
+        broadcast(.failed(policyError))
     }
 
     private func startSeekWorker(for decision: ABSeekCoalescer.Decision) {
