@@ -203,7 +203,10 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         #endif
     }
 
-    private enum ReadyWaitResult: Sendable {
+    /// Internal (not `private`) so `@testable import ABPlayerKit` can drive
+    /// `ReadyWaitState` directly in concurrency tests. Production behavior is
+    /// unchanged — this is purely an access-level promotion.
+    enum ReadyWaitResult: Sendable, Equatable {
         case ready
         case timedOut
         case failed
@@ -213,8 +216,9 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
     /// Coordinates KVO, timeout, and task cancellation without letting any
     /// path resume the continuation twice. Cancellation may arrive before
     /// the continuation is installed, so the resolved result is retained
-    /// until installation completes.
-    private final class ReadyWaitState: @unchecked Sendable {
+    /// until installation completes. Internal (not `private`) for the same
+    /// testability reason as `ReadyWaitResult` above.
+    final class ReadyWaitState: @unchecked Sendable {
         private let lock = NSLock()
         private var continuation: CheckedContinuation<ReadyWaitResult, Never>?
         private var result: ReadyWaitResult?
@@ -275,7 +279,9 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         }
     }
 
-    private func waitUntilReady(item: AVPlayerItem, timeout: TimeInterval) async -> ReadyWaitResult {
+    /// Internal (not `private`) so integration tests can drive this directly
+    /// against a real `AVPlayerItem` on the simulator.
+    func waitUntilReady(item: AVPlayerItem, timeout: TimeInterval) async -> ReadyWaitResult {
         if item.status == .readyToPlay { return .ready }
         if item.status == .failed { return .failed }
 

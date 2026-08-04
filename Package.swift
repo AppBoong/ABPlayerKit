@@ -33,7 +33,8 @@ let package = Package(
         ),
         .testTarget(
             name: "ABPlayerKitTests",
-            dependencies: ["ABPlayerKit"]
+            dependencies: ["ABPlayerKit"],
+            resources: [.process("Resources")]
         ),
         .testTarget(
             name: "ABPlayerKitControlsTests",
