@@ -255,11 +255,17 @@ public final class ABPlayer {
     /// Commits the newest scrub destination precisely before resuming normal updates.
     public func endScrubbing() async {
         guard isScrubbing else { return }
+        var requiresStandaloneCommit = false
+        if grade == .current {
+            let flushDecision = seekCoalescer.flush(finalTolerance: .precise)
+            requiresStandaloneCommit = flushDecision == .hold && seekCoalescer.inFlight == nil
+            startSeekWorker(for: flushDecision)
+        }
         if let seekWorkerTask {
             await seekWorkerTask.value
             self.seekWorkerTask = nil
         }
-        if grade == .current, let lastScrubTime {
+        if grade == .current, requiresStandaloneCommit, let lastScrubTime {
             let landed = await target.seek(to: lastScrubTime, tolerance: .precise)
             broadcast(.seekCompleted(to: landed))
         } else if grade != .current {

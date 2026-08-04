@@ -54,7 +54,7 @@ struct ABScrubbingEngineTests {
         #expect(events.filter { $0 == .scrubbingChanged(isScrubbing: true) }.count == 1)
     }
 
-    @Test("Given rapid scrub requests, only first, latest, and final precise seeks issue")
+    @Test("Given rapid scrub requests, only the first and latest precise seeks issue")
     func rapidScrubsCoalesceAndCommitLatest() async {
         let (player, target) = makePlayer(suspendedSeeks: true)
         let first = CMTime(seconds: 10, preferredTimescale: 600)
@@ -68,8 +68,7 @@ struct ABScrubbingEngineTests {
         player.scrub(to: latest)
 
         let endTask = Task { await player.endScrubbing() }
-        target.completeNextSeek()
-        while target.pendingSeekCount == 0 { await Task.yield() }
+        await Task.yield()
         target.completeNextSeek()
         while target.pendingSeekCount == 0 { await Task.yield() }
         target.completeNextSeek()
@@ -79,12 +78,35 @@ struct ABScrubbingEngineTests {
             guard case .seek(let time, let tolerance) = call else { return nil }
             return (time, tolerance)
         }
-        #expect(seeks.count == 3)
+        #expect(seeks.count == 2)
         #expect(seeks[0].0 == first)
         #expect(seeks[1].0 == latest)
-        #expect(seeks[2].0 == latest)
-        #expect(seeks[2].1 == .precise)
+        #expect(seeks[1].1 == .precise)
         #expect(!seeks.contains { $0.0 == stale })
+    }
+
+    @Test("Given the coarse seek already completed, ending adds one precise commit")
+    func completedCoarseSeekStillCommitsPrecisely() async {
+        let (player, target) = makePlayer()
+        let destination = CMTime(seconds: 35, preferredTimescale: 600)
+        var completedSeeks: [CMTime] = []
+        let token = player.addObserver {
+            if case .seekCompleted(let time) = $0 {
+                completedSeeks.append(time)
+            }
+        }
+        defer { token.cancel() }
+        player.beginScrubbing()
+        player.scrub(to: destination)
+        while completedSeeks.isEmpty { await Task.yield() }
+
+        await player.endScrubbing()
+
+        let tolerances = target.calls.compactMap { call -> ABSeekTolerance? in
+            guard case .seek(let time, let tolerance) = call, time == destination else { return nil }
+            return tolerance
+        }
+        #expect(tolerances == [.scrubbing, .precise])
     }
 
     @Test("Given a completed session, seek completion precedes the false boundary")
