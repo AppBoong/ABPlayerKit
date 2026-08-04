@@ -520,6 +520,15 @@ public final class ABPlayer {
         }
 
         guard grade.holdsItem else { return }
+        // Only re-apply/broadcast when a tuning value actually changed —
+        // otherwise unrelated configuration changes (e.g.
+        // `periodicTimeInterval` above) would re-issue an identical
+        // `AVPlayerItem` tuning call and a spurious `.tuningApplied` on
+        // every settings tweak. The grade-transition reapply path
+        // (`interpret(_:source:detachReason:)`'s `.applyTuning` action,
+        // driven by `set(source:grade:)`) is untouched by this guard.
+        guard previousConfiguration.currentTuning != configuration.currentTuning
+            || previousConfiguration.preloadTuning != configuration.preloadTuning else { return }
         let role: ABTuningRole = grade == .current ? .current : .preload
         lastAppliedTuningRole = role
         let resolvedTuning = tuning(for: role)

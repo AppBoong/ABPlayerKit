@@ -14,11 +14,15 @@ public struct ABPlaybackTuning: Sendable, Equatable {
     public var preferredMaximumResolution: CGSize
     public var automaticallyWaitsToMinimizeStalling: Bool
 
+    /// Defaults mirror `.displayCapped` (Q2 in DESIGN-OPEN-QUESTIONS.md's
+    /// confirmed `.current` default) so a bare `ABPlaybackTuning()` is a
+    /// sensible, semver-safe starting point for a new tuning value added in
+    /// a minor release.
     public init(
-        preferredPeakBitRate: Double,
-        preferredForwardBufferDuration: TimeInterval,
-        preferredMaximumResolution: CGSize,
-        automaticallyWaitsToMinimizeStalling: Bool
+        preferredPeakBitRate: Double = 0,
+        preferredForwardBufferDuration: TimeInterval = 0,
+        preferredMaximumResolution: CGSize = displaySizeSentinel,
+        automaticallyWaitsToMinimizeStalling: Bool = true
     ) {
         self.preferredPeakBitRate = preferredPeakBitRate
         self.preferredForwardBufferDuration = preferredForwardBufferDuration

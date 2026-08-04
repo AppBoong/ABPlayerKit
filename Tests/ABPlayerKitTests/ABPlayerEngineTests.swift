@@ -272,6 +272,42 @@ struct ABPlayerEventBroadcastTests {
         })
     }
 
+    @Test("Changing an unrelated setting (periodicTimeInterval) does not re-broadcast .tuningApplied")
+    func unrelatedConfigurationChangeDoesNotReapplyTuning() {
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore), target: target)
+        player.set(source: source, grade: .current)
+
+        var events: [ABPlayerEvent] = []
+        let token = player.addObserver { events.append($0) }
+        defer { token.cancel() }
+        let applyTuningCallCountBefore = target.calls.filter { if case .applyTuning = $0 { return true } else { return false } }.count
+
+        player.configuration.periodicTimeInterval = 0.5
+
+        #expect(!events.contains { event in
+            if case .tuningApplied = event { return true }
+            return false
+        })
+        let applyTuningCallCountAfter = target.calls.filter { if case .applyTuning = $0 { return true } else { return false } }.count
+        #expect(applyTuningCallCountAfter == applyTuningCallCountBefore)
+    }
+
+    @Test("Changing currentTuning while .current re-applies and broadcasts .tuningApplied")
+    func currentTuningChangeReappliesAndBroadcasts() {
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore), target: target)
+        player.set(source: source, grade: .current)
+
+        var events: [ABPlayerEvent] = []
+        let token = player.addObserver { events.append($0) }
+        defer { token.cancel() }
+
+        player.configuration.currentTuning = .unrestricted
+
+        #expect(events.contains(.tuningApplied(.current, .unrestricted)))
+    }
+
     @Test("Changing background policy installs and removes observation")
     func backgroundPolicyReconcilesObservation() async {
         let center = NotificationCenter()
