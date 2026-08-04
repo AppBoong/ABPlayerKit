@@ -6,6 +6,8 @@ An opt-in, accessible playback-controls layer for ABPlayerKit.
 
 ABPlayerKitControls provides a UIKit overlay and SwiftUI wrappers while keeping the playback engine in `ABPlayerKit`. Link this product only when an app wants the standard timeline, playback-rate, skip, and auto-hide experience.
 
+The standard overlay centers its transport buttons and places the timeline at the bottom. A fixed-hour elapsed/total label sits immediately above the timeline's leading edge, while playback rate sits at the trailing edge. The default white controls use a subtle dark scrim that preserves the video image beneath them.
+
 ## Getting Started
 
 Create an `ABPlayerKit/ABPlayer`, assign it to ``ABPlayerControlsView`` in UIKit, or compose it with ``ABVideoPlayerWithControls`` in SwiftUI. The controls install periodic time observation while attached and restore the player's previous interval when detached.

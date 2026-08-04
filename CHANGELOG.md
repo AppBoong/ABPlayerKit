@@ -18,6 +18,7 @@ All notable changes to ABPlayerKit are documented in this file.
 
 - `ABPlayerEvent` now includes `rateChanged`, `scrubbingChanged`, `seekCompleted`, and `periodicTime`. Source switches should include a `default` branch because new public enum cases can make exhaustive consumer switches fail to compile.
 - `ABPlayerConfiguration` now supports playback rate, scrub tolerance, and periodic time observation. All defaults preserve v0.1 playback behavior unless the new features are used.
+- Standard controls now center the transport cluster, place the timeline and rate control along the bottom, and show combined fixed-hour elapsed/total time above the timeline. Default, minimal, and tinted presets use lighter scrims that preserve the video beneath them.
 
 ## [0.1.0] - 2026-08-03
 

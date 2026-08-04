@@ -195,6 +195,8 @@ ABVideoPlayerWithControls(
 .aspectRatio(16 / 9, contentMode: .fit)
 ```
 
+The standard overlay keeps skip-backward, play/pause, and skip-forward centered over the video. Its seek bar hugs the bottom; `HH:mm:ss/HH:mm:ss` elapsed/total time sits directly above the seek bar at the left, and playback rate sits at the bottom-right. The default white/grey controls use a low-opacity dark scrim so the video remains clearly visible.
+
 Style changes apply live to the existing controls. Track, played progress, thumb appearance, and icons are independent:
 
 ```swift

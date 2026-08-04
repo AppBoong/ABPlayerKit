@@ -29,7 +29,7 @@ struct PlaybackScreen: View {
                         }
                         .pickerStyle(.segmented)
 
-                        Text("Choose Current grade, then drag the timeline and use the rate menu to try seek coalescing and persistent playback speed.")
+                        Text("Choose Current grade, then compare the light scrims while the centered transport cluster, bottom timeline, and rate control remain in place.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .padding(.top, 8)

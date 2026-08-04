@@ -4,7 +4,7 @@ Build a control appearance without changing playback behavior.
 
 ## Start with a Preset
 
-Use ``ABPlayerControlsStyle/default`` for white controls over a dark bottom gradient, ``ABPlayerControlsStyle/minimal`` for an inline player, or ``ABPlayerControlsStyle/tinted`` for a material background with the system tint.
+Use ``ABPlayerControlsStyle/default`` for white controls over a subtle dark scrim, ``ABPlayerControlsStyle/minimal`` for the lightest bottom scrim, or ``ABPlayerControlsStyle/tinted`` for blue accents over a translucent blue-to-dark scrim. All three presets keep the video visible beneath the overlay.
 
 ```swift
 let controls = ABPlayerControlsView(style: .minimal)
@@ -12,6 +12,10 @@ controls.player = player
 ```
 
 All style values apply live. Updating colors does not recreate the controls or invalidate layout; changing dimensions updates the existing constraints and layers.
+
+## Understand the Standard Layout
+
+The skip-backward, play/pause, and skip-forward controls form a centered transport cluster. The timeline stays at the bottom, with its combined `HH:mm:ss/HH:mm:ss` elapsed-and-total label directly above the leading edge. The playback-rate control occupies the bottom-trailing edge beside the timeline. Other time-label modes keep the same position and fixed-hour clock format.
 
 ## Change the Timeline
 
