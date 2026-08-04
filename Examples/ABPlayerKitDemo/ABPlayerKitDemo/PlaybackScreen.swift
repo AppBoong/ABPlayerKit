@@ -88,7 +88,7 @@ struct PlaybackScreen: View {
                             }
                             .buttonStyle(.bordered)
                         }
-                        .disabled(model.grade != .preloaded)
+                        .disabled(model.player.grade != .preloaded)
 
                         Text("Preroll controls are available only in Preloaded. Completion and cancellation appear in Latest event.")
                             .font(.footnote)
@@ -128,9 +128,12 @@ struct PlaybackScreen: View {
         )
     }
 
+    // Reads `player.grade` directly — `ABPlayer` is `@Observable` (round3
+    // Phase3 WP9), so this view re-renders on grade changes with no
+    // observer-bridge mirror needed in `DemoModel`.
     private var gradeBinding: Binding<ABPlaybackGrade> {
         Binding(
-            get: { model.grade },
+            get: { model.player.grade },
             set: { grade in model.setGrade(grade) }
         )
     }

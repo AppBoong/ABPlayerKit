@@ -118,6 +118,12 @@ final class DemoModel {
         case cached
     }
 
+    /// `@Observable` (round3 Phase3 WP9) — views read `player.grade` and
+    /// other tracked state directly (see `PlaybackScreen`'s `gradeBinding`)
+    /// instead of this model mirroring it into its own `var`. `latestEvent`
+    /// and other derived UI text still come from the token-based
+    /// `addObserver` event stream below, since those need the *event*, not
+    /// just the resulting state.
     let player: ABPlayer
 
     private let clock = ABMonotonicClock()
@@ -134,7 +140,6 @@ final class DemoModel {
     private var usesPrefetchedHLS = false
 
     var selectedMedia = DemoMedia.hls
-    var grade = ABPlaybackGrade.preloaded
     var selectedTuning = DemoTuningPreset.displayCapped
     var isMuted = false
     var isLooping = false
@@ -178,7 +183,7 @@ final class DemoModel {
             self.handle(event)
         }
 
-        player.set(source: selectedMedia.source, grade: grade)
+        player.set(source: selectedMedia.source, grade: .preloaded)
 
         if hlsPrefetcher.localAsset(for: DemoMedia.hls.source) != nil {
             prefetchState = .available
@@ -212,13 +217,13 @@ final class DemoModel {
     }
 
     func armPreroll() {
-        guard grade == .preloaded else { return }
+        guard player.grade == .preloaded else { return }
         latestEvent = "Preroll armed"
         player.startPreroll()
     }
 
     func cancelPreload() {
-        guard grade == .preloaded else { return }
+        guard player.grade == .preloaded else { return }
         player.cancelPreload()
     }
 
@@ -251,7 +256,7 @@ final class DemoModel {
 
     func togglePlayback() {
         let startedAt = clock.now
-        guard grade == .current else {
+        guard player.grade == .current else {
             transitionGrade(to: .current, startedAt: startedAt)
             return
         }
@@ -330,24 +335,25 @@ final class DemoModel {
     }
 
     private func transitionGrade(to newGrade: ABPlaybackGrade, startedAt: CFTimeInterval) {
-        guard newGrade != grade else { return }
-        if grade == .current {
+        guard newGrade != player.grade else { return }
+        if player.grade == .current {
             abandonPendingTTFF()
         }
-        grade = newGrade
         let source = newGrade == .released ? nil : selectedMedia.source
         player.set(source: source, grade: newGrade)
         resumeCurrentPlaybackIfNeeded(startedAt: startedAt)
     }
 
     private func transitionToSelectedSource(startedAt: CFTimeInterval) {
-        let targetGrade = grade
+        // Captured before the possible `player.release()` below, which
+        // would otherwise clobber `player.grade` to `.released` before this
+        // function gets a chance to read the actual target grade.
+        let targetGrade = player.grade
         let desiredFactoryMode = desiredFactoryModeForSelection
         if desiredFactoryMode != installedFactoryMode {
             player.release()
             installAssetFactory(desiredFactoryMode)
         }
-        grade = targetGrade
         guard targetGrade != .released else { return }
         player.set(source: selectedMedia.source, grade: targetGrade)
         resumeCurrentPlaybackIfNeeded(startedAt: startedAt)
@@ -357,11 +363,11 @@ final class DemoModel {
         startedAt: CFTimeInterval,
         forceCurrent: Bool = false
     ) {
-        let targetGrade = forceCurrent ? ABPlaybackGrade.current : grade
+        // Same ordering note as `transitionToSelectedSource` above.
+        let targetGrade = forceCurrent ? ABPlaybackGrade.current : player.grade
         abandonPendingTTFF()
         player.release()
         installAssetFactory(desiredFactoryModeForSelection)
-        grade = targetGrade
         guard targetGrade != .released else { return }
         player.set(source: selectedMedia.source, grade: targetGrade)
         resumeCurrentPlaybackIfNeeded(startedAt: startedAt)
@@ -391,7 +397,7 @@ final class DemoModel {
     }
 
     private func resumeCurrentPlaybackIfNeeded(startedAt: CFTimeInterval) {
-        guard grade == .current else { return }
+        guard player.grade == .current else { return }
         metricsRecorder.beginTTFF(
             for: player,
             at: startedAt,
@@ -413,8 +419,6 @@ final class DemoModel {
         switch event {
         case .timeControlStatusChanged(let status):
             isPlaying = status == .playing
-        case .gradeChanged(_, let newGrade):
-            grade = newGrade
         case .firstFrameDisplayed, .itemDetached:
             scheduleStatisticsRefresh()
         default:
@@ -460,6 +464,9 @@ private extension ABPlayerEvent {
         case .itemDetached(let reason): "Detached: \(String(describing: reason))"
         case .invalidGradeForSource: "Grade rejected for empty source"
         case .playbackRejected: "Playback command rejected"
+        case .audioInterruptionBegan: "Audio interruption began"
+        case .audioInterruptionEnded(let resumed): "Audio interruption ended (resumed: \(resumed))"
+        case .audioRouteChangedDeviceUnavailable: "Audio route changed: device unavailable"
         @unknown default: "Playback event"
         }
     }

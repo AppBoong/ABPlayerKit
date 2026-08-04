@@ -1,10 +1,23 @@
 @preconcurrency import AVFoundation
 import Foundation
+import Observation
 
 /// Owns a single playback grade, broadcasts its lifecycle as events, and
 /// guarantees every release path passes through `replaceCurrentItem(nil)`.
 /// See DESIGN-ABPlayerKit.md §5.3.
+///
+/// `@Observable` (round3 Phase3 WP9 — the reason this package requires
+/// iOS 17+, Q7 in DESIGN-OPEN-QUESTIONS.md) so SwiftUI views reading
+/// `grade`/`isScrubbing`/`hasDisplayedFirstFrame`/`lastError`/`source`/
+/// `configuration` directly re-render on change, with no observer bridge
+/// required. The token-based `addObserver`/`ABPlayerEvent` system
+/// (Observation/ABObserverRegistry.swift) is unaffected and stays the
+/// primary mechanism for anything that isn't a simple property read —
+/// discrete lifecycle events, UIKit consumers, and anything needing the
+/// *reason* a value changed (Q3 in DESIGN-OPEN-QUESTIONS.md: the two
+/// systems are deliberately parallel, not a replacement for one another).
 @MainActor
+@Observable
 public final class ABPlayer {
     public let id = ABPlayerID()
 
@@ -43,22 +56,44 @@ public final class ABPlayer {
     private let planner = ABGradePlanner()
     private let observerRegistry = ABObserverRegistry()
     private let layerAttachmentObserverRegistry = ABLayerAttachmentObserverRegistry()
+    // Every `var` below is implementation-detail bookkeeping, not
+    // SwiftUI-facing state — `@ObservationIgnored` so `@Observable`'s macro
+    // expansion leaves them as plain stored properties. This matters beyond
+    // just "avoid noise notifications": `prerollTask`/`seekWorkerTask` are
+    // `nonisolated(unsafe)` specifically so `deinit` (nonisolated even on
+    // this `@MainActor` class) can cancel them directly — `@Observable`
+    // rewrites tracked stored properties into computed ones backed by a
+    // private accessor that calls into `ObservationRegistrar`, which would
+    // silently defeat that nonisolated-access guarantee (round3 Phase3
+    // WP9.2).
+    @ObservationIgnored
     private var lastAppliedTuningRole: ABTuningRole = .preload
     /// `nonisolated(unsafe)` so `deinit` (nonisolated even on this
     /// `@MainActor` class) can cancel outstanding work when a consumer drops
     /// this instance without calling `release()`. Safe because no other
     /// owner remains to access these concurrently once `deinit` runs.
+    @ObservationIgnored
     private nonisolated(unsafe) var prerollTask: Task<Void, Never>?
+    @ObservationIgnored
     private var reportedFirstFrameItem: ObjectIdentifier?
+    @ObservationIgnored
     private(set) var isLayerAttachmentEnabled = true
+    @ObservationIgnored
     private var isNormalizingPlaybackRate = false
+    @ObservationIgnored
     private var seekCoalescer = ABSeekCoalescer()
+    @ObservationIgnored
     private nonisolated(unsafe) var seekWorkerTask: Task<Void, Never>?
+    @ObservationIgnored
     private var seekGeneration = 0
+    @ObservationIgnored
     private var lastScrubTime: CMTime?
 
+    @ObservationIgnored
     private var appStateObserver: ABApplicationStateObserver?
+    @ObservationIgnored
     private var gradeBeforeBackground: ABPlaybackGrade?
+    @ObservationIgnored
     private var wasPlayingBeforeBackground = false
 
     /// The process-wide owner of audio session apply/restore
