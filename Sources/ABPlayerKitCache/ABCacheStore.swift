@@ -166,15 +166,39 @@ actor ABCacheStore {
     /// equivalent for the HEAD that precedes it).
     ///
     /// Values are wrapped in a reference-type holder (rather than storing
-    /// `Task` directly) so `resolvedMetadata`'s cleanup can compare
-    /// identity (round4 review N12): if `reset()` — or a second HEAD that
-    /// arrived after this key's entry was already cleared — has since
-    /// installed a *different* holder for the same key, the original
-    /// caller's cleanup must not clobber it out from under whoever owns it
-    /// now.
+    /// `Task` directly) so cleanup can compare identity (round4 review
+    /// N12): if `reset()` — or a second HEAD that arrived after this key's
+    /// entry was already cleared — has since installed a *different*
+    /// holder for the same key, cleanup must not clobber it out from under
+    /// whoever owns it now.
+    ///
+    /// Caching the result and clearing the slot both happen from *inside*
+    /// the task's own body (`finishMetadataRequest`, called from the `Task`
+    /// closure below), not from whichever caller's `resolvedMetadata` call
+    /// happens to be awaiting it (round4 review mn-4, completing N12): an
+    /// unstructured `Task` doesn't stop running just because one awaiter's
+    /// `try await request.value` gets cancelled — cancelling that await
+    /// only makes *that call* throw `CancellationError`, it doesn't cancel
+    /// the task. The old code tied caching/cleanup to the *first* caller's
+    /// `defer`, so a cancelled first caller left the task to finish with
+    /// nothing recording its result: the slot stayed cleared, a second
+    /// caller launched an entirely new HEAD, and the orphaned first task's
+    /// eventual result was silently discarded uncached. Tying both to the
+    /// task's own completion instead means every path out — success,
+    /// thrown error, or the task's own cancellation via `removeAll()` —
+    /// finishes exactly once, regardless of how many callers were
+    /// awaiting it or whether any of them got cancelled first.
     private final class PendingMetadataRequest {
-        let task: Task<RemoteMetadata, Error>
-        init(_ task: Task<RemoteMetadata, Error>) { self.task = task }
+        /// Compared by value (not `===`) from inside the coalesced `Task`'s
+        /// closure, which — being `@Sendable` — can't capture this
+        /// non-`Sendable` class instance itself without either an
+        /// actor-isolation data-race diagnostic or `@unchecked Sendable`
+        /// (banned in this codebase — see `DESIGN-OPEN-QUESTIONS.md` Q13's
+        /// rationale, same reasoning as banning `MainActor.assumeIsolated`
+        /// as a compile-error workaround). A plain `UUID` is trivially
+        /// `Sendable` and serves the identity comparison just as well.
+        let id = UUID()
+        var task: Task<RemoteMetadata, Error>!
     }
     private var pendingMetadataRequests: [String: PendingMetadataRequest] = [:]
     nonisolated private let progressWaiters = ABCacheProgressWaiterRegistry()
@@ -408,28 +432,48 @@ actor ABCacheStore {
         if let pending = pendingMetadataRequests[key] {
             return try await pending.task.value
         }
+        // `holder` is installed (with its `task` filled in) before any
+        // suspension point below, so every other caller that arrives before
+        // it completes awaits the same `Task` instead of issuing its own
+        // request. `finishMetadataRequest` — called from *inside* the task,
+        // not from this call's own completion — does the caching and slot
+        // cleanup exactly once, regardless of whether this specific await
+        // gets cancelled (see this type's doc comment, round4 mn-4).
+        let holder = PendingMetadataRequest()
+        let holderID = holder.id
+        pendingMetadataRequests[key] = holder
         let request = Task { [weak self] () throws -> RemoteMetadata in
             guard let self else { throw StoreError.requestFailed }
-            return try await self.remoteMetadata(for: source)
-        }
-        let holder = PendingMetadataRequest(request)
-        pendingMetadataRequests[key] = holder
-        defer {
-            // Only clear the slot if it's still the holder this call
-            // installed — `removeAll()`/`reset()` (or, in principle, a
-            // later caller for the same key) may have already replaced or
-            // cleared it while this call was suspended on `request.value`,
-            // and blindly nil-ing the slot here would either resurrect a
-            // coalescing gap (drop a newer, still in-flight holder) or be
-            // a harmless no-op. Comparing by reference identity makes this
-            // cleanup exact instead of "last one out wins" (round4 N12).
-            if pendingMetadataRequests[key] === holder {
-                pendingMetadataRequests[key] = nil
+            do {
+                let metadata = try await self.remoteMetadata(for: source)
+                await self.finishMetadataRequest(key: key, holderID: holderID, metadata: metadata)
+                return metadata
+            } catch {
+                await self.finishMetadataRequest(key: key, holderID: holderID, metadata: nil)
+                throw error
             }
         }
-        let metadata = try await request.value
-        cacheMetadata(metadata, for: key)
-        return metadata
+        holder.task = request
+        return try await request.value
+    }
+
+    /// Runs from inside `resolvedMetadata`'s coalesced `Task`, once, on
+    /// whichever outcome (success or failure) that task itself reaches —
+    /// never tied to any particular caller's own await.
+    private func finishMetadataRequest(key: String, holderID: UUID, metadata: RemoteMetadata?) {
+        if let metadata {
+            cacheMetadata(metadata, for: key)
+        }
+        // Only clear the slot if it's still the holder this task's call
+        // installed — `removeAll()`/`reset()` (or a later caller for the
+        // same key, in principle) may have already replaced or cleared it,
+        // and blindly nil-ing the slot here would either resurrect a
+        // coalescing gap (drop a newer, still in-flight holder) or be a
+        // harmless no-op. Comparing identity by `id` makes this exact
+        // instead of "last one out wins" (round4 N12).
+        if pendingMetadataRequests[key]?.id == holderID {
+            pendingMetadataRequests[key] = nil
+        }
     }
 
     private func startFillIfNeeded(

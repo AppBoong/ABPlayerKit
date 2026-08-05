@@ -7,10 +7,19 @@ import SwiftUI
 public struct ABVideoPlayerWithControls: View {
     private let player: ABPlayer
     private let videoGravity: AVLayerVideoGravity
-    private let style: ABPlayerControlsStyle
-    private let configuration: ABPlayerControlsConfiguration
-    private let accessoryViews: [UIView]
-    private let accessoriesContent: (() -> AnyView)?
+    /// Built eagerly, inside each initializer below, from whichever
+    /// `ABPlayerControls` initializer matches — the deprecated
+    /// `init(legacyPlayer:...)` bridge for the legacy `accessoryViews:`
+    /// path, `init(player:...accessories:)` for the new one. `body` below
+    /// only ever reads this single, already-built, type-erased value —
+    /// never either `ABPlayerControls` initializer directly — so it stays
+    /// warning-free while covering both paths from one non-deprecated
+    /// property. A deprecated declaration calling another deprecated
+    /// declaration doesn't warn, which is what lets the legacy branch build
+    /// this from inside *this type's own* deprecated initializer without
+    /// tripping `SWIFT_TREAT_WARNINGS_AS_ERRORS=YES` (round4 review WP-B3's
+    /// "CI 함정" note, mn-8).
+    private let controlsView: AnyView
 
     @available(*, deprecated, message: "Use the @ViewBuilder `accessories:` initializer instead. Scheduled for removal in 1.0.0.")
     public init(
@@ -22,10 +31,15 @@ public struct ABVideoPlayerWithControls: View {
     ) {
         self.player = player
         self.videoGravity = videoGravity
-        self.style = style
-        self.configuration = configuration
-        self.accessoryViews = accessoryViews
-        self.accessoriesContent = nil
+        self.controlsView = AnyView(
+            ABPlayerControls(
+                legacyPlayer: player,
+                style: style,
+                configuration: configuration,
+                accessoryViews: accessoryViews,
+                onEvent: nil
+            )
+        )
     }
 
     /// SwiftUI accessory overlay content — see `ABPlayerControls`'s matching
@@ -43,38 +57,16 @@ public struct ABVideoPlayerWithControls: View {
     ) {
         self.player = player
         self.videoGravity = videoGravity
-        self.style = style
-        self.configuration = configuration
-        self.accessoryViews = []
-        self.accessoriesContent = Accessories.self == EmptyView.self ? nil : { AnyView(accessories()) }
+        self.controlsView = AnyView(
+            ABPlayerControls(player: player, style: style, configuration: configuration, accessories: accessories)
+        )
     }
 
     public var body: some View {
         ABVideoPlayer(player: player, videoGravity: videoGravity)
             .overlay {
-                controls
+                controlsView
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-    }
-
-    @ViewBuilder
-    private var controls: some View {
-        if let accessoriesContent {
-            ABPlayerControls(player: player, style: style, configuration: configuration) {
-                accessoriesContent()
-            }
-        } else {
-            // Routes through `ABPlayerControls`'s non-deprecated
-            // `legacyPlayer:` initializer, not its deprecated public
-            // `accessoryViews:` one — see that initializer's doc comment for
-            // why (ROADMAP-round4.md WP-B3's "CI 함정" note).
-            ABPlayerControls(
-                legacyPlayer: player,
-                style: style,
-                configuration: configuration,
-                accessoryViews: accessoryViews,
-                onEvent: nil
-            )
-        }
     }
 }

@@ -363,10 +363,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         // `togglePlayback`/`selectRate` read `presenter.isPlaying`/`.rate`
         // before any further `ABPlayerEvent` has arrived to update them.
         presenter.seed(isPlaying: player.isPlaying, rate: player.rate, currentPlaybackTime: currentPlaybackTime)
-        applyPresenterEffects(presenter.handle(.attached(
-            grade: player.grade,
-            promotesToCurrentOnPlay: configuration.promotesToCurrentOnPlay
-        )))
+        applyPresenterEffects(presenter.handle(.attached(grade: player.grade)))
     }
 
     /// Interprets `ABControlsPresenter.Effect`s by calling this view's own
@@ -689,7 +686,10 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     private func togglePlayback() {
         guard let player else { return }
         applyPresenterEffects(
-            presenter.handle(.playPauseTapped(allowsPromotionTap: canPromoteToCurrentOnPlayTap)),
+            presenter.handle(.playPauseTapped(
+                isPlaying: player.isPlaying,
+                allowsPromotionTap: canPromoteToCurrentOnPlayTap
+            )),
             player: player
         )
         isPlayingState = presenter.isPlaying

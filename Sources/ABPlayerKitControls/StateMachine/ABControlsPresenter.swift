@@ -44,10 +44,10 @@ import Foundation
 /// leaving the surrounding orchestration inline in the view.
 struct ABControlsPresenter: Equatable {
     enum Input: Equatable {
-        case attached(grade: ABPlaybackGrade, promotesToCurrentOnPlay: Bool)
+        case attached(grade: ABPlaybackGrade)
         case detached
         case playerEvent(ABPlayerEvent)
-        case playPauseTapped(allowsPromotionTap: Bool)
+        case playPauseTapped(isPlaying: Bool, allowsPromotionTap: Bool)
         case skipTapped(TimeInterval)
         case rateSelected(Float)
         case accessibilityAdjusted(direction: Int, skipInterval: TimeInterval)
@@ -77,9 +77,9 @@ struct ABControlsPresenter: Equatable {
     /// Hydrates tracked state directly from a freshly-attached player,
     /// without going through `handle(_:)` — attaching a player is not itself
     /// an `ABPlayerEvent`, and `.attached`'s `Input` case deliberately only
-    /// carries `grade`/`promotesToCurrentOnPlay` (see this type's doc
-    /// comment), so nothing else would seed these otherwise. Call once, right
-    /// before `handle(.attached(...))`, with the same player's live values.
+    /// carries `grade` (see this type's doc comment), so nothing else would
+    /// seed these otherwise. Call once, right before `handle(.attached(...))`,
+    /// with the same player's live values.
     mutating func seed(isPlaying: Bool, rate: Float, currentPlaybackTime: ABPlaybackTime) {
         self.isPlaying = isPlaying
         self.rate = rate
@@ -100,7 +100,7 @@ struct ABControlsPresenter: Equatable {
 
     mutating func handle(_ input: Input) -> [Effect] {
         switch input {
-        case .attached(let grade, _):
+        case .attached(let grade):
             return [.setEnabled(grade == .current, allowsPromotionTap: true)]
 
         case .detached:
@@ -110,18 +110,28 @@ struct ABControlsPresenter: Equatable {
         case .playerEvent(let event):
             return handlePlayerEvent(event)
 
-        case .playPauseTapped(let allowsPromotionTap):
-            // Optimistic, unconditional assignment — matches the
-            // pre-extraction `togglePlayback`'s own `isPlayingState = ...`
-            // (set right after the player call, independent of whether a
-            // reentrant `.timeControlStatusChanged` ever confirms it — see
-            // this type's doc comment on why that event never arrives
-            // synchronously anyway).
+        case .playPauseTapped(let isPlaying, let allowsPromotionTap):
+            // `isPlaying` here is the *live* `player.isPlaying` the caller
+            // resolved just before calling `handle(_:)` — this decision
+            // deliberately does NOT read `self.isPlaying` (this type's own
+            // cached copy, last updated by `.timeControlStatusChanged`).
+            // Round4 review MJ-3: an earlier version branched on
+            // `self.isPlaying`, which diverges from the live value while
+            // buffering (`timeControlStatus == .waitingToPlayAtSpecifiedRate`
+            // has `player.isPlaying == true` — rate≠0, not paused — but
+            // never set `self.isPlaying = true`, since only `.playing`
+            // does). The pre-extraction `togglePlayback` always branched on
+            // `player.isPlaying`; this restores that exact source, per the
+            // "pure move" principle this whole decomposition is supposed to
+            // hold to. `self.isPlaying` is still updated optimistically
+            // afterward (matching the pre-extraction code's own
+            // `isPlayingState = true/false` assignment, right after the
+            // branch, independent of whether a reentrant
+            // `.timeControlStatusChanged` ever confirms it).
+            self.isPlaying = !isPlaying
             if isPlaying {
-                isPlaying = false
                 return [.send(.pause)]
             }
-            isPlaying = true
             var effects: [Effect] = []
             if allowsPromotionTap {
                 effects.append(.send(.promoteToCurrent))

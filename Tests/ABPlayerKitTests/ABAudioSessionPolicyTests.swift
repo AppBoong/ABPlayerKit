@@ -126,6 +126,47 @@ struct ABAudioSessionPolicyTests {
         #expect(audioSession.calls == [.snapshotCurrentCategory, .activate(policy), .activate(policy)])
     }
 
+    @Test("play() reactivates after an interruption even under the default .ignore interruptionPolicy (round4 review MJ-1 — the dirty flag used to sit behind an `.ignore` guard, so it never got set on this policy, and a resumed play() silently stayed muted)")
+    func playReactivatesForInterruptionRecoveryUnderIgnorePolicy() async throws {
+        let policy = ABAudioSessionPolicy.ambient
+        let center = NotificationCenter()
+        // `interruptionPolicy: .ignore` is the default — spelled out here to
+        // pin exactly the policy MJ-1's repro used. `pausesOnRouteChangeDeviceUnavailable`
+        // also stays at its default `true`, matching the repro.
+        let (player, target, audioSession, _) = makePlayer(
+            policy: policy,
+            interruptionPolicy: .ignore,
+            notificationCenter: center
+        )
+
+        player.set(source: source, grade: .current)
+        player.play()
+        #expect(audioSession.calls == [.snapshotCurrentCategory, .activate(policy)])
+
+        // iOS deactivates the session on an interruption regardless of
+        // interruptionPolicy. Under `.ignore` this player must NOT pause
+        // target playback or broadcast the interruption event — but it must
+        // still record that the session may now be inactive, purely as a
+        // fact about session state, independent of the pause/resume policy.
+        postInterruption(center, type: .began)
+        postInterruption(center, type: .ended, options: .shouldResume)
+
+        // Retried inside the predicate (rather than awaited once beforehand)
+        // because there's no `.ignore`-visible side effect — no `.pause`
+        // call, no broadcast — to synchronize on before the interruption
+        // notification's `Task { @MainActor in }` hop actually runs; each
+        // `play()` before that Task completes is a harmless no-op (grade is
+        // already `.current` and the dirty flag is still `false`), and the
+        // one after it lands is what reactivates.
+        try await waitUntil {
+            player.play()
+            return audioSession.calls.count == 3
+        }
+
+        #expect(!target.calls.contains(.pause))
+        #expect(audioSession.calls == [.snapshotCurrentCategory, .activate(policy), .activate(policy)])
+    }
+
     @Test("release() restores the snapshot captured at apply time, deactivating since this player activated it")
     func releaseRestoresSnapshot() {
         let policy = ABAudioSessionPolicy.playback(mixWithOthers: true)

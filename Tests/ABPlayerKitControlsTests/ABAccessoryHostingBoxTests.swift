@@ -48,6 +48,30 @@ struct ABAccessoryHostingBoxTests {
 
         #expect(!box.isAttachedToParent)
         #expect(rootViewController.children.isEmpty)
+        // Standard child-VC teardown order (round4 review mn-6): the view
+        // comes out of its superview too, not just the addChild relationship.
+        #expect(box.view.superview == nil)
+    }
+
+    @Test("Given the box's view is added to a real window-backed hierarchy through the ordinary first-display path — no explicit attach(to:) call — it attaches itself automatically once it actually reaches a window")
+    func attachFiresAutomaticallyOnOrdinaryFirstDisplay() {
+        // Reproduces MJ-2's exact repro shape: a static accessory (no
+        // content updates, so nothing re-triggers a SwiftUI update pass)
+        // inserted into a view controller's hierarchy *before* that
+        // hierarchy is windowed — mirroring `makeUIView` building the view
+        // tree first and the window attaching only afterward.
+        let box = ABAccessoryHostingBox { Text("Accessory") }
+        let rootViewController = UIViewController()
+        rootViewController.view.addSubview(box.view)
+        #expect(!box.isAttachedToParent, "must not attach before a window exists")
+
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        window.rootViewController = rootViewController
+        window.isHidden = false
+        defer { window.isHidden = true }
+
+        #expect(box.isAttachedToParent)
+        #expect(rootViewController.children.count == 1)
     }
 
     @Test("Given a hosting box, its view background is transparent so it never paints an opaque rectangle over the overlay")

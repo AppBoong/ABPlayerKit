@@ -11,7 +11,7 @@ struct ABControlsPresenterTests {
     func attachedAtCurrentGradeEnablesControls() {
         var presenter = ABControlsPresenter()
 
-        #expect(presenter.handle(.attached(grade: .current, promotesToCurrentOnPlay: false)) == [
+        #expect(presenter.handle(.attached(grade: .current)) == [
             .setEnabled(true, allowsPromotionTap: true)
         ])
     }
@@ -20,7 +20,7 @@ struct ABControlsPresenterTests {
     func attachedAtNonCurrentGradeDisablesControls() {
         var presenter = ABControlsPresenter()
 
-        #expect(presenter.handle(.attached(grade: .preloaded, promotesToCurrentOnPlay: true)) == [
+        #expect(presenter.handle(.attached(grade: .preloaded)) == [
             .setEnabled(false, allowsPromotionTap: true)
         ])
     }
@@ -159,31 +159,49 @@ struct ABControlsPresenterTests {
 
     // MARK: - playPauseTapped (WP-A4b: command emission)
 
-    @Test("Given paused state and promotion allowed, a tap promotes then plays, in that order, and isPlaying flips immediately")
+    @Test("Given a live-paused player and promotion allowed, a tap promotes then plays, in that order, and isPlaying flips immediately")
     func playPauseTappedWhilePausedWithPromotionSendsPromoteThenPlay() {
         var presenter = ABControlsPresenter()
 
-        #expect(presenter.handle(.playPauseTapped(allowsPromotionTap: true)) == [
+        #expect(presenter.handle(.playPauseTapped(isPlaying: false, allowsPromotionTap: true)) == [
             .send(.promoteToCurrent),
             .send(.play)
         ])
         #expect(presenter.isPlaying)
     }
 
-    @Test("Given paused state and promotion not allowed, a tap only plays")
+    @Test("Given a live-paused player and promotion not allowed, a tap only plays")
     func playPauseTappedWhilePausedWithoutPromotionOnlySendsPlay() {
         var presenter = ABControlsPresenter()
 
-        #expect(presenter.handle(.playPauseTapped(allowsPromotionTap: false)) == [.send(.play)])
+        #expect(presenter.handle(.playPauseTapped(isPlaying: false, allowsPromotionTap: false)) == [.send(.play)])
         #expect(presenter.isPlaying)
     }
 
-    @Test("Given playing state, a tap only pauses (promotion is irrelevant once already playing) and isPlaying flips immediately")
+    @Test("Given a live-playing player, a tap only pauses (promotion is irrelevant once already playing) and isPlaying flips immediately")
     func playPauseTappedWhilePlayingSendsPause() {
         var presenter = ABControlsPresenter()
-        _ = presenter.handle(.playPauseTapped(allowsPromotionTap: false))
+        _ = presenter.handle(.playPauseTapped(isPlaying: false, allowsPromotionTap: false))
 
-        #expect(presenter.handle(.playPauseTapped(allowsPromotionTap: true)) == [.send(.pause)])
+        #expect(presenter.handle(.playPauseTapped(isPlaying: true, allowsPromotionTap: true)) == [.send(.pause)])
+        #expect(!presenter.isPlaying)
+    }
+
+    @Test("Given the live isPlaying value disagrees with this presenter's own cached copy (buffering: player.isPlaying is true at .waitingToPlayAtSpecifiedRate, but the cache only tracks .playing), the tap follows the live value, not the cache — round4 review MJ-3 regression")
+    func playPauseTappedFollowsLiveValueOverItsOwnCache() {
+        var presenter = ABControlsPresenter()
+        // Buffering: `.timeControlStatusChanged(.waitingToPlay)` never sets
+        // `self.isPlaying = true` (only `.playing` does), so the cache reads
+        // `false` here even though the live player is already playing
+        // (rate≠0, not paused) while it buffers.
+        _ = presenter.handle(.playerEvent(.timeControlStatusChanged(.waitingToPlay)))
+        #expect(!presenter.isPlaying, "the cache must still read false — this is the premise of the divergence this test exercises")
+
+        // A tap during that buffering window must pause (cancel buffering),
+        // matching the pre-extraction `togglePlayback`'s `player.isPlaying`
+        // branch — not promote+play, which is what branching on the stale
+        // cached `false` would have produced.
+        #expect(presenter.handle(.playPauseTapped(isPlaying: true, allowsPromotionTap: true)) == [.send(.pause)])
         #expect(!presenter.isPlaying)
     }
 

@@ -53,6 +53,32 @@ struct ABPlayerControlsAccessibilityTests {
         #expect(view.displayedElapsedText == "00:01:22/00:03:45")
     }
 
+    @Test("Given a seekCompleted event lands after a periodicTime baseline, the presenter's own copy of the playback time stays in sync with the view's — a later accessibility adjustment computes from the fresh time, not a stale one (round4 review mn-2 regression)")
+    func seekCompletedKeepsPresenterPlaybackTimeInSyncForAccessibilityAdjustment() {
+        let view = ABPlayerControlsView()
+        view.handlePlayerEvent(.periodicTime(ABPlaybackTime(
+            currentTime: CMTime(seconds: 10, preferredTimescale: 600),
+            duration: CMTime(seconds: 120, preferredTimescale: 600),
+            bufferedUntil: nil
+        )))
+
+        // No player attached, so `player?.isScrubbing != true` is trivially
+        // true and the seekCompleted branch proceeds; `duration` falls back
+        // to the periodicTime baseline above since there's no live
+        // `player?.duration` either.
+        view.handlePlayerEvent(.seekCompleted(to: CMTime(seconds: 80, preferredTimescale: 600)))
+
+        // `adjustTimelineForAccessibility` (triggered by accessibilityIncrement)
+        // reads `ABControlsPresenter.currentPlaybackTime`, a copy separate
+        // from the view's own — if `seekCompleted`'s `presenter.syncPlaybackTime(_:)`
+        // call were ever dropped, this would still compute from the stale
+        // 10s periodicTime baseline (10 + the default 10s skipInterval =
+        // "00:00:20") instead of the fresh 80s the seek landed at.
+        view.seekBar.accessibilityIncrement()
+
+        #expect(view.displayedElapsedText == "00:01:30/00:02:00")
+    }
+
     @Test("Given a rate change, its accessibility value reflects the multiplier")
     func rateValueUpdates() {
         let view = ABPlayerControlsView()

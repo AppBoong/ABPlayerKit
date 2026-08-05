@@ -99,4 +99,22 @@ struct ABPlayerControlsSwiftUITests {
 
         #expect(view.accessoryViews.first === hostedView)
     }
+
+    @Test("Given SwiftUI accessories mounted through a real window — the ordinary first-display path, not a manual update(_:coordinator:) call — the hosted accessory attaches to a parent view controller (round4 review MJ-2 integration coverage)")
+    func accessoriesAttachToParentOnRealWindowDisplay() {
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        let rootView = ABPlayerControls(player: player) {
+            Text("Accessory")
+        }
+        let hostingController = UIHostingController(rootView: rootView)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+        window.rootViewController = hostingController
+        window.isHidden = false
+        defer { window.isHidden = true }
+        hostingController.view.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        hostingController.view.setNeedsLayout()
+        hostingController.view.layoutIfNeeded()
+
+        #expect(hostingController.children.count == 1, "the accessory hosting box's controller should have self-attached as a child once its view reached the window")
+    }
 }

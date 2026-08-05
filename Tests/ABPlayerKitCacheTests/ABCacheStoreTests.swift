@@ -149,6 +149,75 @@ private final class ABControlledHTTPFetcher: ABHTTPFetching, @unchecked Sendable
     }
 }
 
+/// Single-shot async gate (round4 review mn-4): lets a test suspend every
+/// `data(for:)` caller mid-flight until the test explicitly `open()`s it,
+/// creating a genuine, deterministic race window for a caller to be
+/// cancelled *before* the underlying HTTP call resolves — `ABFakeHTTPFetcher`
+/// replies immediately, with no suspension point a cancellation could land
+/// inside.
+private actor ABGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func open() {
+        isOpen = true
+        for waiter in waiters { waiter.resume() }
+        waiters.removeAll()
+    }
+
+    func wait() async {
+        if isOpen { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+}
+
+/// A HEAD/GET fetcher whose replies stay pending until `gate.open()` — every
+/// request is still recorded in `requests` the moment it arrives, before the
+/// gate opens, so a test can assert on request *count* mid-race.
+private final class ABGatedHTTPFetcher: ABHTTPFetching, @unchecked Sendable {
+    let gate = ABGate()
+    private let lock = NSLock()
+    private var dataReplies: [ABFakeHTTPFetcher.DataReply]
+    private var recordedRequests: [URLRequest] = []
+
+    init(dataReplies: [ABFakeHTTPFetcher.DataReply]) {
+        self.dataReplies = dataReplies
+    }
+
+    var requests: [URLRequest] {
+        lock.lock()
+        let requests = recordedRequests
+        lock.unlock()
+        return requests
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, ABHTTPResponse) {
+        recordRequest(request)
+        await gate.wait()
+        guard let reply = takeDataReply() else { throw URLError(.resourceUnavailable) }
+        return (reply.data, reply.response)
+    }
+
+    func stream(for request: URLRequest) -> AsyncThrowingStream<ABHTTPFetchEvent, any Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+
+    private func recordRequest(_ request: URLRequest) {
+        lock.lock()
+        recordedRequests.append(request)
+        lock.unlock()
+    }
+
+    private func takeDataReply() -> ABFakeHTTPFetcher.DataReply? {
+        lock.lock()
+        let reply = dataReplies.isEmpty ? nil : dataReplies.removeFirst()
+        lock.unlock()
+        return reply
+    }
+}
+
 @Suite("ABCacheStore scenarios", .timeLimit(.minutes(1)))
 struct ABCacheStoreTests {
     @Test("Unknown content length bypasses caching and serves the raw range")
@@ -509,6 +578,59 @@ struct ABCacheStoreTests {
         // method set, so `URLRequest.httpMethod` defaults to "GET" —
         // exactly one such request must have been issued for the fill.
         #expect(fetcher.requests.filter { $0.httpMethod == "GET" }.count == 1)
+    }
+
+    @Test("A cancelled first caller's coalesced metadata task still finishes, caches its result, and clears its own slot — a second caller arriving after the cancellation still coalesces onto it rather than issuing a duplicate HEAD (round4 review mn-4, completing N12)")
+    func cancelledFirstCallerStillCachesAndCoalescesForLaterCallers() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("orphaned-head.mp4")
+        let fetcher = ABGatedHTTPFetcher(dataReplies: [metadataReply(length: 8)])
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        // The first caller's HEAD request is issued but held open by the
+        // gate — it has started (recorded) but not yet resolved.
+        let firstCaller = Task { try await store.metadata(for: source) }
+        try await waitUntil { fetcher.requests.count == 1 }
+
+        // Cancel this caller without waiting on it — its own `await
+        // request.value` stays suspended (the shared coalescing task isn't
+        // itself cancelled just because one of its awaiters is, and it's
+        // still blocked on the gate), so this call's `resolvedMetadata`
+        // frame doesn't unwind, and its `defer` (in the old, buggy code)
+        // wouldn't run yet either. This is deliberate: the point isn't
+        // *when* the cancellation is observed, it's that the shared slot's
+        // fate must not depend on this caller's frame at all.
+        firstCaller.cancel()
+
+        // A second caller arrives while the gate is still closed and the
+        // original task is still in flight. It must coalesce onto the same
+        // still-pending task instead of issuing a second HEAD.
+        let secondCaller = Task { try await store.metadata(for: source) }
+        await Task.yield()
+
+        // Only now let the original (still shared, still in flight) HEAD
+        // request resolve.
+        await fetcher.gate.open()
+
+        let secondResult = try await secondCaller.value
+        #expect(secondResult.contentLength == 8)
+        #expect(fetcher.requests.filter { $0.httpMethod == "HEAD" }.count == 1)
+        // Drain the cancelled first caller — tolerate either outcome (a
+        // `CancellationError`, or the same successful result), since which
+        // one it sees is a Swift Task-cancellation-timing detail orthogonal
+        // to what this test is pinning.
+        _ = try? await firstCaller.value
+
+        // The task's own completion cached the result (round4 mn-4's fix —
+        // this is what actually distinguishes it from the old code, where
+        // caching was tied to whichever caller's `defer` ran; here it's
+        // unconditional on the task's own success) — a third, fully
+        // independent call issued after both prior ones have finished must
+        // be a cache hit with no further HEAD at all.
+        let thirdResult = try await store.metadata(for: source)
+        #expect(thirdResult.contentLength == 8)
+        #expect(fetcher.requests.filter { $0.httpMethod == "HEAD" }.count == 1)
     }
 
     // MARK: - round3 Phase4 WP11: passthrough fallback for a distant offset

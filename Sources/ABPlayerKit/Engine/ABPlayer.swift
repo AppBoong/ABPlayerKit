@@ -600,7 +600,8 @@ public final class ABPlayer {
             }
         }
         if previousConfiguration.interruptionPolicy != configuration.interruptionPolicy
-            || previousConfiguration.pausesOnRouteChangeDeviceUnavailable != configuration.pausesOnRouteChangeDeviceUnavailable {
+            || previousConfiguration.pausesOnRouteChangeDeviceUnavailable != configuration.pausesOnRouteChangeDeviceUnavailable
+            || previousConfiguration.audioSessionPolicy != configuration.audioSessionPolicy {
             reconcileInterruptionObserver()
         }
 
@@ -703,8 +704,19 @@ public final class ABPlayer {
     // MARK: - Audio interruption / route change (round3 Phase4 WP10)
 
     private func reconcileInterruptionObserver() {
+        // Also installed whenever this instance actively manages the audio
+        // session (`audioSessionPolicy != .unmanaged`), independent of
+        // `interruptionPolicy`/`pausesOnRouteChangeDeviceUnavailable` — even
+        // with both of those at their do-nothing settings, this instance
+        // still needs `handleInterruptionBegan` to fire so it can re-dirty
+        // `audioSessionActivationDirty` when iOS deactivates the session out
+        // from under it (round4 MJ-1 fix's second half; the callbacks this
+        // observer drives besides that re-dirtying — pause-on-interruption,
+        // pause-on-route-change — stay correctly gated by their own policy
+        // checks inside `handleInterruptionEnded`/`handleRouteChangeDeviceUnavailable`).
         guard configuration.interruptionPolicy != .ignore
-            || configuration.pausesOnRouteChangeDeviceUnavailable else {
+            || configuration.pausesOnRouteChangeDeviceUnavailable
+            || configuration.audioSessionPolicy != .unmanaged else {
             interruptionObserver?.invalidate()
             interruptionObserver = nil
             return
@@ -719,12 +731,20 @@ public final class ABPlayer {
     }
 
     private func handleInterruptionBegan() {
-        guard configuration.interruptionPolicy != .ignore else { return }
         // iOS deactivates the audio session for the duration of the
-        // interruption — the next `play()` (from `handleInterruptionEnded`'s
-        // resume, or a manual one) must reactivate it rather than being
-        // skipped by N1's dirty-flag optimization above.
+        // interruption regardless of `interruptionPolicy` — the next
+        // `play()` (from `handleInterruptionEnded`'s resume, or a manual
+        // one) must reactivate it rather than being skipped by N1's
+        // dirty-flag optimization above. This is a fact about *session
+        // state*, not about whether to pause/resume playback, so it must
+        // not be gated by the policy guard below (round4 MJ-1 fix — the
+        // dirty flag used to sit after the guard, silently reintroducing
+        // round3 Phase1+2's M1 under the default `.ignore` policy: the
+        // observer still fires and deactivation still happens, but nothing
+        // recorded it, so a later `play()`'s `force: false` optimization
+        // skipped reactivation and left playback silently muted).
         audioSessionActivationDirty = true
+        guard configuration.interruptionPolicy != .ignore else { return }
         wasPlayingBeforeInterruption = isPlaying
         if grade == .current {
             target.pause()
