@@ -296,6 +296,34 @@ struct ABPlayerEventBroadcastTests {
         #expect(events.contains(.tuningApplied(.current, .unrestricted)))
     }
 
+    @Test("Changing preloadTuning while .current does not re-apply or re-broadcast the unchanged currentTuning (round3 Phase1+2 review m1)")
+    func preloadTuningChangeWhileCurrentDoesNotReapply() {
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore), target: target)
+        player.set(source: source, grade: .current)
+
+        var events: [ABPlayerEvent] = []
+        let token = player.addObserver { events.append($0) }
+        defer { token.cancel() }
+        let applyTuningCallCountBefore = target.calls.filter { if case .applyTuning = $0 { return true } else { return false } }.count
+
+        // The resolved role at `.current` is `.current`, whose tuning
+        // hasn't changed — only `preloadTuning` (irrelevant to this role)
+        // did. An OR-based guard (`currentTuning changed || preloadTuning
+        // changed`) would pass here and re-apply the *unchanged*
+        // `currentTuning`, broadcasting a spurious
+        // `.tuningApplied(.current, sameValue)` — exactly the bug m1
+        // identified in the brief's literal WP3.2 guard.
+        player.configuration.preloadTuning = .unrestricted
+
+        #expect(!events.contains { event in
+            if case .tuningApplied = event { return true }
+            return false
+        })
+        let applyTuningCallCountAfter = target.calls.filter { if case .applyTuning = $0 { return true } else { return false } }.count
+        #expect(applyTuningCallCountAfter == applyTuningCallCountBefore)
+    }
+
     @Test("Changing background policy installs and removes observation")
     func backgroundPolicyReconcilesObservation() async {
         let center = NotificationCenter()

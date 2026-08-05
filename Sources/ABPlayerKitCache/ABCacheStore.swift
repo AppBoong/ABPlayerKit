@@ -164,7 +164,19 @@ actor ABCacheStore {
     /// GET via the synchronous `guard fills[key] == nil` in
     /// `startFillIfNeeded`, but `resolvedMetadata`/`metadata(for:)` had no
     /// equivalent for the HEAD that precedes it).
-    private var pendingMetadataRequests: [String: Task<RemoteMetadata, Error>] = [:]
+    ///
+    /// Values are wrapped in a reference-type holder (rather than storing
+    /// `Task` directly) so `resolvedMetadata`'s cleanup can compare
+    /// identity (round4 review N12): if `reset()` — or a second HEAD that
+    /// arrived after this key's entry was already cleared — has since
+    /// installed a *different* holder for the same key, the original
+    /// caller's cleanup must not clobber it out from under whoever owns it
+    /// now.
+    private final class PendingMetadataRequest {
+        let task: Task<RemoteMetadata, Error>
+        init(_ task: Task<RemoteMetadata, Error>) { self.task = task }
+    }
+    private var pendingMetadataRequests: [String: PendingMetadataRequest] = [:]
     nonisolated private let progressWaiters = ABCacheProgressWaiterRegistry()
     private var indexIsDirty = false
     private var indexFlushTask: Task<Void, Never>?
@@ -279,8 +291,8 @@ actor ABCacheStore {
         fills.removeAll()
         fillResponses.removeAll()
         fillErrors.removeAll()
-        for task in pendingMetadataRequests.values {
-            task.cancel()
+        for pending in pendingMetadataRequests.values {
+            pending.task.cancel()
         }
         pendingMetadataRequests.removeAll()
         metadataCache.removeAll()
@@ -394,14 +406,27 @@ actor ABCacheStore {
         // before it completes awaits the same `Task` instead of issuing its
         // own request.
         if let pending = pendingMetadataRequests[key] {
-            return try await pending.value
+            return try await pending.task.value
         }
         let request = Task { [weak self] () throws -> RemoteMetadata in
             guard let self else { throw StoreError.requestFailed }
             return try await self.remoteMetadata(for: source)
         }
-        pendingMetadataRequests[key] = request
-        defer { pendingMetadataRequests[key] = nil }
+        let holder = PendingMetadataRequest(request)
+        pendingMetadataRequests[key] = holder
+        defer {
+            // Only clear the slot if it's still the holder this call
+            // installed — `removeAll()`/`reset()` (or, in principle, a
+            // later caller for the same key) may have already replaced or
+            // cleared it while this call was suspended on `request.value`,
+            // and blindly nil-ing the slot here would either resurrect a
+            // coalescing gap (drop a newer, still in-flight holder) or be
+            // a harmless no-op. Comparing by reference identity makes this
+            // cleanup exact instead of "last one out wins" (round4 N12).
+            if pendingMetadataRequests[key] === holder {
+                pendingMetadataRequests[key] = nil
+            }
+        }
         let metadata = try await request.value
         cacheMetadata(metadata, for: key)
         return metadata

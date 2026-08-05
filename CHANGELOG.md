@@ -14,14 +14,14 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ### Changed
 
-- Audio session apply/restore now goes through a process-wide `ABAudioSessionCoordinator` shared across every `ABPlayer` instance, so concurrent players (a feed of preload/current cells) coordinate one snapshot and refcount instead of one instance's `release()` disrupting a sibling still relying on the session. `play()`/grade promotion now always reactivates the session rather than memoizing "already applied," so playback correctly resumes audibly once an interruption ends.
+- Audio session apply/restore now goes through a process-wide `ABAudioSessionCoordinator` shared across every `ABPlayer` instance, so concurrent players (a feed of preload/current cells) coordinate one snapshot and refcount instead of one instance's `release()` disrupting a sibling still relying on the session. Grade promotion and an explicit `audioSessionPolicy` switch always reactivate the session rather than memoizing "already applied." `play()` reactivates only when the session might actually have gone inactive since the last successful activation (an observed interruption or a return from background) rather than on every call, so playback still correctly resumes audibly once an interruption ends, without a redundant `setActive` round trip on every `play()` tap.
 - Concurrent cold-key `ABCacheStore.load` calls now coalesce onto a single in-flight metadata `HEAD` request instead of each issuing its own.
 
 ### Fixed
 
 - `ABAVPlaybackTarget`'s periodic time observer is now always removed on the main thread, including from `deinit` (nonisolated even on this `@MainActor` type) — closes a race with the observer's own main-queue callback.
 - An `AVAudioSession` category/mode/options restore no longer force-deactivates the session unconditionally; it only deactivates when this player actually succeeded in activating it, so it can no longer silence a host app (or a sibling player) that was already relying on the session.
-- `ABPlayerControlsConfiguration.TimeLabelFormat.custom` labels are no longer double-combined with `timeLabelLayout`'s automatic elapsed/total joining (e.g. `"12s/90s"` was rendered as `"12s/90s/90s/90s"`); the formatter's return value is now used verbatim as the complete label.
+- `ABPlayerControlsConfiguration.TimeLabelFormat.custom` labels are no longer double-combined with `timeLabelLayout`'s automatic elapsed/total joining (e.g. `"12s/90s"` was rendered as `"12s/90s/90s/90s"`); the formatter's return value is now used verbatim as the complete label. **Migration**: if your `.custom` formatter was written to return only the elapsed time (relying on `timeLabelLayout` to append `/totalTime`), it must now compose and return the full label — e.g. elapsed and total — itself.
 
 ## [0.2.0] - 2026-08-04
 

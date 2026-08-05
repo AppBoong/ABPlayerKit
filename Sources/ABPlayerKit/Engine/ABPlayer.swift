@@ -113,6 +113,26 @@ public final class ABPlayer {
     /// can be read from `deinit`, which is nonisolated even on this
     /// `@MainActor` class.
     private nonisolated var audioSessionToken: ObjectIdentifier { ObjectIdentifier(self) }
+    /// Whether `play()` still needs to (re)activate the audio session
+    /// (round4 review N1). `applyAudioSessionPolicyIfNeeded()`'s M1 fix
+    /// ("never memoize, always reactivate") made every `play()` call issue
+    /// a synchronous `setCategory`/`setActive` IPC to mediaserverd, even
+    /// though most `play()` calls follow a grade promotion (or another
+    /// `play()`) that already just activated the exact same policy — a
+    /// real cost for feed autoplay, where every cell's promotion is
+    /// immediately followed by `play()`. This flag scopes the "always
+    /// reactivate" guarantee to only the moments the session might
+    /// actually have gone inactive without this instance's knowledge:
+    /// starts `true` (nothing has been activated yet), set back to `true`
+    /// on an observed interruption `.began` and on returning to the
+    /// foreground, and cleared on every successful apply. Grade promotion
+    /// to `.current` and an explicit `audioSessionPolicy` switch still
+    /// apply unconditionally (`applyAudioSessionPolicyIfNeeded()`'s
+    /// `force` parameter) — only the `play()` call site is gated, since
+    /// those two are inherently infrequent state transitions, not a
+    /// per-tap cost.
+    @ObservationIgnored
+    private var audioSessionActivationDirty = true
 
     public init(configuration: ABPlayerConfiguration = .init()) {
         var resolvedConfiguration = configuration
@@ -256,8 +276,10 @@ public final class ABPlayer {
         }
         // Also covers "playback start" from Q4's apply trigger — e.g. the
         // policy was switched to a managed one after promotion but before
-        // the first `play()`.
-        applyAudioSessionPolicyIfNeeded()
+        // the first `play()`. Not forced (round4 N1) — only reactivates if
+        // `audioSessionActivationDirty`, since a grade promotion or an
+        // earlier `play()` typically already activated this exact policy.
+        applyAudioSessionPolicyIfNeeded(force: false)
         target.play()
     }
 
@@ -590,9 +612,18 @@ public final class ABPlayer {
         // every settings tweak. The grade-transition reapply path
         // (`interpret(_:source:detachReason:)`'s `.applyTuning` action,
         // driven by `set(source:grade:)`) is untouched by this guard.
-        guard previousConfiguration.currentTuning != configuration.currentTuning
-            || previousConfiguration.preloadTuning != configuration.preloadTuning else { return }
+        //
+        // Compares only the tuning that actually applies to the resolved
+        // role — not an OR of both (round3 Phase1+2 review m1). With the
+        // OR, changing `preloadTuning` alone while `.current` passed the
+        // guard despite `currentTuning` being unchanged, re-applying the
+        // identical tuning and broadcasting a spurious
+        // `.tuningApplied(.current, sameValue)`.
         let role: ABTuningRole = grade == .current ? .current : .preload
+        let previousRoleTuning = role == .preload
+            ? previousConfiguration.preloadTuning
+            : previousConfiguration.currentTuning
+        guard previousRoleTuning != tuning(for: role) else { return }
         lastAppliedTuningRole = role
         let resolvedTuning = tuning(for: role)
         if target.applyTuning(resolvedTuning) {
@@ -638,6 +669,11 @@ public final class ABPlayer {
     }
 
     private func handleWillEnterForeground() {
+        // The system may have deactivated the audio session while
+        // backgrounded regardless of `backgroundPolicy` — re-dirty
+        // unconditionally so the next `play()` reactivates instead of
+        // being skipped by N1's dirty-flag optimization above.
+        audioSessionActivationDirty = true
         switch configuration.backgroundPolicy {
         case .ignore:
             return
@@ -684,6 +720,11 @@ public final class ABPlayer {
 
     private func handleInterruptionBegan() {
         guard configuration.interruptionPolicy != .ignore else { return }
+        // iOS deactivates the audio session for the duration of the
+        // interruption — the next `play()` (from `handleInterruptionEnded`'s
+        // resume, or a manual one) must reactivate it rather than being
+        // skipped by N1's dirty-flag optimization above.
+        audioSessionActivationDirty = true
         wasPlayingBeforeInterruption = isPlaying
         if grade == .current {
             target.pause()
@@ -720,19 +761,34 @@ public final class ABPlayer {
     /// Applies `configuration.audioSessionPolicy` through
     /// `audioSessionCoordinator` if it isn't `.unmanaged`. No-op while not
     /// `.current` — callers gate this at grade `.current` promotion and
-    /// `play()` (playback start), per the confirmed Q4 design. Always
-    /// (re)activates — never memoized on "already applied" — so a
-    /// promotion or `play()` after an interruption reactivates the session
-    /// instead of silently staying inactive (round3 Phase1+2 review M1).
+    /// `play()` (playback start), per the confirmed Q4 design.
+    ///
+    /// `force: true` (the default — used by grade promotion and by an
+    /// explicit `audioSessionPolicy` switch) always (re)activates, never
+    /// memoized on "already applied", so a promotion after an interruption
+    /// reactivates the session instead of silently staying inactive
+    /// (round3 Phase1+2 review M1). `force: false` (used only by `play()`)
+    /// additionally requires `audioSessionActivationDirty`, so a `play()`
+    /// that immediately follows an already-successful apply is a no-op
+    /// instead of a redundant IPC (round4 N1) — reactivation is still
+    /// guaranteed for the case M1 exists to fix, because
+    /// `handleInterruptionBegan`/`handleWillEnterForeground` re-dirty the
+    /// flag at the two points the session might actually have gone
+    /// inactive out from under this instance.
+    ///
     /// The coordinator itself snapshots the host's prior category/mode/
     /// options exactly once, before its *first* participant's apply, and
     /// keeps that snapshot across a failed activate (M2) or additional
     /// participants (C1).
-    private func applyAudioSessionPolicyIfNeeded() {
+    private func applyAudioSessionPolicyIfNeeded(force: Bool = true) {
         guard grade == .current else { return }
         let policy = configuration.audioSessionPolicy
         guard policy != .unmanaged else { return }
-        if case .failure(let error) = audioSessionCoordinator.apply(policy, for: audioSessionToken) {
+        guard force || audioSessionActivationDirty else { return }
+        switch audioSessionCoordinator.apply(policy, for: audioSessionToken) {
+        case .success:
+            audioSessionActivationDirty = false
+        case .failure(let error):
             surfaceAudioSessionFailure(error)
         }
     }

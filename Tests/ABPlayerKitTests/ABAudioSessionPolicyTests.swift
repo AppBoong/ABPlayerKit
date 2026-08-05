@@ -20,18 +20,39 @@ struct ABAudioSessionPolicyTests {
 
     private func makePlayer(
         policy: ABAudioSessionPolicy,
-        coordinator: ABAudioSessionCoordinator? = nil
+        interruptionPolicy: ABInterruptionPolicy = .ignore,
+        coordinator: ABAudioSessionCoordinator? = nil,
+        notificationCenter: NotificationCenter = .default
     ) -> (ABPlayer, ABFakePlaybackTarget, ABFakeAudioSessionController, ABAudioSessionCoordinator) {
         let target = ABFakePlaybackTarget()
         let audioSession = ABFakeAudioSessionController()
         let resolvedCoordinator = coordinator ?? ABAudioSessionCoordinator(controller: audioSession)
-        let configuration = ABPlayerConfiguration(backgroundPolicy: .ignore, audioSessionPolicy: policy)
+        let configuration = ABPlayerConfiguration(
+            backgroundPolicy: .ignore,
+            audioSessionPolicy: policy,
+            interruptionPolicy: interruptionPolicy
+        )
         let player = ABPlayer(
             configuration: configuration,
             target: target,
+            notificationCenter: notificationCenter,
             audioSessionCoordinator: resolvedCoordinator
         )
         return (player, target, audioSession, resolvedCoordinator)
+    }
+
+    /// Mirrors `ABAudioInterruptionTests`' helper (m7: intentional
+    /// duplication across test files, a separate target is out of scope).
+    private func postInterruption(
+        _ center: NotificationCenter,
+        type: AVAudioSession.InterruptionType,
+        options: AVAudioSession.InterruptionOptions = []
+    ) {
+        var userInfo: [AnyHashable: Any] = [AVAudioSessionInterruptionTypeKey: type.rawValue]
+        if type == .ended {
+            userInfo[AVAudioSessionInterruptionOptionKey] = options.rawValue
+        }
+        center.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: userInfo)
     }
 
     @Test("Default .unmanaged policy never touches AVAudioSession")
@@ -55,18 +76,52 @@ struct ABAudioSessionPolicyTests {
         #expect(audioSession.calls == [.snapshotCurrentCategory, .activate(policy)])
     }
 
-    @Test("play() reactivates rather than memoizing an already-applied policy (interruption recovery)")
-    func playReactivatesForInterruptionRecovery() {
+    @Test("A repeat play() with nothing in between does not re-activate (round4 N1 dirty-flag optimization)")
+    func repeatPlayWithoutInterruptionDoesNotReactivate() {
         let policy = ABAudioSessionPolicy.ambient
         let (player, _, audioSession, _) = makePlayer(policy: policy)
 
         player.set(source: source, grade: .current)
         player.play()
+        player.play()
+        player.play()
+
+        // Promotion to `.current` already activated the policy
+        // unconditionally; every subsequent `play()` finds
+        // `audioSessionActivationDirty == false` and skips the coordinator
+        // entirely — no repeated `setActive` IPC for what is, from the
+        // audio session's perspective, still the same activation (round4
+        // review N1: this used to be one `.activate` per `play()` call,
+        // the exact cost the review flagged for feed autoplay).
+        #expect(audioSession.calls == [.snapshotCurrentCategory, .activate(policy)])
+    }
+
+    @Test("play() reactivates rather than memoizing an already-applied policy across a real interruption (interruption recovery)")
+    func playReactivatesForInterruptionRecovery() async throws {
+        let policy = ABAudioSessionPolicy.ambient
+        let center = NotificationCenter()
+        let (player, target, audioSession, _) = makePlayer(
+            policy: policy,
+            interruptionPolicy: .pauseAndResume,
+            notificationCenter: center
+        )
+
+        player.set(source: source, grade: .current)
+        player.play()
+        #expect(audioSession.calls == [.snapshotCurrentCategory, .activate(policy)])
 
         // iOS deactivates the session on an interruption; the app must call
-        // `setActive(true)` again once playback resumes. Memoizing "already
-        // applied" (round3 Phase1+2 review M1) made `play()` a permanent
-        // no-op after the first apply, so the session never reactivated.
+        // `setActive(true)` again once playback resumes.
+        // `handleInterruptionBegan` re-dirties the N1 flag specifically so
+        // this reactivation still happens — this is the M1 guarantee
+        // (round3 Phase1+2 review), now scoped by N1 to only actually fire
+        // where it's needed instead of on every `play()`.
+        postInterruption(center, type: .began)
+        try await waitUntil { target.calls.contains(.pause) }
+
+        postInterruption(center, type: .ended, options: .shouldResume)
+        try await waitUntil { audioSession.calls.count == 3 }
+
         // There's no snapshot re-capture — only the second `activate`.
         #expect(audioSession.calls == [.snapshotCurrentCategory, .activate(policy), .activate(policy)])
     }

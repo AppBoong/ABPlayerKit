@@ -79,6 +79,52 @@ struct ABPlayerObservationTests {
         try await waitUntil { flag.hasFired }
     }
 
+    @Test("Changing configuration fires an Observation notification")
+    func configurationChangeFiresObservation() async throws {
+        let (player, _) = makePlayer()
+        let flag = ChangeFlag()
+
+        withObservationTracking {
+            _ = player.configuration
+        } onChange: {
+            flag.markFired()
+        }
+
+        // Any mutation replaces the whole `configuration` struct (it's a
+        // single stored property with a `didSet`), so a single unrelated
+        // field is enough to prove the property itself is tracked — this
+        // is the one review N6 called out specifically, since
+        // `configuration` is also the only one of the six documented
+        // properties with a `didSet` (`applyConfigurationChange`), making
+        // it the likeliest candidate for the macro expansion to interact
+        // badly with (round3 Phase3 WP9.2's concern, empirically ruled out
+        // in REVIEW-round3-final.md but never pinned down by a test).
+        player.configuration.isMuted.toggle()
+
+        try await waitUntil { flag.hasFired }
+    }
+
+    @Test("Changing lastError fires an Observation notification")
+    func lastErrorChangeFiresObservation() {
+        let (player, target) = makePlayer()
+        player.set(source: source, grade: .current)
+        let flag = ChangeFlag()
+
+        withObservationTracking {
+            _ = player.lastError
+        } onChange: {
+            flag.markFired()
+        }
+
+        // `target.emit(.failed(_))` drives `ABPlayer.handle(_:)`, which
+        // updates `lastError` synchronously — no `waitUntil` needed, unlike
+        // the audio-session/interruption paths elsewhere in this suite
+        // that hop through real async notification delivery.
+        target.emit(.failed(.itemFailed(description: "boom")))
+
+        #expect(flag.hasFired)
+    }
+
     @Test("Reading only avPlayer (a non-tracked computed property) does not fire on a grade change")
     func untrackedComputedPropertyDoesNotFireObservation() async throws {
         let (player, _) = makePlayer()
