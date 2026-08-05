@@ -4,6 +4,8 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-05
+
 ### Added
 
 - `ABPlayer` is now `@Observable`, so SwiftUI views can read `grade`, `isScrubbing`, `hasDisplayedFirstFrame`, `lastError`, `source`, and `configuration` directly and re-render on change — no observer bridge required. The token-based `addObserver`/`ABPlayerEvent` system is unchanged and stays available in parallel for anything needing the *reason* a value changed.
@@ -11,22 +13,79 @@ All notable changes to ABPlayerKit are documented in this file.
 - Added `ABPlayerConfiguration.pausesOnRouteChangeDeviceUnavailable` (default `true`) — pauses when the current audio output device disappears (e.g. headphones unplugged), independent of `interruptionPolicy`.
 - Added `ABPlayerEvent.audioInterruptionBegan`, `.audioInterruptionEnded(resumed:)`, and `.audioRouteChangedDeviceUnavailable`.
 - Added `ABCacheConfiguration.passthroughGapThreshold` (default 2MB) — a request whose offset sits this far ahead of the cache's linear fill prefix now skips waiting for the fill and is served via a direct, chunked (≤1MB per round trip) network passthrough instead, bounding worst-case time-to-first-byte for a distant seek against a non-faststart file.
-- Added `@ViewBuilder accessories:` initializers to `ABPlayerControls` and `ABVideoPlayerWithControls`, so SwiftUI overlay content (fullscreen/captions buttons, custom badges) no longer needs to be wrapped in a `UIView`/`UIHostingController` by hand — pass a trailing closure instead. `ABPlayerControlsView.accessoryViews` (the UIKit `[UIView]` property) is unaffected and remains the primary UIKit-side API. See `docs/DESIGN-OPEN-QUESTIONS.md` Q6-A and `docs/POLICY-api-stability.md`.
-
-### Deprecated
-
-- `ABPlayerControls.init(player:style:configuration:accessoryViews:onEvent:)` and `ABVideoPlayerWithControls.init(player:videoGravity:style:configuration:accessoryViews:)` — use the new `@ViewBuilder accessories:` initializers instead. Scheduled for removal in 1.0.0; not removed before then, per `docs/POLICY-api-stability.md`. **Migration**: replace `accessoryViews: [view1, view2]` with a trailing closure wrapping SwiftUI content, e.g. `ABPlayerControls(player: player) { HStack { /* ... */ } }`; if you need to keep passing raw `UIView`s, wrap each in `UIViewRepresentable` first, or continue using `ABPlayerControlsView.accessoryViews` directly (not deprecated). **If you don't use accessories at all**, the plain `ABPlayerControls(player: player)` / `ABVideoPlayerWithControls(player: player)` call you already have now resolves to the deprecated initializer (its `accessoryViews:` defaults to `[]`) and warns — add an empty trailing closure, `ABPlayerControls(player: player) {}` / `ABVideoPlayerWithControls(player: player) {}`, to route to the new initializer instead (its `EmptyView` case skips creating any hosting overhead — see `ABAccessoryHostingBox`). There's no default for `accessories:` that avoids this: giving it one would make a bare `ABPlayerControls(player: player)` call ambiguous between the two initializers instead.
+- Added `@ViewBuilder accessories:` initializers to `ABPlayerControls` and `ABVideoPlayerWithControls`, so SwiftUI overlay content (fullscreen/captions buttons, custom badges) no longer needs to be wrapped in a `UIView`/`UIHostingController` by hand — pass a trailing closure instead. `ABPlayerControlsView.accessoryViews` (the UIKit `[UIView]` property) is unaffected and remains the primary UIKit-side API. See `docs/DESIGN-OPEN-QUESTIONS.md` and `docs/POLICY-api-stability.md`.
+- `ABPlayer` now surfaces mid-playback item failures, not only failures during initial load: a stream that starts fine and later breaks now promotes to the existing `ABPlayerError.itemFailed` case and broadcasts through the existing `.failed` event, the same way an initial-load failure already did.
+- Added `ABPlayerError.itemErrorLogEntry(description:)` — a non-terminal diagnostic signal raised when the underlying item logs a new error-log entry (e.g. a recoverable network hiccup). Lets a consumer distinguish "still loading, but something's already gone wrong underneath" from a genuine terminal failure via `ABPlayer.lastError`.
 
 ### Changed
 
 - Audio session apply/restore now goes through a process-wide `ABAudioSessionCoordinator` shared across every `ABPlayer` instance, so concurrent players (a feed of preload/current cells) coordinate one snapshot and refcount instead of one instance's `release()` disrupting a sibling still relying on the session. Grade promotion and an explicit `audioSessionPolicy` switch always reactivate the session rather than memoizing "already applied." `play()` reactivates only when the session might actually have gone inactive since the last successful activation (an observed interruption or a return from background) rather than on every call, so playback still correctly resumes audibly once an interruption ends, without a redundant `setActive` round trip on every `play()` tap.
 - Concurrent cold-key `ABCacheStore.load` calls now coalesce onto a single in-flight metadata `HEAD` request instead of each issuing its own.
 
+### Deprecated
+
+- `ABPlayerControls.init(player:style:configuration:accessoryViews:onEvent:)` and `ABVideoPlayerWithControls.init(player:videoGravity:style:configuration:accessoryViews:)` — use the new `@ViewBuilder accessories:` initializers instead. Scheduled for removal in 1.0.0; not removed before then, per `docs/POLICY-api-stability.md`. A bare `ABPlayerControls(player: player)` / `ABVideoPlayerWithControls(player: player)` call (no accessories argument) also resolves to the deprecated initializer and warns. See **Migration notes** below.
+
 ### Fixed
 
 - `ABAVPlaybackTarget`'s periodic time observer is now always removed on the main thread, including from `deinit` (nonisolated even on this `@MainActor` type) — closes a race with the observer's own main-queue callback.
 - An `AVAudioSession` category/mode/options restore no longer force-deactivates the session unconditionally; it only deactivates when this player actually succeeded in activating it, so it can no longer silence a host app (or a sibling player) that was already relying on the session.
-- `ABPlayerControlsConfiguration.TimeLabelFormat.custom` labels are no longer double-combined with `timeLabelLayout`'s automatic elapsed/total joining (e.g. `"12s/90s"` was rendered as `"12s/90s/90s/90s"`); the formatter's return value is now used verbatim as the complete label. **Migration**: if your `.custom` formatter was written to return only the elapsed time (relying on `timeLabelLayout` to append `/totalTime`), it must now compose and return the full label — e.g. elapsed and total — itself.
+- `ABPlayerControlsConfiguration.TimeLabelFormat.custom` labels are no longer double-combined with `timeLabelLayout`'s automatic elapsed/total joining (e.g. `"12s/90s"` was rendered as `"12s/90s/90s/90s"`); the formatter's return value is now used verbatim as the complete label. See **Migration notes** below.
+
+### Migration notes
+
+#### `.custom` time-label formatter now returns the complete label
+
+Before 0.3.0, `timeLabelLayout`'s automatic elapsed/total joining was layered on top of a `.custom` formatter's return value, so a formatter written to return only the elapsed portion happened to work — the total was appended for you:
+
+```swift
+// 0.2.0 — relying on automatic elapsed/total joining
+configuration.timeFormat = .custom { elapsed, _ in
+    "\(Int(elapsed))s"
+}
+// Rendered "12s/90s"
+```
+
+In 0.3.0 the formatter's return value is used verbatim as the entire label — nothing is appended after it. A formatter written the old way now renders only `"12s"`. Compose the full label yourself, using the formatter's second parameter (the total duration, `nil` while unknown/live):
+
+```swift
+// 0.3.0 — the formatter owns the complete label
+configuration.timeFormat = .custom { elapsed, total in
+    guard let total else { return "\(Int(elapsed))s" }
+    return "\(Int(elapsed))s/\(Int(total))s"
+}
+// Renders "12s/90s"
+```
+
+#### `accessoryViews:` initializers deprecated in favor of `accessories:`
+
+`ABPlayerControls`/`ABVideoPlayerWithControls`'s array-based `accessoryViews:` initializers are deprecated. A bare call with no accessory argument at all also resolves to them, so it now warns too:
+
+```swift
+// 0.2.0
+ABPlayerControls(player: player, accessoryViews: [captionsButton, fullscreenButton])
+
+// or, with no accessories at all:
+ABPlayerControls(player: player)
+```
+
+Replace `accessoryViews:` with a trailing `@ViewBuilder` closure:
+
+```swift
+// 0.3.0
+ABPlayerControls(player: player) {
+    HStack {
+        CaptionsButton()
+        FullscreenButton()
+    }
+}
+
+// or, with no accessories at all — an empty closure routes to the new
+// initializer instead of the deprecated one:
+ABPlayerControls(player: player) {}
+```
+
+If you need to keep passing raw `UIView`s, wrap each in `UIViewRepresentable` first, or keep using `ABPlayerControlsView.accessoryViews` directly (the UIKit property, which is not deprecated).
 
 ## [0.2.0] - 2026-08-04
 
@@ -52,5 +111,6 @@ All notable changes to ABPlayerKit are documented in this file.
 
 - Initial release with the four-grade playback state machine, UIKit and SwiftUI rendering, TTFF metrics, progressive media caching, and explicit HLS prefetch.
 
+[0.3.0]: https://github.com/AppBoong/ABPlayerKit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AppBoong/ABPlayerKit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/AppBoong/ABPlayerKit/releases/tag/v0.1.0

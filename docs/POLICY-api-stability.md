@@ -13,7 +13,7 @@ This project already documents non-exhaustive `enum` growth for `ABPlayerEvent`/
 | Adding `enum` cases | Existing convention continues — non-exhaustive declaration, `default` required, documented in both the type's doc comment and its DocC page. |
 | Behavior changes | Even when a signature is unchanged, if the *observable output* changes, the CHANGELOG's `### Changed` (or `### Fixed`) entry must include a one-line **Migration** note. |
 
-The last rule turns an actual incident from this project into a standing rule: WP12's `.custom` time-format contract change (round3 Phase4) landed under `### Fixed` in the CHANGELOG initially without a migration note (see `REVIEW-round3-final.md` N13) — a consumer relying on the old (buggy) combining behavior would have had no signal that their `.custom` formatter needed to change. The current `[Unreleased]` CHANGELOG entry for that same fix now carries a **Migration** line as the pattern this rule requires going forward.
+The last rule turns an actual incident from this project into a standing rule: WP12's `.custom` time-format contract change (round3 Phase4) landed under `### Fixed` in the CHANGELOG initially without a migration note (see `REVIEW-round3-final.md` N13) — a consumer relying on the old (buggy) combining behavior would have had no signal that their `.custom` formatter needed to change. The `[0.3.0]` CHANGELOG entry for that same fix now carries a **Migration notes** section as the pattern this rule requires going forward.
 
 ## Worked example: WP-B3's deprecation (round4)
 

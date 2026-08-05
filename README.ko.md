@@ -56,7 +56,7 @@ https://github.com/AppBoong/ABPlayerKit.git
 dependencies: [
     .package(
         url: "https://github.com/AppBoong/ABPlayerKit.git",
-        from: "0.2.0"
+        from: "0.3.0"
     )
 ],
 targets: [
@@ -73,7 +73,7 @@ targets: [
 ]
 ```
 
-릴리스 전 개발 버전을 사용하려면 `from: "0.2.0"`을 `branch: "main"`으로 바꾸세요. 애플리케이션에서는 위의 버전 조건 사용을 권장합니다.
+릴리스 전 개발 버전을 사용하려면 `from: "0.3.0"`을 `branch: "main"`으로 바꾸세요. 애플리케이션에서는 위의 버전 조건 사용을 권장합니다.
 
 ## 빠른 시작
 
@@ -409,7 +409,7 @@ ABPlayerKit은 의도적으로 얇은 AVFoundation 래퍼입니다. 대체가 �
 
 이 패키지가 `0.x`인 동안 대체 API는 항상 additive로 먼저 추가되고, 같은 마이너 릴리스에서 deprecate됩니다(조용히 제거하지 않음). 제거 전 최소 한 개 마이너의 중첩 기간을 보장하며, `1.0.0` 이전에는 아무것도 제거하지 않습니다. `ABPlayerEvent`/`ABPlayerError`가 비전수(non-exhaustive) `enum`으로 남아 있는 것도 같은 이유입니다 — 소비자의 `switch`는 `default` 분기를 포함해야 합니다. 전체 정책과, 배열 기반 `accessoryViews:` 이니셜라이저를 `@ViewBuilder accessories:`로 대체하며 deprecate한 실제 사례는 [POLICY-api-stability](docs/POLICY-api-stability.md)에 있습니다.
 
-> 지금까지 `accessoryViews`를 쓰지 않았다면, `ABPlayerControls(player: player)` / `ABVideoPlayerWithControls(player: player)` 그대로의 호출이 이제 deprecated 이니셜라이저로 해석되어 경고가 납니다. 빈 트레일링 클로저 `ABPlayerControls(player: player) {}`를 추가해 신규 이니셜라이저로 이관하세요 — 이걸 피할 기본값이 없는 이유는 CHANGELOG `[Unreleased]`의 `### Deprecated` 항목을 참고하세요.
+> 지금까지 `accessoryViews`를 쓰지 않았다면, `ABPlayerControls(player: player)` / `ABVideoPlayerWithControls(player: player)` 그대로의 호출이 이제 deprecated 이니셜라이저로 해석되어 경고가 납니다. 빈 트레일링 클로저 `ABPlayerControls(player: player) {}`를 추가해 신규 이니셜라이저로 이관하세요 — 이걸 피할 기본값이 없는 이유는 CHANGELOG `[0.3.0]`의 **Migration notes**를 참고하세요.
 
 ## 데모 앱
 
