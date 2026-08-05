@@ -12,7 +12,10 @@ struct ABPlayerControlsAutoHideTests {
 
         view.handleVisibility(.playbackStateChanged(isPlaying: true), animated: false)
         #expect(view.hasScheduledAutoHide)
-        try await waitUntil(.seconds(1)) { !view.isControlsVisible }
+        // 5s, not the helper's 2s default: this wait races a real
+        // `Task.sleep`-scheduled auto-hide, and loaded CI runners have
+        // missed a 1s deadline here (round-5 release CI flake).
+        try await waitUntil(.seconds(5)) { !view.isControlsVisible }
 
         #expect(!view.isControlsVisible)
         #expect(view.controlsContentAlpha == 0)
