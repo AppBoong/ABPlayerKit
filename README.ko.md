@@ -203,6 +203,7 @@ player.configuration = configuration
 ```
 
 - **`audioSessionPolicy`** (기본값 `.unmanaged`): `.playback` 또는 `.ambient`로 설정하면 이 플레이어가 `.current`가 되는 순간(또는 `play()` 시작 시) 카테고리가 적용되고, 자동으로 복원됩니다. 여러 플레이어가 동시에 존재하는 경우(피드의 `.preloaded`/`.current` 셀들) 프로세스 전역 `ABAudioSessionCoordinator` 하나를 공유하므로, 카테고리는 *최초* 참여 플레이어가 적용하기 직전에만 캡처되고 *마지막* 참여 플레이어가 해제될 때만 복원됩니다 — 한 플레이어의 `release()`가 세션을 여전히 사용 중인 다른 플레이어를 방해하지 않습니다.
+  - **주의**: 호스트 앱이 이 플레이어의 첫 참여자가 정책을 적용하기 전에 이미 `AVAudioSession`을 스스로 활성화해 둔 상태였다면(자체 오디오가 이미 재생 중이었다면), 마지막 해제 시점의 복원이 호스트가 활성화해 둔 세션을 그대로 비활성화할 수 있습니다. `AVAudioSession`은 "이미 활성 상태였는지"를 조회할 수 있는 공개 API를 제공하지 않으므로 스냅샷으로 남길 방법이 없고, "우리가 활성화했다"와 구분할 수도 없습니다 — 세션을 공유하는 호스트 앱이라면 이 점을 감안해 자체 세션 처리를 설계하세요.
 - **`interruptionPolicy`** (기본값 `.ignore`): `.pauseAndResume`으로 설정하면 전화, Siri, 다른 앱이 재생을 중단시켰을 때 자동으로 일시 정지하고, 인터럽션이 끝나면 재생을 재개합니다 — 단, 시스템이 `AVAudioSessionInterruptionOptionKey.shouldResume`을 보고하고 이 플레이어가 실제로 재생 중이었을 때만입니다. 재개 시 `audioSessionPolicy`가 사용하는 것과 동일한 coordinator를 통해 오디오 세션을 재활성화하므로 두 기능이 자동으로 함께 작동합니다.
 - **`pausesOnRouteChangeDeviceUnavailable`** (기본값 `true`, `interruptionPolicy`와 무관): 현재 출력 장치가 사라지면(예: 헤드폰 분리) 일시 정지합니다 — 플랫폼 HIG 기대에 부합합니다. 원치 않으면 `false`로 설정하세요.
 

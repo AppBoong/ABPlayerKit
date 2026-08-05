@@ -582,6 +582,83 @@ struct ABCacheStoreTests {
         #expect(resource.data == Data("bc".utf8))
     }
 
+    // MARK: - round3 Phase4 WP11.2: passthrough chunking (round4 N8)
+
+    @Test("A passthrough range spanning more than passthroughChunkSize returns in 1MB pieces, isEndOfResource only on the last one")
+    func distantOffsetPassthroughSplitsIntoOneMegabyteChunks() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("distant-chunked.mp4")
+        let megabyte: Int64 = 1_024 * 1_024
+        // 5.5MB total, requested from a 3MB offset — 2.5MB remaining, which
+        // does not divide evenly by the 1MB `passthroughChunkSize`. This is
+        // the exact combination the round3-final review flagged as
+        // untested (N8): every existing passthrough test's payload stayed
+        // under 1MB, so `requestedUpperBound`'s `min(...)` clamp,
+        // `expectedCount` recalculation, and `isEndOfResource`'s "only the
+        // final chunk" check never actually exercised the split.
+        let contentLength: Int64 = 5 * megabyte + megabyte / 2
+        let distantOffset: Int64 = 3 * megabyte
+        let requiredEndOffset = contentLength - 1
+
+        func chunkPayload(_ byte: UInt8, count: Int) -> Data {
+            Data(Array(repeating: byte, count: count))
+        }
+        let chunk1 = chunkPayload(0xA1, count: Int(megabyte))
+        let chunk2 = chunkPayload(0xB2, count: Int(megabyte))
+        let chunk3 = chunkPayload(0xC3, count: Int(megabyte / 2))
+        func passthroughReply(_ data: Data) -> ABFakeHTTPFetcher.DataReply {
+            .init(
+                data: data,
+                response: .init(statusCode: 206, expectedContentLength: Int64(data.count), mimeType: "video/mp4")
+            )
+        }
+        // The fill's stream never yields anything, mirroring
+        // `distantOffsetRequestUsesPassthroughWithoutWaitingForFill` — the
+        // prefix stays at 0 for the whole test, so every one of the three
+        // `store.load` calls below (mimicking
+        // `ABResourceLoaderDelegate`'s re-request loop) stays far past the
+        // 2MB gap threshold and goes through passthrough again.
+        let fetcher = ABControlledHTTPFetcher(
+            dataReplies: [
+                metadataReply(length: contentLength),
+                passthroughReply(chunk1),
+                passthroughReply(chunk2),
+                passthroughReply(chunk3)
+            ],
+            initialStreamEvents: [[]]
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory, passthroughGapThreshold: 2 * megabyte),
+            httpFetcher: fetcher
+        )
+
+        var currentOffset = distantOffset
+        var receivedChunks: [ABCachedResource] = []
+        while currentOffset <= requiredEndOffset {
+            let resource = try await store.load(
+                source,
+                range: ABByteRange(lowerBound: currentOffset, upperBound: requiredEndOffset)
+            )
+            receivedChunks.append(resource)
+            currentOffset += Int64(resource.data.count)
+        }
+
+        #expect(receivedChunks.count == 3)
+        #expect(receivedChunks[0].data == chunk1)
+        #expect(receivedChunks[0].data.count == Int(megabyte))
+        #expect(receivedChunks[0].isEndOfResource == false)
+        #expect(receivedChunks[1].data == chunk2)
+        #expect(receivedChunks[1].data.count == Int(megabyte))
+        #expect(receivedChunks[1].isEndOfResource == false)
+        #expect(receivedChunks[2].data == chunk3)
+        #expect(receivedChunks[2].data.count == Int(megabyte / 2))
+        #expect(receivedChunks[2].isEndOfResource == true)
+        // Never touched the cache — this was three direct network
+        // round trips, not a fill making progress.
+        #expect(await store.totalSize() == 0)
+    }
+
     // MARK: - WP7: error paths
 
     @Test("A non-2xx fill response throws StoreError.invalidResponse")

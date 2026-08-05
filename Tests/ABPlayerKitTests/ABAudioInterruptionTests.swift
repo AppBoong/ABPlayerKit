@@ -121,6 +121,35 @@ struct ABAudioInterruptionTests {
         #expect(target.calls.filter { $0 == .play }.count == playCallsBeforeEnd)
     }
 
+    @Test("Interruption while already paused does not resume even with .shouldResume — the wasPlayingBeforeInterruption gate")
+    func interruptionWhilePausedDoesNotResumeEvenWithShouldResume() async throws {
+        let (player, target, center) = makePlayer(interruptionPolicy: .pauseAndResume)
+        player.set(source: source, grade: .current)
+        // Deliberately never call `player.play()` — the player is
+        // `.current` but paused when the interruption begins, so
+        // `wasPlayingBeforeInterruption` (captured from `isPlaying` in
+        // `handleInterruptionBegan`) is `false`. round3-final review N7:
+        // this is the one of the four `handleInterruptionEnded` resume
+        // conjuncts (`policy == .pauseAndResume && shouldResume &&
+        // wasPlayingBeforeInterruption && grade == .current`) that had no
+        // dedicated coverage — every other resume test above always calls
+        // `play()` before the interruption begins.
+
+        var events: [ABPlayerEvent] = []
+        let token = player.addObserver { events.append($0) }
+        defer { token.cancel() }
+
+        postInterruption(center, type: .began)
+        postInterruption(center, type: .ended, options: .shouldResume)
+
+        try await waitUntil { events.contains(.audioInterruptionEnded(resumed: false)) }
+        // `.shouldResume` was set, `interruptionPolicy` is `.pauseAndResume`,
+        // and `grade == .current` — every conjunct except
+        // `wasPlayingBeforeInterruption` says "resume". `play()` must still
+        // never have been called.
+        #expect(!target.calls.contains(.play))
+    }
+
     @Test("Interruption ended under .ignore policy never resumes and broadcasts nothing")
     func interruptionEndedUnderIgnorePolicyDoesNothing() async throws {
         let (player, _, center) = makePlayer(
