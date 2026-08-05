@@ -11,6 +11,11 @@ All notable changes to ABPlayerKit are documented in this file.
 - Added `ABPlayerConfiguration.pausesOnRouteChangeDeviceUnavailable` (default `true`) — pauses when the current audio output device disappears (e.g. headphones unplugged), independent of `interruptionPolicy`.
 - Added `ABPlayerEvent.audioInterruptionBegan`, `.audioInterruptionEnded(resumed:)`, and `.audioRouteChangedDeviceUnavailable`.
 - Added `ABCacheConfiguration.passthroughGapThreshold` (default 2MB) — a request whose offset sits this far ahead of the cache's linear fill prefix now skips waiting for the fill and is served via a direct, chunked (≤1MB per round trip) network passthrough instead, bounding worst-case time-to-first-byte for a distant seek against a non-faststart file.
+- Added `@ViewBuilder accessories:` initializers to `ABPlayerControls` and `ABVideoPlayerWithControls`, so SwiftUI overlay content (fullscreen/captions buttons, custom badges) no longer needs to be wrapped in a `UIView`/`UIHostingController` by hand — pass a trailing closure instead. `ABPlayerControlsView.accessoryViews` (the UIKit `[UIView]` property) is unaffected and remains the primary UIKit-side API. See `docs/DESIGN-OPEN-QUESTIONS.md` Q6-A and `docs/POLICY-api-stability.md`.
+
+### Deprecated
+
+- `ABPlayerControls.init(player:style:configuration:accessoryViews:onEvent:)` and `ABVideoPlayerWithControls.init(player:videoGravity:style:configuration:accessoryViews:)` — use the new `@ViewBuilder accessories:` initializers instead. Scheduled for removal in 1.0.0; not removed before then, per `docs/POLICY-api-stability.md`. **Migration**: replace `accessoryViews: [view1, view2]` with a trailing closure wrapping SwiftUI content, e.g. `ABPlayerControls(player: player) { HStack { /* ... */ } }`; if you need to keep passing raw `UIView`s, wrap each in `UIViewRepresentable` first, or continue using `ABPlayerControlsView.accessoryViews` directly (not deprecated).
 
 ### Changed
 

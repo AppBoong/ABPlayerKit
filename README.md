@@ -405,6 +405,10 @@ ABPlayerKit intentionally remains a thin AVFoundation wrapper. Protocols exist w
 
 The complete rationale is recorded in [DESIGN-ABPlayerKit](docs/DESIGN-ABPlayerKit.md) and [DESIGN-OPEN-QUESTIONS](docs/DESIGN-OPEN-QUESTIONS.md).
 
+## API Stability
+
+While this package is `0.x`, replacement APIs are always added additively and deprecated (never silently removed) in the same minor release, with at least one minor release of overlap before removal — nothing is removed before `1.0.0`. `ABPlayerEvent`/`ABPlayerError` stay non-exhaustive `enum`s for the same reason: consumer `switch` statements should include a `default` branch. The full policy, and the deprecation of the array-based `accessoryViews:` initializers in favor of `@ViewBuilder accessories:` as a worked example, is in [POLICY-api-stability](docs/POLICY-api-stability.md).
+
 ## Demo App
 
 The standalone iOS 17 demo exercises HLS/MP4 playback, all four grades, tuning roles, TTFF statistics, progressive caching, and explicit HLS prefetch.

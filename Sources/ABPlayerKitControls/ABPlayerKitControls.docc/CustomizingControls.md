@@ -74,8 +74,30 @@ A player attached at `.preloaded` or `.instanceOnly` (the common pattern: promot
 
 ## Add Application Controls
 
-Place fullscreen, captions, or Picture in Picture buttons at the right edge through ``ABPlayerControlsView/accessoryViews``. Your application owns the actions and accessibility of those views.
+Place fullscreen, captions, or Picture in Picture buttons at the right edge. Two paths exist side by side, for UIKit and SwiftUI — pick whichever matches how the rest of the button is built. Both land in the same place, next to the rate control, and hit-testing always favors them over the seek bar (see [Understand the Standard Layout](#Understand-the-Standard-Layout) above).
+
+### UIKit
+
+Set ``ABPlayerControlsView/accessoryViews`` directly. Your application owns the actions and accessibility of those views.
 
 ```swift
 controls.accessoryViews = [captionsButton, fullscreenButton]
 ```
+
+### SwiftUI
+
+Pass a `@ViewBuilder` trailing closure to ``ABPlayerControls`` or ``ABVideoPlayerWithControls`` instead — no `UIHostingController` wrapping required.
+
+```swift
+ABPlayerControls(player: player) {
+    HStack(spacing: 8) {
+        Button { isCaptionsOn.toggle() } label: { Image(systemName: "captions.bubble") }
+        Button { enterFullscreen() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+    }
+    .foregroundStyle(.white)
+}
+```
+
+Internally this hosts your content in a `UIHostingController` that `ABAccessoryHostingBox` attaches as a child of the nearest `UIViewController` it can find by walking up from the controls view once it's actually in a window (see `DESIGN-OPEN-QUESTIONS.md` Q6-A for why this exists — an original design consideration behind this project's playback engine hit this same hosting problem and originally settled on UIKit-only overlays specifically to avoid it). **If no `UIViewController` is found** (an unusual hosting setup with no view controller anywhere in the view hierarchy), the accessory view still lays out and renders — but safe-area propagation, `UIViewController` appearance callbacks, and trait inheritance into the hosted content are not guaranteed. The `accessoryViews: [UIView]` initializers above stay the safer choice when you need those guarantees without a real, or reachable, view controller.
+
+The array-based `accessoryViews:` initializers on ``ABPlayerControls``/``ABVideoPlayerWithControls`` (not ``ABPlayerControlsView/accessoryViews`` itself, which stays the primary UIKit API) are deprecated in favor of the `accessories:` closure — see [POLICY-api-stability](../../../../docs/POLICY-api-stability.md) for the deprecation timeline.
