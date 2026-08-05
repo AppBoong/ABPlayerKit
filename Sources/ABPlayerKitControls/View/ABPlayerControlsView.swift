@@ -54,6 +54,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     private var isPlayingState = false
     private var currentPlaybackTime = ABPlaybackTime.zero
     private var visibilityMachine: ABControlsVisibilityMachine
+    private var presenter = ABControlsPresenter()
     private var hideTask: Task<Void, Never>?
     var isVoiceOverRunningProvider: @MainActor () -> Bool = { UIAccessibility.isVoiceOverRunning }
     var isReduceMotionEnabledProvider: @MainActor () -> Bool = { UIAccessibility.isReduceMotionEnabled }
@@ -85,7 +86,6 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     var controlsContentAlpha: CGFloat { controlsContentView.alpha }
     var controlsContentIsInteractive: Bool { controlsContentView.isUserInteractionEnabled }
     var backgroundContentAlpha: CGFloat { controlsBackgroundView.alpha }
-    var renderedBackgroundContentView: UIView? { controlsBackgroundView.renderedContentView }
     var renderedBackgroundGradientLayer: CAGradientLayer? { controlsBackgroundView.gradientLayer }
     private(set) var styleLayoutInvalidationCount = 0
     var hasFixedWidthTimeLabels: Bool { elapsedMinimumWidthConstraint?.isActive == true }
@@ -196,29 +196,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         playerObservationToken?.cancel()
     }
 
-    /// The seek bar's fixed touch-target row height. The visible track is
-    /// vertically centered inside it (see `ABSeekBar.layoutSubviews`), so the
-    /// row is taller than the drawn track by design (44pt hit area, HIG/a11y).
-    private static let seekBarTouchRowHeight: CGFloat = 44
-
-    /// `style.seekBarBottomSpacing` is a gap between the seek bar's *visible*
-    /// track and the row below it's *visible glyphs* — not between either
-    /// side's full 44pt touch-target frame and the other. Both sides center
-    /// their visible content inside a taller accessible touch area (the seek
-    /// bar's track inside its 44pt row; the rate button's title/icon inside
-    /// its own 44pt `rateButtonSize.height`), so half of each side's slack
-    /// must be subtracted from the stack spacing to land the two visible
-    /// surfaces at the requested distance. This routinely goes negative,
-    /// deliberately overlapping the touch rows with each other and with the
-    /// row below (hit-test priority in `hitTest(_:with:)` already resolves any
-    /// resulting ambiguity in favor of the more specific control).
-    private func rootStackSpacing(for style: ABPlayerControlsStyle) -> CGFloat {
-        let touchRowSlackBelowTrack = (Self.seekBarTouchRowHeight - style.trackHeight) / 2
-        return style.seekBarBottomSpacing - touchRowSlackBelowTrack - bottomRowVisibleContentSlack(for: style)
-    }
-
-    /// `rootStackSpacing(for:)` depends on `scaledTimeLabelFont(for:)`, which
-    /// varies with the Dynamic Type trait — recomputed on `style`/`configuration`
+    /// `ABControlsLayout.rootStackSpacing` depends on `scaledTimeLabelFont`,
+    /// which varies with the Dynamic Type trait — recomputed on `style`/`configuration`
     /// assignment, but the *system* content-size-category preference can also
     /// change underneath an unchanged style (Settings app, Slide Over split
     /// changes, or an accessibility size override) without either ever being
@@ -234,112 +213,26 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     /// so this keeps the font and the spacing that depends on it in lockstep.
     private func registerForSpacingTraitChanges() {
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: ABPlayerControlsView, _: UITraitCollection) in
-            let scaledTimeFont = view.scaledTimeLabelFont(for: view.style)
+            let scaledTimeFont = view.layout.scaledTimeLabelFont
             view.elapsedLabel.font = scaledTimeFont
             view.updateTimeLabelWidthConstraints(using: scaledTimeFont)
-            view.rootStack.spacing = view.rootStackSpacing(for: view.style)
+            view.rootStack.spacing = view.layout.rootStackSpacing
         }
     }
 
-    /// How much of the bottom row's cross-axis height sits above its visible
-    /// *ink*, on the *tightest* side:
-    /// - Whichever side sits closest to the seek bar's own ink dictates the
-    ///   distance; using the *smaller* of the two sides keeps that one at
-    ///   exactly `seekBarBottomSpacing`, while the looser side lands within a
-    ///   point or two of it (two different fonts can't both hit one target
-    ///   from a single shared stack-spacing value).
-    /// - `elapsedLabel` is a *direct* arranged child of the bottom row, so its
-    ///   own frame is centered directly in the row's cross-axis height.
-    /// - The rate button's title is nested one level deeper: `rateButton`
-    ///   itself (fixed at `rateButtonSize.height`) is the arranged child, so
-    ///   its title is centered inside *that* fixed height first, and the
-    ///   button itself is then centered inside the row.
-    ///
-    /// Uses `scaledTimeLabelFont(for:)` for the label side — the font
-    /// `elapsedLabel` actually renders with, including `UIFontMetrics`
-    /// Dynamic Type scaling — not `style.timeLabelFont` directly (confirmed
-    /// on-device: unscaled 8.5pt vs. AX3-scaled 26.8pt capHeight; using the
-    /// unscaled value under-subtracts the slack and lets the real, larger
-    /// label collide with the track above it). The rate button's title font
-    /// is *not* Dynamic Type-scaled (no `UIFontMetrics`/
-    /// `adjustsFontForContentSizeCategory` wiring for it currently), so
-    /// `style.rateLabelStyle`'s raw font remains accurate for that side.
-    private func bottomRowVisibleContentSlack(for style: ABPlayerControlsStyle) -> CGFloat {
-        // The row's real cross-axis height is whichever child is tallest — normally
-        // the rate button's fixed rateButtonSize.height, but a `UIStackView` with
-        // `alignment = .center` never clips: at a large enough Dynamic Type size,
-        // elapsedLabel's own (scaled) line height can exceed the rate button's and
-        // become the row's actual height instead, growing the whole row (and, with
-        // it, the rate button's own centering slack) rather than just the label's.
-        let rowHeight = max(style.rateButtonSize.height, scaledTimeLabelFont(for: style).lineHeight)
-        return min(
-            Self.frameTopToInkTop(font: scaledTimeLabelFont(for: style), centeredIn: rowHeight),
-            rateButtonBottomRowSlack(for: style, rowHeight: rowHeight)
-        )
-    }
-
-    private func rateButtonBottomRowSlack(for style: ABPlayerControlsStyle, rowHeight: CGFloat) -> CGFloat {
-        let buttonHeight = style.rateButtonSize.height
-        let buttonCenteringSlack = max(0, (rowHeight - buttonHeight) / 2)
-        switch style.rateLabelStyle {
-        case .text(let font, _):
-            return buttonCenteringSlack + Self.frameTopToInkTop(font: font, centeredIn: buttonHeight)
-        case .icon:
-            // An icon's height is its rendered size, not font metrics — no
-            // ascender/capHeight gap applies; centering slack alone does.
-            return buttonCenteringSlack + max(0, (buttonHeight - style.iconPointSize) / 2)
-        }
-    }
-
-    /// Distance from the top of a `containerHeight`-tall box to `font`'s ink
-    /// top, when a label/title using `font` is vertically centered in it:
-    /// half the box's slack around the font's line height, plus the further
-    /// offset from that (now-positioned) frame's own top down to where the
-    /// font's cap-height glyphs actually start drawing.
-    ///
-    /// Deliberately *not* a fixed-point or point-size-ratio calibration
-    /// (both were tried and rejected — see IMPL-v0.2-RESULT.md's
-    /// REVIEW2-FIXES-DONE entry for the numbers): a value tuned to land
-    /// exactly on `seekBarBottomSpacing` at the 12pt default font
-    /// systematically over- or under-corrected at a much larger accessibility
-    /// font, in one case badly enough to collide the label into the track —
-    /// exactly the bug this function exists to prevent. This real-metrics
-    /// version is deliberately not pixel-perfect at the default size (it
-    /// lands within roughly a point and a half of `seekBarBottomSpacing`
-    /// rather than exactly on it — confirmed on-device), but it never
-    /// collides at any tested font size, which matters far more than being
-    /// exact at exactly one of them.
-    private static func frameTopToInkTop(font: UIFont, centeredIn containerHeight: CGFloat) -> CGFloat {
-        let centeringSlack = max(0, (containerHeight - font.lineHeight) / 2)
-        let inkOffsetWithinFrame = max(0, font.ascender - font.capHeight)
-        return centeringSlack + inkOffsetWithinFrame
-    }
-
-    /// The font `elapsedLabel` actually renders with — `style.timeLabelFont`
-    /// run through `UIFontMetrics(.caption1)` for the current trait
-    /// collection, matching the assignment in `applyStyle`. Computed fresh
-    /// rather than read from `elapsedLabel.font` so `rootStackSpacing(for:)`
-    /// can be called before the label's font is first assigned. Internal
-    /// (not `private`), matching this file's convention for members tests
-    /// need direct access to, so tests can verify Dynamic Type scaling
-    /// without re-deriving `UIFontMetrics` behavior themselves.
-    func scaledTimeLabelFont(for style: ABPlayerControlsStyle) -> UIFont {
-        scaledTimeLabelFont(for: style, compatibleWith: traitCollection)
-    }
-
-    /// `compatibleWith:` broken out as a separate parameter (rather than always
-    /// reading `self.traitCollection`) so tests can verify the scaling math
-    /// itself against an explicit accessibility trait collection, independent
-    /// of whether a detached test view's own `traitCollection` resolves a
-    /// locally-set override (unreliable without a real window/scene).
-    func scaledTimeLabelFont(for style: ABPlayerControlsStyle, compatibleWith traitCollection: UITraitCollection) -> UIFont {
-        UIFontMetrics(forTextStyle: .caption1).scaledFont(for: style.timeLabelFont, compatibleWith: traitCollection)
+    /// Fresh on every access — never cache this. `registerForSpacingTraitChanges`
+    /// relies on a new `ABControlsLayout` picking up the current `traitCollection`
+    /// on every Dynamic Type change; a stored `layout` would freeze at whatever
+    /// trait was current when it was first computed and silently stop tracking
+    /// accessibility size changes.
+    private var layout: ABControlsLayout {
+        ABControlsLayout(style: style, traitCollection: traitCollection)
     }
 
     private func buildViewHierarchy() {
         directionalLayoutMargins = style.contentInsets
         rootStack.axis = .vertical
-        rootStack.spacing = rootStackSpacing(for: style)
+        rootStack.spacing = layout.rootStackSpacing
         rootStack.translatesAutoresizingMaskIntoConstraints = false
         registerForSpacingTraitChanges()
 
@@ -392,7 +285,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             rootStack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
             rootStack.topAnchor.constraint(greaterThanOrEqualTo: layoutMarginsGuide.topAnchor),
             rootStack.bottomAnchor.constraint(equalTo: layoutMarginsGuide.bottomAnchor),
-            seekBar.heightAnchor.constraint(equalToConstant: Self.seekBarTouchRowHeight)
+            seekBar.heightAnchor.constraint(equalToConstant: ABControlsLayout.seekBarTouchRowHeight)
         ])
 
         playWidthConstraint = playPauseButton.widthAnchor.constraint(equalToConstant: style.playPauseButtonSize.width)
@@ -436,7 +329,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         playerObservationToken = nil
         periodicIntervalLease?.restore()
         periodicIntervalLease = nil
-        resetTimeline()
+        applyPresenterEffects(presenter.handle(.detached))
 
         guard let player else {
             setControlsEnabled(false)
@@ -464,39 +357,92 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         updatePlaybackIcon()
         updateRate(player.rate)
         render(currentPlaybackTime)
-        setControlsEnabled(player.grade == .current)
+        // `.attached`'s effect only covers enablement (see its doc comment) —
+        // seed the rest of the presenter's own tracked state here so it isn't
+        // stale (still at this struct's init defaults) the first time
+        // `togglePlayback`/`selectRate` read `presenter.isPlaying`/`.rate`
+        // before any further `ABPlayerEvent` has arrived to update them.
+        presenter.seed(isPlaying: player.isPlaying, rate: player.rate, currentPlaybackTime: currentPlaybackTime)
+        applyPresenterEffects(presenter.handle(.attached(
+            grade: player.grade,
+            promotesToCurrentOnPlay: configuration.promotesToCurrentOnPlay
+        )))
+    }
+
+    /// Interprets `ABControlsPresenter.Effect`s by calling this view's own
+    /// existing UI-update methods — same pattern as `applyVisibilityEffects`
+    /// for `ABControlsVisibilityMachine.Effect`.
+    ///
+    /// `targetPlayer` is only consulted for `.send` effects, and only the
+    /// specific player instance the caller resolved *before* calling
+    /// `presenter.handle(...)` — never re-read from `self.player` here. A
+    /// synchronous reentrant call triggered mid-loop (e.g. `.promoteToCurrent`
+    /// re-entering `handlePlayerEvent` via `.gradeChanged`) could otherwise
+    /// observe a `self.player` a consumer swapped out from under this call,
+    /// same reasoning as pinning `scrubbingPlayer` for a scrub session.
+    private func applyPresenterEffects(
+        _ effects: [ABControlsPresenter.Effect],
+        player targetPlayer: ABPlayer? = nil
+    ) {
+        for effect in effects {
+            switch effect {
+            case .setPlaybackIcon(let isPlaying):
+                isPlayingState = isPlaying
+                updatePlaybackIcon()
+            case .setRateTitle(let rate):
+                updateRate(rate)
+            case .renderTimeline(let time):
+                render(time)
+            case .resetTimeline:
+                resetTimeline()
+            case .setEnabled(let enabled, let allowsPromotionTap):
+                setControlsEnabled(enabled, allowsPromotionTap: allowsPromotionTap)
+            case .send(let command):
+                sendPlayerCommand(command, to: targetPlayer)
+            }
+        }
+    }
+
+    private func sendPlayerCommand(_ command: ABControlsPresenter.PlayerCommand, to targetPlayer: ABPlayer?) {
+        switch command {
+        case .play:
+            targetPlayer?.play()
+        case .pause:
+            targetPlayer?.pause()
+        case .promoteToCurrent:
+            targetPlayer?.promote(to: .current)
+        case .skip(let interval):
+            guard let targetPlayer else { return }
+            Task { await targetPlayer.skip(by: interval) }
+        case .setRate(let rate):
+            targetPlayer?.setRate(rate)
+        }
     }
 
     func handlePlayerEvent(_ event: ABPlayerEvent) {
+        applyPresenterEffects(presenter.handle(.playerEvent(event)))
         switch event {
-        case .periodicTime(let time):
-            render(time)
         case .timeControlStatusChanged(let status):
-            isPlayingState = status == .playing
-            updatePlaybackIcon()
-            handleVisibility(.playbackStateChanged(isPlaying: isPlayingState))
-        case .rateChanged(let rate):
-            updateRate(rate)
-        case .gradeChanged(_, let grade):
-            setControlsEnabled(grade == .current)
-            if grade != .current { resetTimeline() }
+            handleVisibility(.playbackStateChanged(isPlaying: status == .playing))
         case .itemDetached, .sourceChanged:
-            resetTimeline()
+            // The rest of this transition (`.resetTimeline`) already applied
+            // above via the presenter — this needs a live `player.grade` read
+            // the presenter deliberately doesn't have. See
+            // `ABControlsPresenter`'s doc comment.
             setControlsEnabled(player?.grade == .current)
         case .itemStatusChanged(.readyToPlay):
+            // Needs `player.playbackTime`/`player.grade` — the presenter
+            // contributes nothing for this event. See its doc comment.
             if let player {
                 render(player.playbackTime)
+                presenter.syncPlaybackTime(player.playbackTime)
                 setControlsEnabled(player.grade == .current)
             }
-        case .itemStatusChanged(.unknown):
-            break
-        case .itemStatusChanged(.failed), .failed:
-            setControlsEnabled(false, allowsPromotionTap: false)
         case .playedToEnd:
-            isPlayingState = false
-            updatePlaybackIcon()
             handleVisibility(.setVisible(true))
         case .seekCompleted(let time):
+            // Needs `player?.isScrubbing`/`player?.duration` — the presenter
+            // contributes nothing for this event. See its doc comment.
             guard player?.isScrubbing != true else { return }
             let snapshot = ABPlaybackTime(
                 currentTime: time,
@@ -504,6 +450,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
                 bufferedUntil: currentPlaybackTime.bufferedUntil
             )
             render(snapshot)
+            presenter.syncPlaybackTime(snapshot)
         default:
             break
         }
@@ -514,14 +461,14 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         controlsBackgroundView.layer.cornerRadius = style.containerCornerRadius
         controlsBackgroundView.clipsToBounds = style.containerCornerRadius > 0
         directionalLayoutMargins = style.contentInsets
-        rootStack.spacing = rootStackSpacing(for: style)
+        rootStack.spacing = layout.rootStackSpacing
         buttonStack.spacing = style.buttonSpacing
         seekBar.style = style
         elapsedLabel.textColor = style.timeLabelColor
         if previous == nil
             || style.timeLabelFont != previous?.timeLabelFont
             || style.usesFixedWidthTimeLabels != previous?.usesFixedWidthTimeLabels {
-            let scaledTimeFont = scaledTimeLabelFont(for: style)
+            let scaledTimeFont = layout.scaledTimeLabelFont
             elapsedLabel.font = scaledTimeFont
             elapsedLabel.adjustsFontForContentSizeCategory = true
             updateTimeLabelWidthConstraints(using: scaledTimeFont)
@@ -597,9 +544,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         guard let elapsedMinimumWidthConstraint else { return }
         elapsedMinimumWidthConstraint.isActive = false
         guard style.usesFixedWidthTimeLabels else { return }
-        let reference = "00:00:00/-00:00:00" as NSString
-        let width = ceil(reference.size(withAttributes: [.font: font]).width)
-        elapsedMinimumWidthConstraint.constant = width
+        elapsedMinimumWidthConstraint.constant = layout.timeLabelMinimumWidth(using: font)
         elapsedMinimumWidthConstraint.isActive = true
     }
 
@@ -685,86 +630,25 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         seekBar.isSeekEnabled = time.duration != nil && controlsAreEnabled
         updateTimeLabels(currentTime: time.currentTime, duration: time.duration)
         seekBar.accessibilityLabel = ABControlsLocalization.string("controls.timeline")
-        seekBar.accessibilityValue = accessibilityTimelineValue(for: time)
+        seekBar.accessibilityValue = timeLabelFormatter.accessibilityValue(
+            elapsedSeconds: time.currentTime.isNumeric ? CMTimeGetSeconds(time.currentTime) : nil,
+            durationSeconds: time.duration.flatMap { $0.isNumeric ? CMTimeGetSeconds($0) : nil }
+        )
+    }
+
+    /// Fresh on every access — `configuration.timeFormat`/`timeLabelLayout` can
+    /// change independently of a full `configuration` reassignment's identity,
+    /// so this always reflects the current values rather than one captured at
+    /// some earlier point.
+    private var timeLabelFormatter: ABControlsTimeLabelFormatter {
+        ABControlsTimeLabelFormatter(timeFormat: configuration.timeFormat, timeLabelLayout: configuration.timeLabelLayout)
     }
 
     private func updateTimeLabels(currentTime: CMTime, duration: CMTime?) {
-        let durationSeconds = duration.flatMap { $0.isNumeric ? CMTimeGetSeconds($0) : nil }
-        let currentSeconds = CMTimeGetSeconds(currentTime)
-
-        if case .custom(let formatter) = configuration.timeFormat {
-            // `.custom` contract (round3 Phase4 WP12): the formatter
-            // receives both the elapsed seconds and the reference duration
-            // in one call and is expected to produce the *entire* label
-            // text itself — `timeLabelLayout`'s elapsed/secondary
-            // combination does not apply, since the consumer already has
-            // both values and full control over layout. Combining on top
-            // of an already-complete `.custom` string produced the
-            // `"12s/90s/90s/90s"`-shaped double-combination bug this
-            // replaces.
-            elapsedLabel.text = currentTime.isNumeric
-                ? formatter(currentSeconds, durationSeconds)
-                : timePlaceholder(referenceDuration: durationSeconds)
-            return
-        }
-
-        let elapsed = currentTime.isNumeric
-            ? formattedTime(currentSeconds, referenceDuration: durationSeconds)
-            : timePlaceholder(referenceDuration: durationSeconds)
-        let secondary: String?
-        switch configuration.timeLabelLayout {
-        case .elapsedAndTotal:
-            secondary = durationSeconds.map { formattedTime($0, referenceDuration: durationSeconds) }
-                ?? ABTimeFormatter.liveMarker
-        case .elapsedAndRemaining:
-            if let durationSeconds, currentSeconds.isFinite {
-                let remaining = max(0, durationSeconds - currentSeconds)
-                secondary = "-\(formattedTime(remaining, referenceDuration: durationSeconds))"
-            } else {
-                secondary = timePlaceholder(referenceDuration: durationSeconds)
-            }
-        case .elapsedOnly:
-            secondary = nil
-        }
-        elapsedLabel.text = secondary.map { "\(elapsed)/\($0)" } ?? elapsed
-    }
-
-    /// Formats `seconds` per ``ABPlayerControlsConfiguration/timeFormat``.
-    /// `referenceDuration` is passed to `.automatic`/`.custom` so every label in a
-    /// render pass (elapsed, total, remaining) agrees on field width.
-    private func formattedTime(_ seconds: TimeInterval, referenceDuration: TimeInterval?) -> String {
-        switch configuration.timeFormat {
-        case .automatic:
-            ABTimeFormatter.automaticString(from: seconds, referenceDuration: referenceDuration)
-        case .fixedHours:
-            Self.fixedHoursString(from: seconds)
-        case .custom(let formatter):
-            formatter(seconds, referenceDuration)
-        }
-    }
-
-    /// Always `HH:MM:SS`, zero-padded, including the hours field even when
-    /// zero. `.fixedHours`'s own formatter, not `ABTimeFormatter.string(from:)`
-    /// — that core API's default contract is the minimal `M:SS`/`H:MM:SS` form
-    /// (see `docs/DESIGN-v0.2-CONTROLS.md` §5.4); `.fixedHours` exists
-    /// specifically for consumers who want the always-padded clock look
-    /// instead, so it can't delegate to a formatter with different semantics.
-    private static func fixedHoursString(from seconds: TimeInterval) -> String {
-        guard seconds.isFinite else { return "--:--:--" }
-        let totalSeconds = Int(max(0, seconds).rounded(.down))
-        let hours = totalSeconds / 3_600
-        let minutes = (totalSeconds % 3_600) / 60
-        let remainingSeconds = totalSeconds % 60
-        return String(format: "%02d:%02d:%02d", hours, minutes, remainingSeconds)
-    }
-
-    private func timePlaceholder(referenceDuration: TimeInterval?) -> String {
-        switch configuration.timeFormat {
-        case .automatic:
-            (referenceDuration ?? 0) >= 3_600 ? "--:--:--" : "--:--"
-        case .fixedHours, .custom:
-            "--:--:--"
-        }
+        elapsedLabel.text = timeLabelFormatter.label(
+            elapsedSeconds: currentTime.isNumeric ? CMTimeGetSeconds(currentTime) : nil,
+            durationSeconds: duration.flatMap { $0.isNumeric ? CMTimeGetSeconds($0) : nil }
+        )
     }
 
     private func resetTimeline() {
@@ -804,16 +688,11 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
 
     private func togglePlayback() {
         guard let player else { return }
-        if player.isPlaying {
-            player.pause()
-            isPlayingState = false
-        } else {
-            if canPromoteToCurrentOnPlayTap {
-                player.promote(to: .current)
-            }
-            player.play()
-            isPlayingState = true
-        }
+        applyPresenterEffects(
+            presenter.handle(.playPauseTapped(allowsPromotionTap: canPromoteToCurrentOnPlayTap)),
+            player: player
+        )
+        isPlayingState = presenter.isPlaying
         updatePlaybackIcon()
         bouncePlayPauseButton()
         handleVisibility(.controlInteracted)
@@ -847,7 +726,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
 
     private func skip(by interval: TimeInterval) {
         guard let player else { return }
-        Task { await player.skip(by: interval) }
+        applyPresenterEffects(presenter.handle(.skipTapped(interval)), player: player)
         handleVisibility(.controlInteracted)
         observerRegistry.broadcast(.skipTapped(by: interval))
     }
@@ -889,11 +768,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     }
 
     func selectRate(_ rate: Float) {
-        let resolvedRate = ABPlaybackRate.clamped(rate)
-        player?.setRate(resolvedRate)
-        updateRate(resolvedRate)
+        applyPresenterEffects(presenter.handle(.rateSelected(rate)), player: player)
         handleVisibility(.controlInteracted)
-        observerRegistry.broadcast(.rateSelected(resolvedRate))
+        observerRegistry.broadcast(.rateSelected(presenter.rate))
     }
 
     private func scrubBegan() {
@@ -936,40 +813,11 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func adjustTimelineForAccessibility(direction: Int) {
-        guard direction != 0,
-              let duration = currentPlaybackTime.duration else { return }
-        let durationSeconds = CMTimeGetSeconds(duration)
-        let currentSeconds = CMTimeGetSeconds(currentPlaybackTime.currentTime)
-        guard durationSeconds.isFinite, durationSeconds > 0, currentSeconds.isFinite else { return }
-        let delta = Double(direction) * configuration.skipInterval
-        let targetSeconds = min(max(currentSeconds + delta, 0), durationSeconds)
-        let target = CMTime(seconds: targetSeconds, preferredTimescale: 600)
-        render(ABPlaybackTime(
-            currentTime: target,
-            duration: duration,
-            bufferedUntil: currentPlaybackTime.bufferedUntil
-        ))
-        if let player {
-            Task { await player.skip(by: delta) }
-        }
+        let effects = presenter.handle(.accessibilityAdjusted(direction: direction, skipInterval: configuration.skipInterval))
+        guard case .renderTimeline(let newTime)? = effects.first else { return }
+        applyPresenterEffects(effects, player: player)
         handleVisibility(.controlInteracted)
-        observerRegistry.broadcast(.seekCommitted(to: target))
-    }
-
-    private func accessibilityTimelineValue(for time: ABPlaybackTime) -> String {
-        guard let duration = time.duration else {
-            return ABControlsLocalization.string("controls.live")
-        }
-        let currentSeconds = CMTimeGetSeconds(time.currentTime)
-        let durationSeconds = CMTimeGetSeconds(duration)
-        guard currentSeconds.isFinite, durationSeconds.isFinite else {
-            return ABControlsLocalization.string("controls.live")
-        }
-        return ABControlsLocalization.format(
-            "controls.timelineValue",
-            ABControlsLocalization.spokenTime(currentSeconds),
-            ABControlsLocalization.spokenTime(durationSeconds)
-        )
+        observerRegistry.broadcast(.seekCommitted(to: newTime.currentTime))
     }
 
     @objc private func backgroundTapped() {

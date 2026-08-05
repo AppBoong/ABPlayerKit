@@ -471,7 +471,7 @@ struct ABPlayerControlsLayoutTests {
         let view = ABPlayerControlsView()
         let axTraits = UITraitCollection(preferredContentSizeCategory: .accessibilityExtraExtraExtraLarge)
 
-        let scaledFont = view.scaledTimeLabelFont(for: view.style, compatibleWith: axTraits)
+        let scaledFont = ABControlsLayout(style: view.style, traitCollection: axTraits).scaledTimeLabelFont
 
         #expect(scaledFont.pointSize > view.style.timeLabelFont.pointSize * 2)
     }
@@ -661,5 +661,53 @@ struct ABPlayerControlsLayoutTests {
         #expect(ABPlayerControlsView.backgroundTapShouldReceiveTouch(on: view.seekBar.superview, upTo: view))
         #expect(ABPlayerControlsView.backgroundTapShouldReceiveTouch(on: view, upTo: view))
         #expect(ABPlayerControlsView.backgroundTapShouldReceiveTouch(on: nil, upTo: view))
+    }
+}
+
+@Suite("Skip buttons dispatch through ABControlsPresenter to the player and to observers", .timeLimit(.minutes(1)))
+@MainActor
+struct ABPlayerControlsSkipWiringTests {
+    @Test("Given a forward skip tap, the configured interval reaches the observer broadcast")
+    func skipForwardTapDispatchesConfiguredInterval() {
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.skipInterval = 15
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        let view = ABPlayerControlsView(configuration: configuration)
+        view.player = player
+        var events: [ABControlsEvent] = []
+        let token = view.addObserver { events.append($0) }
+        defer { token.cancel() }
+
+        view.skipForwardButton.sendActions(for: .touchUpInside)
+
+        #expect(events.contains(.skipTapped(by: 15)))
+    }
+
+    @Test("Given a backward skip tap, the negated configured interval reaches the observer broadcast")
+    func skipBackwardTapDispatchesNegatedInterval() {
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.skipInterval = 20
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        let view = ABPlayerControlsView(configuration: configuration)
+        view.player = player
+        var events: [ABControlsEvent] = []
+        let token = view.addObserver { events.append($0) }
+        defer { token.cancel() }
+
+        view.skipBackwardButton.sendActions(for: .touchUpInside)
+
+        #expect(events.contains(.skipTapped(by: -20)))
+    }
+
+    @Test("Given no player attached, a skip tap produces no observer broadcast")
+    func skipTapWithoutPlayerProducesNoBroadcast() {
+        let view = ABPlayerControlsView()
+        var events: [ABControlsEvent] = []
+        let token = view.addObserver { events.append($0) }
+        defer { token.cancel() }
+
+        view.skipForwardButton.sendActions(for: .touchUpInside)
+
+        #expect(events.isEmpty)
     }
 }
