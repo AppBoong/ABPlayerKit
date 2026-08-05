@@ -191,7 +191,9 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         avPlayer?.automaticallyWaitsToMinimizeStalling = resolved.automaticallyWaitsToMinimizeStalling
     }
 
-    private static func describe(errorLogEvent event: AVPlayerItemErrorLogEvent) -> String {
+    // `nonisolated`: called synchronously from the non-isolated
+    // notification callback below — see the Sendability note there.
+    nonisolated private static func describe(errorLogEvent event: AVPlayerItemErrorLogEvent) -> String {
         var description = "\(event.errorDomain) (\(event.errorStatusCode))"
         if let comment = event.errorComment, !comment.isEmpty {
             description += ": \(comment)"
