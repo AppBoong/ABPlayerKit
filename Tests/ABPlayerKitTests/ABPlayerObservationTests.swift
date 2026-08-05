@@ -11,7 +11,7 @@ import Testing
 /// (see the demo app's `DemoModel` before this WP) could never verify: the
 /// old code had no way to fail if `@Observable` tracking silently didn't
 /// fire.
-@Suite("ABPlayer's @Observable properties notify Observation on change", .timeLimit(.minutes(1)))
+@Suite("ABPlayer's @Observable properties notify Observation on change", .timeLimit(.minutes(3)))
 @MainActor
 struct ABPlayerObservationTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)

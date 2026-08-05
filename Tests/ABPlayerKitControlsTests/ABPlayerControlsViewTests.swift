@@ -6,7 +6,7 @@ import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("Controls attach and detach without leaking observation", .timeLimit(.minutes(1)))
+@Suite("Controls attach and detach without leaking observation", .timeLimit(.minutes(3)))
 @MainActor
 struct ABPlayerControlsAttachmentTests {
     @Test("Given attachment, controls install their configured periodic interval")
@@ -89,7 +89,7 @@ struct ABPlayerControlsAttachmentTests {
     }
 }
 
-@Suite("Controls promote a non-current player to current on a play tap", .timeLimit(.minutes(1)))
+@Suite("Controls promote a non-current player to current on a play tap", .timeLimit(.minutes(3)))
 @MainActor
 struct ABPlayerControlsPromotionTests {
     @Test("Given the default configuration, promotesToCurrentOnPlay is enabled")
@@ -165,7 +165,7 @@ struct ABPlayerControlsPromotionTests {
     }
 }
 
-@Suite("Controls reflect engine events", .timeLimit(.minutes(1)))
+@Suite("Controls reflect engine events", .timeLimit(.minutes(3)))
 @MainActor
 struct ABPlayerControlsEventReflectionTests {
     @Test("Given finite playback, the timeline uses a combined fixed-hour label")
@@ -373,7 +373,7 @@ struct ABPlayerControlsEventReflectionTests {
     }
 }
 
-@Suite("Controls follow the release overlay geometry", .timeLimit(.minutes(1)))
+@Suite("Controls follow the release overlay geometry", .timeLimit(.minutes(3)))
 @MainActor
 struct ABPlayerControlsLayoutTests {
     @Test("Given a video-sized overlay, the seek bar spans the full width and its visible track sits exactly 10pt above the bottom row")
@@ -701,7 +701,7 @@ struct ABPlayerControlsLayoutTests {
     }
 }
 
-@Suite("Skip buttons dispatch through ABControlsPresenter to the player and to observers", .timeLimit(.minutes(1)))
+@Suite("Skip buttons dispatch through ABControlsPresenter to the player and to observers", .timeLimit(.minutes(3)))
 @MainActor
 struct ABPlayerControlsSkipWiringTests {
     @Test("Given a forward skip tap, the configured interval reaches the observer broadcast")

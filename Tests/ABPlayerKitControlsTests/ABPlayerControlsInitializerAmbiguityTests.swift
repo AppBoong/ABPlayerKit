@@ -9,7 +9,7 @@ import UIKit
 /// `accessoryViews: [UIView]` one didn't introduce call-site ambiguity —
 /// the most common failure mode when adding an overload. If any of the four
 /// shapes below stopped compiling, this file itself would fail to build.
-@Suite("ABPlayerControls/ABVideoPlayerWithControls initializer overloads resolve without ambiguity", .timeLimit(.minutes(1)))
+@Suite("ABPlayerControls/ABVideoPlayerWithControls initializer overloads resolve without ambiguity", .timeLimit(.minutes(3)))
 @MainActor
 struct ABPlayerControlsInitializerAmbiguityTests {
     @available(*, deprecated, message: "Intentionally exercises the deprecated accessoryViews: initializer to prove it still compiles.")

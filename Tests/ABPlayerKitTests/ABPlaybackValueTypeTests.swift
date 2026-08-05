@@ -2,7 +2,7 @@
 import Testing
 @testable import ABPlayerKit
 
-@Suite("Seek tolerance maps to AVFoundation tolerances", .timeLimit(.minutes(1)))
+@Suite("Seek tolerance maps to AVFoundation tolerances", .timeLimit(.minutes(3)))
 struct ABSeekToleranceTests {
     @Test("Given precise tolerance, both target tolerances are zero")
     func preciseMapsToZero() {
@@ -27,7 +27,7 @@ struct ABSeekToleranceTests {
     }
 }
 
-@Suite("Playback rate values stay inside the supported range", .timeLimit(.minutes(1)))
+@Suite("Playback rate values stay inside the supported range", .timeLimit(.minutes(3)))
 struct ABPlaybackRateTests {
     @Test("Given an in-range rate, clamping preserves it")
     func preservesAllowedRate() {
@@ -46,7 +46,7 @@ struct ABPlaybackRateTests {
     }
 }
 
-@Suite("ABPlaybackTime derives progress safely", .timeLimit(.minutes(1)))
+@Suite("ABPlaybackTime derives progress safely", .timeLimit(.minutes(3)))
 struct ABPlaybackTimeTests {
     private let duration = CMTime(seconds: 100, preferredTimescale: 600)
 

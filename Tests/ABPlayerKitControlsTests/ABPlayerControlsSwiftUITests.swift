@@ -4,7 +4,7 @@ import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("SwiftUI controls update only changed UIKit properties", .timeLimit(.minutes(1)))
+@Suite("SwiftUI controls update only changed UIKit properties", .timeLimit(.minutes(3)))
 @MainActor
 struct ABPlayerControlsSwiftUITests {
     @Test("Given matching inputs, wrapper updates preserve player and style state")

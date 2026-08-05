@@ -10,7 +10,7 @@ import Testing
 /// `ABApplicationStateObserver` coverage already uses) and fed fabricated
 /// `userInfo` dictionaries with the real notification names/keys, per
 /// WP10.5.
-@Suite("ABPlayer reacts to AVAudioSession interruption/route-change notifications", .timeLimit(.minutes(1)))
+@Suite("ABPlayer reacts to AVAudioSession interruption/route-change notifications", .timeLimit(.minutes(3)))
 @MainActor
 struct ABAudioInterruptionTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)

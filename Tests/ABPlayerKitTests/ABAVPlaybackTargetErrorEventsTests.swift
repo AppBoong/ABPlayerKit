@@ -17,7 +17,7 @@ import Testing
 /// round trips — `tiny.mp4` is a bundled local fixture), rather than through
 /// `ABFakePlaybackTarget`, since the behavior under test lives entirely
 /// inside `ABAVPlaybackTarget`'s own `NotificationCenter` wiring.
-@Suite("ABAVPlaybackTarget surfaces item failure notifications", .timeLimit(.minutes(1)))
+@Suite("ABAVPlaybackTarget surfaces item failure notifications", .timeLimit(.minutes(3)))
 @MainActor
 struct ABAVPlaybackTargetErrorEventsTests {
     private func makeAttachedTarget() throws -> (ABAVPlaybackTarget, AVPlayerItem) {

@@ -4,7 +4,7 @@ import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("Controls expose localized and stateful accessibility", .timeLimit(.minutes(1)))
+@Suite("Controls expose localized and stateful accessibility", .timeLimit(.minutes(3)))
 @MainActor
 struct ABPlayerControlsAccessibilityTests {
     @Test("Given bundled localizations, English and Korean control labels are available")

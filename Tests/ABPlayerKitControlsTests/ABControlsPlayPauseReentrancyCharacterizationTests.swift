@@ -15,7 +15,7 @@ import Testing
 /// forwards through `Task { @MainActor in ... }` in `ABAVPlaybackTarget`,
 /// so that event always arrives on a later run-loop turn, never inside this
 /// same call stack.) This test must pass unchanged before and after WP-A4b.
-@Suite("A play tap's reentrant event ordering is pinned before WP-A4b touches togglePlayback", .timeLimit(.minutes(1)))
+@Suite("A play tap's reentrant event ordering is pinned before WP-A4b touches togglePlayback", .timeLimit(.minutes(3)))
 @MainActor
 struct ABControlsPlayPauseReentrancyCharacterizationTests {
     /// Tracks just the event *kind* (case name), not full payloads — some

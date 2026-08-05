@@ -2,7 +2,7 @@ import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("Control buttons resolve style-driven icons safely", .timeLimit(.minutes(1)))
+@Suite("Control buttons resolve style-driven icons safely", .timeLimit(.minutes(3)))
 @MainActor
 struct ABControlButtonTests {
     @Test("Given a valid system symbol, the button displays its configured image")

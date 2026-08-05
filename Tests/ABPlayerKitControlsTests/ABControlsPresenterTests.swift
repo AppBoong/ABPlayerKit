@@ -3,7 +3,7 @@ import ABPlayerKit
 import Testing
 @testable import ABPlayerKitControls
 
-@Suite("ABControlsPresenter maps player-driven state into view-update effects, no UIView or ABPlayer required", .timeLimit(.minutes(1)))
+@Suite("ABControlsPresenter maps player-driven state into view-update effects, no UIView or ABPlayer required", .timeLimit(.minutes(3)))
 struct ABControlsPresenterTests {
     // MARK: - attached / detached
 

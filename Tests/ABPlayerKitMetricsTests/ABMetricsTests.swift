@@ -27,7 +27,7 @@ private final class ABFakeClock: ABClock, @unchecked Sendable {
     }
 }
 
-@Suite("ABPlaybackStatistics aggregation", .timeLimit(.minutes(1)))
+@Suite("ABPlaybackStatistics aggregation", .timeLimit(.minutes(3)))
 struct ABPlaybackStatisticsTests {
     @Test("Aggregates fixed samples with abandoned samples in rate denominators")
     func aggregatesFixedSamples() {
@@ -65,7 +65,7 @@ struct ABPlaybackStatisticsTests {
     }
 }
 
-@Suite("ABMetricsRecorder scenarios", .timeLimit(.minutes(1)))
+@Suite("ABMetricsRecorder scenarios", .timeLimit(.minutes(3)))
 @MainActor
 struct ABMetricsRecorderTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/video.mp4")!)

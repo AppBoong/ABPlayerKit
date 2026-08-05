@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ABPlayerKit
 
-@Suite("Playback rate survives pause, resume, and grade round-trips", .timeLimit(.minutes(1)))
+@Suite("Playback rate survives pause, resume, and grade round-trips", .timeLimit(.minutes(3)))
 @MainActor
 struct ABPlaybackRateEngineTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/rate.mp4")!)

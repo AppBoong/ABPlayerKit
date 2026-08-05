@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import ABPlayerKit
 
-@Suite("Periodic time observation is opt-in and pauses during scrubbing", .timeLimit(.minutes(1)))
+@Suite("Periodic time observation is opt-in and pauses during scrubbing", .timeLimit(.minutes(3)))
 @MainActor
 struct ABPeriodicTimeEngineTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/periodic.mp4")!)

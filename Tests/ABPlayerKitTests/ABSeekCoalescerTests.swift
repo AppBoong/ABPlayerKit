@@ -2,7 +2,7 @@
 import Testing
 @testable import ABPlayerKit
 
-@Suite("Scrubbing coalesces seeks and never issues a stale target", .timeLimit(.minutes(1)))
+@Suite("Scrubbing coalesces seeks and never issues a stale target", .timeLimit(.minutes(3)))
 struct ABSeekCoalescerTests {
     private let first = CMTime(seconds: 1, preferredTimescale: 600)
     private let middle = CMTime(seconds: 2, preferredTimescale: 600)

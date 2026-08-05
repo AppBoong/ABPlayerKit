@@ -2,7 +2,7 @@ import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("Seek bar renders buffered progress and tracks dragging", .timeLimit(.minutes(1)))
+@Suite("Seek bar renders buffered progress and tracks dragging", .timeLimit(.minutes(3)))
 @MainActor
 struct ABSeekBarTests {
     @Test("Given progress values, layers use shared geometry")

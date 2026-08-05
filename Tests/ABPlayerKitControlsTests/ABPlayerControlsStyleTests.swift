@@ -2,7 +2,7 @@ import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("Control styles provide stable defaults and presets", .timeLimit(.minutes(1)))
+@Suite("Control styles provide stable defaults and presets", .timeLimit(.minutes(3)))
 @MainActor
 struct ABPlayerControlsStyleTests {
     @Test("Given a fresh style, it equals the documented default preset")

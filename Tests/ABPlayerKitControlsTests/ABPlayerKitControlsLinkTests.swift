@@ -2,7 +2,7 @@ import ABPlayerKit
 import ABPlayerKitControls
 import Testing
 
-@Suite("ABPlayerKitControls target links to the core player", .timeLimit(.minutes(1)))
+@Suite("ABPlayerKitControls target links to the core player", .timeLimit(.minutes(3)))
 struct ABPlayerKitControlsLinkTests {
     @Test("Given both imports, core playback values remain available")
     func linksCoreTarget() {

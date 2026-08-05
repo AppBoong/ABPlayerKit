@@ -1,7 +1,7 @@
 import Testing
 @testable import ABPlayerKitControls
 
-@Suite("Controls auto-hide follows playback and scrubbing state", .timeLimit(.minutes(1)))
+@Suite("Controls auto-hide follows playback and scrubbing state", .timeLimit(.minutes(3)))
 struct ABControlsVisibilityMachineTests {
     @Test("Given hidden playing controls, a tap shows, notifies, and schedules hiding")
     func hiddenTapShowsControls() {

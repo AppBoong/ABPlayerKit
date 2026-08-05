@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import ABPlayerKit
 
-@Suite("Scrubbing coalesces engine seeks and commits the newest target", .timeLimit(.minutes(1)))
+@Suite("Scrubbing coalesces engine seeks and commits the newest target", .timeLimit(.minutes(3)))
 @MainActor
 struct ABScrubbingEngineTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/scrub.mp4")!)

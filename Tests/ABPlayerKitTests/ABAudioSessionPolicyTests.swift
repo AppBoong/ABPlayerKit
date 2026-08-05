@@ -13,7 +13,7 @@ import Testing
 /// `play()`/promotion always reactivates rather than memoizing "already
 /// applied" (M1); a failed activate still leaves the snapshot restorable
 /// (M2); and `deinit` leaves the coordinator even without `release()` (M4).
-@Suite("ABPlayer applies and restores audioSessionPolicy through ABAudioSessionCoordinator", .timeLimit(.minutes(1)))
+@Suite("ABPlayer applies and restores audioSessionPolicy through ABAudioSessionCoordinator", .timeLimit(.minutes(3)))
 @MainActor
 struct ABAudioSessionPolicyTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)

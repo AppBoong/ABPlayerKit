@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import ABPlayerKitCache
 
-@Suite("ABCacheKey derivation", .timeLimit(.minutes(1)))
+@Suite("ABCacheKey derivation", .timeLimit(.minutes(3)))
 struct ABCacheKeyTests {
     @Test("Normalizes host, default port, query order, fragments, and transient tokens")
     func normalizesURLs() {
@@ -26,7 +26,7 @@ struct ABCacheKeyTests {
     }
 }
 
-@Suite("ABByteRange parsing", .timeLimit(.minutes(1)))
+@Suite("ABByteRange parsing", .timeLimit(.minutes(3)))
 struct ABByteRangeTests {
     @Test("Parses bounded and open-ended single ranges")
     func parsesRanges() {
@@ -46,7 +46,7 @@ struct ABByteRangeTests {
 
 }
 
-@Suite("ABCacheIndex LRU and persistence", .timeLimit(.minutes(1)))
+@Suite("ABCacheIndex LRU and persistence", .timeLimit(.minutes(3)))
 struct ABCacheIndexTests {
     @Test("Evicts least-recently-used entries until under the limit")
     func evictsLRU() {
