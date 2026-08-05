@@ -409,6 +409,8 @@ The complete rationale is recorded in [DESIGN-ABPlayerKit](docs/DESIGN-ABPlayerK
 
 While this package is `0.x`, replacement APIs are always added additively and deprecated (never silently removed) in the same minor release, with at least one minor release of overlap before removal — nothing is removed before `1.0.0`. `ABPlayerEvent`/`ABPlayerError` stay non-exhaustive `enum`s for the same reason: consumer `switch` statements should include a `default` branch. The full policy, and the deprecation of the array-based `accessoryViews:` initializers in favor of `@ViewBuilder accessories:` as a worked example, is in [POLICY-api-stability](docs/POLICY-api-stability.md).
 
+> If you don't pass `accessoryViews` today, a bare `ABPlayerControls(player: player)` / `ABVideoPlayerWithControls(player: player)` call now resolves to the deprecated initializer and warns. Add an empty trailing closure — `ABPlayerControls(player: player) {}` — to route to the new one instead; see the CHANGELOG's `[Unreleased]` `### Deprecated` entry for why there's no default that avoids this.
+
 ## Demo App
 
 The standalone iOS 17 demo exercises HLS/MP4 playback, all four grades, tuning roles, TTFF statistics, progressive caching, and explicit HLS prefetch.
