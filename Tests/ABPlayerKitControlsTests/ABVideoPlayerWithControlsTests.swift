@@ -17,7 +17,7 @@ struct ABVideoPlayerWithControlsTests {
             player: player,
             style: .minimal,
             configuration: configuration
-        )
+        ) {}
         .frame(width: 320, height: 180)
         let hostingController = UIHostingController(rootView: rootView)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
@@ -38,7 +38,7 @@ struct ABVideoPlayerWithControlsTests {
     @Test("Given a fixed SwiftUI container, controls fill the complete video overlay")
     func controlsFillVideoOverlay() {
         let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
-        let rootView = ABVideoPlayerWithControls(player: player)
+        let rootView = ABVideoPlayerWithControls(player: player) {}
             .frame(width: 320, height: 180)
         let hostingController = UIHostingController(rootView: rootView)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
@@ -65,7 +65,7 @@ struct ABVideoPlayerWithControlsTests {
             source: ABMediaSource(url: URL(string: "https://example.com/touch-test.mp4")!),
             grade: .current
         )
-        let rootView = ABVideoPlayerWithControls(player: player)
+        let rootView = ABVideoPlayerWithControls(player: player) {}
             .frame(width: 390, height: 220)
         let hostingController = UIHostingController(rootView: rootView)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 300))

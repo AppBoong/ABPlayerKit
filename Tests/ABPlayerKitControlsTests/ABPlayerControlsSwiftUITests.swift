@@ -1,4 +1,5 @@
 import ABPlayerKit
+import SwiftUI
 import Testing
 import UIKit
 @testable import ABPlayerKitControls
@@ -9,7 +10,7 @@ struct ABPlayerControlsSwiftUITests {
     @Test("Given matching inputs, wrapper updates preserve player and style state")
     func unchangedInputsAreStable() {
         let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
-        let wrapper = ABPlayerControls(player: player)
+        let wrapper = ABPlayerControls(player: player) {}
         let view = ABPlayerControlsView()
         let coordinator = wrapper.makeCoordinator()
 
@@ -32,7 +33,7 @@ struct ABPlayerControlsSwiftUITests {
             player: player,
             style: style,
             configuration: configuration
-        )
+        ) {}
         let view = ABPlayerControlsView()
 
         wrapper.update(view, coordinator: wrapper.makeCoordinator())
@@ -47,8 +48,8 @@ struct ABPlayerControlsSwiftUITests {
         let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
         var firstEvents: [ABControlsEvent] = []
         var latestEvents: [ABControlsEvent] = []
-        let first = ABPlayerControls(player: player) { firstEvents.append($0) }
-        let second = ABPlayerControls(player: player) { latestEvents.append($0) }
+        let first = ABPlayerControls(player: player, onEvent: { firstEvents.append($0) }) {}
+        let second = ABPlayerControls(player: player, onEvent: { latestEvents.append($0) }) {}
         let coordinator = first.makeCoordinator()
         let view = ABPlayerControlsView()
         first.update(view, coordinator: coordinator)
@@ -58,5 +59,44 @@ struct ABPlayerControlsSwiftUITests {
 
         #expect(firstEvents.isEmpty)
         #expect(latestEvents == [.visibilityChanged(isVisible: false)])
+    }
+
+    @Test("Given SwiftUI accessories content, the wrapper hosts it as a single accessory view")
+    func accessoriesContentIsHosted() {
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        let wrapper = ABPlayerControls(player: player) {
+            Text("Accessory")
+        }
+        let view = ABPlayerControlsView()
+
+        wrapper.update(view, coordinator: wrapper.makeCoordinator())
+
+        #expect(view.accessoryViews.count == 1)
+    }
+
+    @Test("Given EmptyView accessories (the default, no trailing closure), no accessory view is hosted")
+    func emptyViewAccessoriesHostsNothing() {
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        let wrapper = ABPlayerControls(player: player) {}
+        let view = ABPlayerControlsView()
+
+        wrapper.update(view, coordinator: wrapper.makeCoordinator())
+
+        #expect(view.accessoryViews.isEmpty)
+    }
+
+    @Test("Given accessories content updated across two wrapper values sharing a coordinator, the same hosted view instance is reused rather than rebuilt")
+    func accessoriesUpdateReusesTheSameHostedView() {
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        let first = ABPlayerControls(player: player) { Text("One") }
+        let second = ABPlayerControls(player: player) { Text("Two") }
+        let coordinator = first.makeCoordinator()
+        let view = ABPlayerControlsView()
+        first.update(view, coordinator: coordinator)
+        let hostedView = view.accessoryViews.first
+
+        second.update(view, coordinator: coordinator)
+
+        #expect(view.accessoryViews.first === hostedView)
     }
 }

@@ -1,6 +1,7 @@
 @preconcurrency import AVFoundation
 import ABPlayerKit
 import Foundation
+import SwiftUI
 import Testing
 import UIKit
 @testable import ABPlayerKitControls
@@ -572,6 +573,42 @@ struct ABPlayerControlsLayoutTests {
             to: view
         )
         #expect(view.hitTest(center, with: nil) === accessoryButton)
+    }
+
+    @Test("Given the same overlap, an ABAccessoryHostingBox-hosted SwiftUI accessory also wins hit testing over an enabled seek bar")
+    func swiftUIHostedAccessoryWinsHitTestingOverAnEnabledSeekBar() {
+        // Same setup and same geometry as accessoryViewsWinHitTestingOverAnEnabledSeekBar
+        // above — this test exists specifically to confirm the hit-test priority
+        // promise (CustomizingControls.md) holds for the WP-B SwiftUI accessories
+        // path too, not just the UIKit accessoryViews path.
+        let source = ABMediaSource(url: URL(string: "https://example.com/accessory-hit-test.mp4")!)
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        player.set(source: source, grade: .current)
+        let view = ABPlayerControlsView()
+        view.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
+        view.player = player
+        view.handlePlayerEvent(.periodicTime(ABPlaybackTime(
+            currentTime: CMTime(seconds: 30, preferredTimescale: 600),
+            duration: CMTime(seconds: 120, preferredTimescale: 600),
+            bufferedUntil: nil
+        )))
+
+        let box = ABAccessoryHostingBox {
+            Color.white.frame(width: 44, height: 44)
+        }
+        view.accessoryViews = [box.view]
+        view.layoutIfNeeded()
+
+        #expect(view.seekBar.isSeekEnabled)
+        #expect(view.renderedSeekBarFrame.intersects(
+            box.view.convert(box.view.bounds, to: view)
+        ))
+
+        let center = box.view.convert(
+            CGPoint(x: box.view.bounds.midX, y: box.view.bounds.midY),
+            to: view
+        )
+        #expect(view.hitTest(center, with: nil) === box.view || view.hitTest(center, with: nil)?.isDescendant(of: box.view) == true)
     }
 
     @Test("Given a hidden rate control, the seek bar still spans the full width and the row below collapses")

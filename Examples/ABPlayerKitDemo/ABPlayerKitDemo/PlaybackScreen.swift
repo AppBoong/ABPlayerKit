@@ -7,7 +7,6 @@ struct PlaybackScreen: View {
     let model: DemoModel
     @State private var selectedControlsStyle = DemoControlsStyle.default
     @State private var accessoryTapCount = 0
-    private let accessoryButton = DemoAccessoryButton()
 
     var body: some View {
         NavigationStack {
@@ -17,15 +16,24 @@ struct PlaybackScreen: View {
                         player: model.player,
                         videoGravity: .resizeAspect,
                         style: selectedControlsStyle.style,
-                        configuration: controlsConfiguration,
-                        accessoryViews: [accessoryButton]
-                    )
+                        configuration: controlsConfiguration
+                    ) {
+                        // `@ViewBuilder accessories:` demonstration/verification
+                        // vehicle: a plain SwiftUI button placed at the controls'
+                        // right edge, next to the rate button, to exercise (and
+                        // let a human tap-test) hit-test priority over the seek
+                        // bar. See `DESIGN-OPEN-QUESTIONS.md` Q6-A.
+                        Button {
+                            accessoryTapCount += 1
+                        } label: {
+                            Image(systemName: "star.fill")
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                        }
+                    }
                         .aspectRatio(16 / 9, contentMode: .fit)
                         .background(.black)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .onAppear {
-                            accessoryButton.onTap = { accessoryTapCount += 1 }
-                        }
 
                     Text("Accessory taps: \(accessoryTapCount)")
                         .font(.footnote)
@@ -166,28 +174,6 @@ struct PlaybackScreen: View {
         configuration.rateInteraction = .menu
         return configuration
     }
-}
-
-/// A minimal `accessoryViews` demonstration/verification vehicle: a plain
-/// UIButton placed at the controls' right edge, next to the rate button, to
-/// exercise (and let a human tap-test) hit-test priority over the seek bar.
-@MainActor
-private final class DemoAccessoryButton: UIButton {
-    var onTap: (() -> Void)?
-
-    init() {
-        super.init(frame: .zero)
-        setImage(UIImage(systemName: "star.fill"), for: .normal)
-        tintColor = .white
-        translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 44),
-            heightAnchor.constraint(equalToConstant: 44)
-        ])
-        addAction(UIAction { [weak self] _ in self?.onTap?() }, for: .touchUpInside)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
 private enum DemoControlsStyle: String, CaseIterable, Identifiable {
