@@ -11,6 +11,31 @@ ABPlayerKit is a thin, measurable wrapper around `AVPlayer`. It makes playback r
 
 The package keeps AVFoundation visible, adds symmetric promotion and demotion, and separates optional controls, metrics, and cache behavior into independently linked targets.
 
+<table>
+<tr>
+<td align="center" width="50%">
+<img src="docs/assets/playback-screen.png" width="240" alt="Playback screen showing a real decoded video frame"><br>
+<sub>Playback screen</sub>
+</td>
+<td align="center" width="50%">
+<img src="docs/assets/controls-overlay.png" width="240" alt="Controls overlay with transport, scrubber, and rate menu"><br>
+<sub>Controls overlay</sub>
+</td>
+</tr>
+<tr>
+<td align="center" width="50%">
+<img src="docs/assets/style-tinted.png" width="240" alt="Tinted controls style variant"><br>
+<sub>Tinted style variant</sub>
+</td>
+<td align="center" width="50%">
+<img src="docs/assets/cache-screen.png" width="240" alt="Cache screen showing disk usage and HLS prefetch status"><br>
+<sub>Cache screen</sub>
+</td>
+</tr>
+</table>
+
+Screenshots are from the `Examples/ABPlayerKitDemo` app running the Apple HLS bipbop test stream.
+
 ## Requirements
 
 - iOS 17+

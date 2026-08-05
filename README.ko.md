@@ -11,6 +11,31 @@ ABPlayerKit은 `AVPlayer`를 얇게 감싸면서 측정 가능성을 제공하�
 
 AVFoundation을 숨기지 않으면서 승격과 강등을 대칭으로 처리하고, 선택 기능인 컨트롤·메트릭·캐시는 독립적으로 링크하는 별도 타겟으로 분리합니다.
 
+<table>
+<tr>
+<td align="center" width="50%">
+<img src="docs/assets/playback-screen.png" width="240" alt="실제 디코딩된 영상 프레임이 보이는 재생 화면"><br>
+<sub>재생 화면</sub>
+</td>
+<td align="center" width="50%">
+<img src="docs/assets/controls-overlay.png" width="240" alt="트랜스포트, 스크러버, 배속 메뉴가 있는 컨트롤 오버레이"><br>
+<sub>컨트롤 오버레이</sub>
+</td>
+</tr>
+<tr>
+<td align="center" width="50%">
+<img src="docs/assets/style-tinted.png" width="240" alt="Tinted 컨트롤 스타일 변형"><br>
+<sub>Tinted 스타일 변형</sub>
+</td>
+<td align="center" width="50%">
+<img src="docs/assets/cache-screen.png" width="240" alt="디스크 사용량과 HLS 프리페치 상태를 보여주는 캐시 화면"><br>
+<sub>캐시 화면</sub>
+</td>
+</tr>
+</table>
+
+스크린샷은 `Examples/ABPlayerKitDemo` 앱에서 Apple HLS bipbop 테스트 스트림을 재생한 화면입니다.
+
 ## 요구 사항
 
 - iOS 17+
