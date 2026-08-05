@@ -439,6 +439,20 @@ struct ABPlayerHandleTargetEventTests {
         #expect(events.contains(.failed(error)))
     }
 
+    @Test(".failed(.itemErrorLogEntry) updates lastError and broadcasts .failed — lets a consumer tell a diagnostic signal apart from a terminal failure while still-loading")
+    func itemErrorLogEntryUpdatesLastErrorAndBroadcasts() {
+        let (player, target) = makePlayer()
+        var events: [ABPlayerEvent] = []
+        let token = player.addObserver { events.append($0) }
+        defer { token.cancel() }
+
+        let error = ABPlayerError.itemErrorLogEntry(description: "HTTP 403 (Forbidden)")
+        target.emit(.failed(error))
+
+        #expect(player.lastError == error)
+        #expect(events.contains(.failed(error)))
+    }
+
     @Test(".playedToEnd broadcasts .playedToEnd")
     func playedToEndBroadcasts() {
         let (player, target) = makePlayer()

@@ -21,4 +21,14 @@ public enum ABPlayerError: Error, Sendable, Equatable {
     /// Added in a minor release — see the non-exhaustive convention noted
     /// on this type's own doc comment above.
     case audioSessionOperationFailed(description: String)
+    /// A new entry was appended to `AVPlayerItem.errorLog()` (e.g. an
+    /// HTTP/network hiccup the item may still recover from) — non-terminal,
+    /// unlike `.itemFailed`. Lets a consumer distinguish "still loading,
+    /// but something's already gone wrong underneath" from a genuine
+    /// terminal failure when playback appears to hang; see `ABPlayer.lastError`.
+    /// `AVPlayerItemErrorLogEvent` stringified for `Equatable`/`Sendable`
+    /// safety, same as `itemFailed`.
+    /// Added in a minor release — see the non-exhaustive convention noted
+    /// on this type's own doc comment above.
+    case itemErrorLogEntry(description: String)
 }

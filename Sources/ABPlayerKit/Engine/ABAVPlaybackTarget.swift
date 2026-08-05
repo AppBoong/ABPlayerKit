@@ -191,6 +191,14 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         avPlayer?.automaticallyWaitsToMinimizeStalling = resolved.automaticallyWaitsToMinimizeStalling
     }
 
+    private static func describe(errorLogEvent event: AVPlayerItemErrorLogEvent) -> String {
+        var description = "\(event.errorDomain) (\(event.errorStatusCode))"
+        if let comment = event.errorComment, !comment.isEmpty {
+            description += ": \(comment)"
+        }
+        return description
+    }
+
     private func currentScreenNativeSize() -> CGSize {
         #if canImport(UIKit)
         return UIScreen.main.nativeBounds.size
@@ -367,6 +375,57 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             }
         }
         observations.add { center.removeObserver(stallToken) }
+
+        // A stall (above) only means playback paused to rebuffer, not that
+        // anything is actually wrong — it resolves on its own most of the
+        // time. These two notifications are what let a consumer tell a
+        // stuck-but-healthy stall apart from a real problem: FailedToPlayToEndTime
+        // is the terminal case (mid-playback failure that KVO on `.status`
+        // does not reliably surface — the `.failed` branch in the status
+        // observation above only catches failures during initial load), and
+        // NewErrorLogEntry is a non-terminal diagnostic signal that
+        // something has already gone wrong underneath even if the item
+        // hasn't failed outright yet. Both route through the same
+        // `.failed(ABPlayerError)` target event / `lastError` path as the
+        // existing status-based failure above (stale-item guarded, like
+        // `setPeriodicTimeObserver`'s `onTick`, since the `Task` hop after
+        // this main-queue callback can run after a newer item replaces
+        // `self.avPlayerItem`).
+        // The description is resolved synchronously here, in the
+        // non-isolated notification callback, rather than inside the `Task`
+        // below — `Notification`/`AVPlayerItemErrorLogEvent` aren't
+        // `Sendable` (unlike `Foundation`, this file's `AVFoundation`
+        // import is `@preconcurrency`, but plain `Foundation` isn't), so
+        // only the resulting `String` may cross the hop to `@MainActor`.
+        let failedToEndToken = center.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self, weak item] notification in
+            let underlyingDescription = (notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError)?.localizedDescription
+            let description = underlyingDescription
+                ?? item?.error?.localizedDescription
+                ?? "Playback failed before reaching the end of the item"
+            Task { @MainActor in
+                guard let self, let item, self.avPlayerItem === item else { return }
+                self.onEvent?(.failed(.itemFailed(description: description)))
+            }
+        }
+        observations.add { center.removeObserver(failedToEndToken) }
+
+        let newErrorLogEntryToken = center.addObserver(
+            forName: .AVPlayerItemNewErrorLogEntry,
+            object: item,
+            queue: .main
+        ) { [weak self, weak item] _ in
+            guard let event = item?.errorLog()?.events.last else { return }
+            let description = Self.describe(errorLogEvent: event)
+            Task { @MainActor in
+                guard let self, let item, self.avPlayerItem === item else { return }
+                self.onEvent?(.failed(.itemErrorLogEntry(description: description)))
+            }
+        }
+        observations.add { center.removeObserver(newErrorLogEntryToken) }
 
         if let avPlayer {
             let timeControlObservation = avPlayer.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
