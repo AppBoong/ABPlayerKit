@@ -15,12 +15,12 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
     outputs:
       coverage-percent: ${{ steps.coverage.outputs.percent }}
     env:
       PINNED_DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
-      DESTINATION: platform=iOS Simulator,name=iPhone 16 Pro
+      PREFERRED_SIMULATOR_NAME: iPhone 16 Pro
     steps:
       - uses: actions/checkout@v4
 
@@ -35,6 +35,9 @@ jobs:
 
       - name: Show toolchain
         run: xcodebuild -version
+
+      - name: Prepare iOS simulator
+        run: bash .github/scripts/prepare-simulator.sh
 
       - name: Build and test package with warnings as errors
         run: >-
@@ -126,6 +129,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install SwiftLint if missing
+        run: |
+          if ! command -v swiftlint >/dev/null 2>&1; then
+            brew install swiftlint
+          fi
+
       - name: Run SwiftLint
         run: swiftlint lint --strict
 
@@ -133,10 +142,10 @@ jobs:
     # Separate job (not a step in build-and-test) so a slow TSan run never
     # delays the main build-and-test result; it runs concurrently instead.
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       PINNED_DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
-      DESTINATION: platform=iOS Simulator,name=iPhone 16 Pro
+      PREFERRED_SIMULATOR_NAME: iPhone 16 Pro
     steps:
       - uses: actions/checkout@v4
 
@@ -148,6 +157,9 @@ jobs:
             resolved_developer_dir="$(xcode-select -p)"
           fi
           echo "DEVELOPER_DIR=$resolved_developer_dir" >> "$GITHUB_ENV"
+
+      - name: Prepare iOS simulator
+        run: bash .github/scripts/prepare-simulator.sh
 
       - name: Run core and cache tests under ThreadSanitizer
         run: >-
