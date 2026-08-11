@@ -16,6 +16,8 @@ jobs:
   build-and-test:
     runs-on: macos-15
     timeout-minutes: 30
+    outputs:
+      coverage-percent: ${{ steps.coverage.outputs.percent }}
     env:
       PINNED_DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
       DESTINATION: platform=iOS Simulator,name=iPhone 16 Pro
@@ -54,6 +56,48 @@ jobs:
           path: ${{ runner.temp }}/ABPlayerKit.xcresult
           retention-days: 14
 
+      - name: Summarize coverage
+        id: coverage
+        run: |
+          set -euo pipefail
+          xcresult="$RUNNER_TEMP/ABPlayerKit.xcresult"
+          percent=$(xcrun xccov view --report --json "$xcresult" | python3 -c '
+          import json, sys
+          report = json.load(sys.stdin)
+          print(f"{report[\"lineCoverage\"] * 100:.1f}")
+          ')
+          {
+            echo "## Coverage"
+            echo
+            echo "Overall line coverage: **${percent}%**"
+            echo
+            echo '```'
+            xcrun xccov view --report "$xcresult"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "percent=${percent}" >> "$GITHUB_OUTPUT"
+
+      - name: Write coverage badge data
+        run: |
+          set -euo pipefail
+          percent="${{ steps.coverage.outputs.percent }}"
+          color="red"
+          if awk -v p="$percent" 'BEGIN { exit !(p >= 80) }'; then
+            color="brightgreen"
+          elif awk -v p="$percent" 'BEGIN { exit !(p >= 60) }'; then
+            color="yellow"
+          fi
+          mkdir -p "$RUNNER_TEMP/badge"
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' \
+            "$percent" "$color" > "$RUNNER_TEMP/badge/coverage.json"
+
+      - name: Upload coverage badge data
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-badge
+          path: ${{ runner.temp }}/badge
+          retention-days: 14
+
       - name: Build documentation
         run: >-
           xcodebuild
@@ -75,3 +119,80 @@ jobs:
           GCC_TREAT_WARNINGS_AS_ERRORS=YES
           EXTRACT_APP_INTENTS_METADATA=NO
           build
+
+  lint:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run SwiftLint
+        run: swiftlint lint --strict
+
+  thread-sanitizer:
+    # Separate job (not a step in build-and-test) so a slow TSan run never
+    # delays the main build-and-test result; it runs concurrently instead.
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      PINNED_DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      DESTINATION: platform=iOS Simulator,name=iPhone 16 Pro
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve toolchain
+        run: |
+          if test -d "$PINNED_DEVELOPER_DIR"; then
+            resolved_developer_dir="$PINNED_DEVELOPER_DIR"
+          else
+            resolved_developer_dir="$(xcode-select -p)"
+          fi
+          echo "DEVELOPER_DIR=$resolved_developer_dir" >> "$GITHUB_ENV"
+
+      - name: Run core and cache tests under ThreadSanitizer
+        run: >-
+          xcodebuild
+          -scheme ABPlayerKit-Package
+          -destination "$DESTINATION"
+          -enableThreadSanitizer YES
+          -resultBundlePath "$RUNNER_TEMP/ABPlayerKit-TSan.xcresult"
+          -only-testing:ABPlayerKitTests
+          -only-testing:ABPlayerKitCacheTests
+          SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+          GCC_TREAT_WARNINGS_AS_ERRORS=YES
+          EXTRACT_APP_INTENTS_METADATA=NO
+          test
+
+      - name: Upload TSan result bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ABPlayerKit-TSan.xcresult
+          path: ${{ runner.temp }}/ABPlayerKit-TSan.xcresult
+          retention-days: 14
+
+  coverage-badge:
+    name: Publish coverage badge
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Download coverage badge data
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-badge
+          path: badge
+
+      - name: Publish to the badges branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: badge
+          publish_branch: badges
+          keep_files: false
+          user_name: github-actions[bot]
+          user_email: github-actions[bot]@users.noreply.github.com
+          commit_message: "chore: update coverage badge"
