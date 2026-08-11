@@ -67,7 +67,7 @@ jobs:
           percent=$(xcrun xccov view --report --json "$xcresult" | python3 -c '
           import json, sys
           report = json.load(sys.stdin)
-          print(f"{report[\"lineCoverage\"] * 100:.1f}")
+          print(round(report["lineCoverage"] * 100, 1))
           ')
           {
             echo "## Coverage"
