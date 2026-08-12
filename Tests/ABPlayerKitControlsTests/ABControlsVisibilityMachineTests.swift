@@ -160,3 +160,91 @@ struct ABControlsVisibilityMachineTests {
         )
     }
 }
+
+@Suite("Controls suppress auto-hide while buffering, without forcing visibility", .timeLimit(.minutes(3)))
+struct ABControlsVisibilityMachineBufferingTests {
+    @Test("Given visible playing controls, buffering cancels any scheduled auto-hide without hiding or showing")
+    func bufferingCancelsAutoHide() {
+        var machine = ABControlsVisibilityMachine(
+            visibility: .visible,
+            isScrubbing: false,
+            isPlaying: true,
+            autoHideDelay: 3,
+            staysVisibleWhilePaused: true
+        )
+
+        #expect(machine.handle(.bufferingChanged(true)) == [.cancelAutoHide])
+    }
+
+    @Test("Given buffering ends while still playing and visible, auto-hide reschedules")
+    func bufferingEndingReschedulesAutoHide() {
+        var machine = ABControlsVisibilityMachine(
+            visibility: .visible,
+            isScrubbing: false,
+            isPlaying: true,
+            autoHideDelay: 3,
+            staysVisibleWhilePaused: true
+        )
+        _ = machine.handle(.bufferingChanged(true))
+
+        #expect(machine.handle(.bufferingChanged(false)) == [.scheduleAutoHide(after: 3)])
+    }
+
+    @Test("Given controls already hidden, buffering starting does not show them — the effect is only a defensive cancelAutoHide")
+    func bufferingDoesNotForceVisibility() {
+        var machine = ABControlsVisibilityMachine(
+            visibility: .hidden,
+            isScrubbing: false,
+            isPlaying: true,
+            autoHideDelay: 3,
+            staysVisibleWhilePaused: true
+        )
+
+        #expect(machine.handle(.bufferingChanged(true)) == [.cancelAutoHide])
+        #expect(machine.visibility == .hidden)
+    }
+
+    @Test("Given a control interaction while buffering, no auto-hide is scheduled until buffering ends")
+    func controlInteractedDuringBufferingDoesNotSchedule() {
+        var machine = ABControlsVisibilityMachine(
+            visibility: .visible,
+            isScrubbing: false,
+            isPlaying: true,
+            autoHideDelay: 3,
+            staysVisibleWhilePaused: true
+        )
+        _ = machine.handle(.bufferingChanged(true))
+
+        #expect(machine.handle(.controlInteracted) == [.cancelAutoHide])
+    }
+
+    @Test("Given autoHideFired arrives while buffering (a race with the timer), it is ignored")
+    func autoHideFiredIsIgnoredWhileBuffering() {
+        var machine = ABControlsVisibilityMachine(
+            visibility: .visible,
+            isScrubbing: false,
+            isPlaying: true,
+            autoHideDelay: 3,
+            staysVisibleWhilePaused: true
+        )
+        _ = machine.handle(.bufferingChanged(true))
+
+        #expect(machine.handle(.autoHideFired) == [])
+        #expect(machine.visibility == .visible)
+    }
+
+    @Test("Given the machine detaches while buffering, isBuffering resets so a freshly attached player isn't stuck suppressed")
+    func detachResetsBuffering() {
+        var machine = ABControlsVisibilityMachine(
+            visibility: .visible,
+            isScrubbing: false,
+            isPlaying: true,
+            autoHideDelay: 3,
+            staysVisibleWhilePaused: true
+        )
+        _ = machine.handle(.bufferingChanged(true))
+        _ = machine.handle(.detached)
+
+        #expect(machine.handle(.playbackStateChanged(isPlaying: true)) == [.scheduleAutoHide(after: 3)])
+    }
+}

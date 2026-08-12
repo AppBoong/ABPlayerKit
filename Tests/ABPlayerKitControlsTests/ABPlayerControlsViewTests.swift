@@ -340,7 +340,7 @@ struct ABPlayerControlsEventReflectionTests {
         )))
 
         #expect(!view.seekBar.isSeekEnabled)
-        #expect(view.displayedElapsedText?.hasSuffix(ABTimeFormatter.liveMarker) == true)
+        #expect(view.displayedElapsedText?.hasSuffix(ABControlsLocalization.string("controls.liveMarker")) == true)
     }
 
     @Test("Given duration disappears during scrubbing, controls always end the session")
@@ -759,5 +759,29 @@ struct ABPlayerControlsSkipWiringTests {
         view.skipForwardButton.sendActions(for: .touchUpInside)
 
         #expect(events.isEmpty)
+    }
+
+    @Test("Given a real skip button tap followed by the core's confirming seekTargetChanged, the seek feedback badge shows the plain delta — this path has no optimistic pre-render of its own, so it never had the VoiceOver streak's anchor-timing bug")
+    func skipButtonTapFeedsTheSharedBadgeMechanismCorrectly() {
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.skipInterval = 10
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        let view = ABPlayerControlsView(configuration: configuration)
+        view.player = player
+        view.handlePlayerEvent(.periodicTime(ABPlaybackTime(
+            currentTime: CMTime(seconds: 100, preferredTimescale: 600),
+            duration: CMTime(seconds: 300, preferredTimescale: 600),
+            bufferedUntil: nil
+        )))
+
+        view.skipForwardButton.sendActions(for: .touchUpInside)
+        // Simulates the core's asynchronous confirmation of that skip
+        // landing in `pendingSeekTime` — this presenter case never renders
+        // optimistically ahead of it (unlike `.accessibilityAdjusted`), so
+        // the badge's anchor is still the pre-tap baseline (100s) when this
+        // arrives.
+        view.handlePlayerEvent(.seekTargetChanged(CMTime(seconds: 110, preferredTimescale: 600)))
+
+        #expect(view.seekFeedbackText == "+10s")
     }
 }

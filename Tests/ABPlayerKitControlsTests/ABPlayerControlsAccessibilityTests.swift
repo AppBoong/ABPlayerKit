@@ -125,4 +125,77 @@ struct ABPlayerControlsAccessibilityTests {
 
         #expect(view.elapsedLabel.adjustsFontForContentSizeCategory)
     }
+
+    @Test("Given each of the 5 new accessibility hint keys, en and ko both have a non-empty translation")
+    func hintKeysAreNonEmptyInBothLocalizations() {
+        for key in [
+            "controls.hint.playPause",
+            "controls.hint.skipBackward",
+            "controls.hint.skipForward",
+            "controls.hint.rate",
+            "controls.hint.timeline"
+        ] {
+            #expect(ABControlsLocalization.string(key, localization: "en").isEmpty == false)
+            #expect(ABControlsLocalization.string(key, localization: "ko").isEmpty == false)
+            // A missing key falls back to the key itself — catches a typo'd
+            // key that would otherwise silently "succeed" the emptiness check.
+            #expect(ABControlsLocalization.string(key, localization: "en") != key)
+            #expect(ABControlsLocalization.string(key, localization: "ko") != key)
+        }
+    }
+
+    @Test("Given the four transport/rate/timeline controls, each carries the matching accessibility hint")
+    func controlsCarryTheirOwnHints() {
+        let view = ABPlayerControlsView()
+
+        #expect(view.playPauseButton.accessibilityHint == ABControlsLocalization.string("controls.hint.playPause"))
+        #expect(view.skipBackwardButton.accessibilityHint == ABControlsLocalization.string("controls.hint.skipBackward"))
+        #expect(view.skipForwardButton.accessibilityHint == ABControlsLocalization.string("controls.hint.skipForward"))
+        #expect(view.rateButton.accessibilityHint == ABControlsLocalization.string("controls.hint.rate"))
+        #expect(view.seekBar.accessibilityHint == ABControlsLocalization.string("controls.hint.timeline"))
+    }
+
+    @Test("Given the existing accessibilityLabel strings, adding hints does not change them")
+    func hintsDoNotChangeExistingLabels() {
+        let view = ABPlayerControlsView()
+
+        #expect(view.playPauseButton.accessibilityLabel == ABControlsLocalization.string("controls.play"))
+        #expect(view.skipBackwardButton.accessibilityLabel == ABControlsLocalization.string("controls.skipBackward"))
+        #expect(view.skipForwardButton.accessibilityLabel == ABControlsLocalization.string("controls.skipForward"))
+    }
+
+    @Test("controls.liveMarker exists in en and ko, and en matches the historical byte-identical \"LIVE\" value")
+    func liveMarkerIsLocalizedAndEnglishIsUnchanged() {
+        #expect(ABControlsLocalization.string("controls.liveMarker", localization: "en") == "LIVE")
+        #expect(ABControlsLocalization.string("controls.liveMarker", localization: "ko").isEmpty == false)
+        #expect(ABControlsLocalization.string("controls.liveMarker", localization: "ko") != "controls.liveMarker")
+    }
+
+    @Test("Given the default timeLabelSeparator, a live (nil-duration) label renders byte-identical to the historical hardcoded \"/\"")
+    func defaultTimeLabelSeparatorMatchesHistoricalRendering() {
+        let view = ABPlayerControlsView()
+
+        view.handlePlayerEvent(.periodicTime(ABPlaybackTime(
+            currentTime: CMTime(seconds: 65, preferredTimescale: 600),
+            duration: CMTime(seconds: 125, preferredTimescale: 600),
+            bufferedUntil: nil
+        )))
+
+        #expect(view.displayedElapsedText == "00:01:05/00:02:05")
+    }
+
+    @Test("Given a custom timeLabelSeparator, it replaces the hardcoded \"/\" between the elapsed and secondary fields")
+    func customTimeLabelSeparatorReplacesTheDefault() {
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.timeLabelSeparator = " of "
+        let view = ABPlayerControlsView(configuration: configuration)
+
+        view.handlePlayerEvent(.periodicTime(ABPlaybackTime(
+            currentTime: CMTime(seconds: 65, preferredTimescale: 600),
+            duration: CMTime(seconds: 125, preferredTimescale: 600),
+            bufferedUntil: nil
+        )))
+
+        #expect(view.displayedElapsedText == "00:01:05 of 00:02:05")
+    }
 }

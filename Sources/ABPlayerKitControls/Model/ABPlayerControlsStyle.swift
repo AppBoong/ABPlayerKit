@@ -1,7 +1,7 @@
 import UIKit
 
 /// The visual background behind the controls.
-public enum ABControlsBackgroundStyle: Equatable {
+public enum ABControlsBackgroundStyle: Sendable, Equatable {
     case none
     case color(UIColor)
     case gradient(top: UIColor, bottom: UIColor)
@@ -9,20 +9,20 @@ public enum ABControlsBackgroundStyle: Equatable {
 }
 
 /// A rule for deriving a layer's corner radius.
-public enum ABTrackCornerRadius: Equatable {
+public enum ABTrackCornerRadius: Sendable, Equatable {
     case capsule
     case fixed(CGFloat)
     case square
 }
 
 /// The visual treatment for the playback-rate control.
-public enum ABRateLabelStyle: Equatable {
+public enum ABRateLabelStyle: Sendable, Equatable {
     case text(font: UIFont, format: String)
     case icon(ABControlIcon, showsValueBadge: Bool)
 }
 
 /// Appearance values applied live by ``ABPlayerControlsView``.
-public struct ABPlayerControlsStyle: Equatable {
+public struct ABPlayerControlsStyle: Sendable, Equatable {
     public var playIcon: ABControlIcon = .system("play.fill")
     public var pauseIcon: ABControlIcon = .system("pause.fill")
     public var skipBackwardIcon: ABControlIcon?
@@ -87,11 +87,20 @@ public struct ABPlayerControlsStyle: Equatable {
     public var visibilityAnimationDuration: TimeInterval = 0.25
     public var respectsReduceMotion = true
 
+    /// The buffering indicator's tint. `nil` follows ``tintColor``.
+    public var bufferingIndicatorColor: UIColor?
+    /// Text color for the seek-feedback badge (double-tap/skip cumulative delta).
+    public var seekFeedbackTextColor: UIColor = .white
+    /// Background color for the seek-feedback badge.
+    public var seekFeedbackBackgroundColor: UIColor = UIColor.black.withAlphaComponent(0.45)
+    /// Font for the seek-feedback badge's delta text.
+    public var seekFeedbackFont: UIFont = .systemFont(ofSize: 15, weight: .semibold)
+
     public init() {}
 
-    @MainActor public static let `default` = ABPlayerControlsStyle()
+    public static let `default` = ABPlayerControlsStyle()
 
-    @MainActor public static let minimal: ABPlayerControlsStyle = {
+    public static let minimal: ABPlayerControlsStyle = {
         var style = ABPlayerControlsStyle()
         style.backgroundStyle = .gradient(
             top: .clear,
@@ -107,7 +116,7 @@ public struct ABPlayerControlsStyle: Equatable {
         return style
     }()
 
-    @MainActor public static let tinted: ABPlayerControlsStyle = {
+    public static let tinted: ABPlayerControlsStyle = {
         var style = ABPlayerControlsStyle()
         style.tintColor = .systemBlue
         style.progressColor = .systemBlue

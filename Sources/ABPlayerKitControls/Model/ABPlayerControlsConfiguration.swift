@@ -1,6 +1,30 @@
 import ABPlayerKit
 import Foundation
 
+/// How touches that land on the controls overlay but don't hit any specific
+/// control are handled.
+public enum ABControlsTouchPassthrough: Sendable, Equatable {
+    /// The overlay consumes every touch in its bounds (current behavior).
+    case never
+    /// While controls are hidden, touches that miss every control pass
+    /// through to whatever is behind the overlay.
+    case whenControlsHidden
+    /// Touches that miss every control always pass through, regardless of
+    /// visibility.
+    case always
+}
+
+/// Whether — and where — a double tap on the controls overlay seeks.
+public enum ABDoubleTapSeek: Sendable, Equatable {
+    /// No double-tap gesture is installed (default).
+    case disabled
+    /// Double-tapping the leading/trailing edge bands seeks by
+    /// ``ABPlayerControlsConfiguration/skipInterval``. `edgeWidthFraction` is
+    /// each band's width as a fraction of the overlay's width, clamped to
+    /// `0.1...0.5`.
+    case edges(edgeWidthFraction: Double = 0.3)
+}
+
 /// Behavior settings for ``ABPlayerControlsView``.
 public struct ABPlayerControlsConfiguration: Sendable, Equatable {
     public enum RateInteraction: Sendable, Equatable {
@@ -38,6 +62,18 @@ public struct ABPlayerControlsConfiguration: Sendable, Equatable {
         case custom(@Sendable (TimeInterval, TimeInterval?) -> String)
     }
 
+    /// How the playback-rate value is turned into text.
+    public enum RateLabelFormat: Sendable {
+        /// Locale-aware formatting via `NumberFormatter` (e.g. `"1.5"` in
+        /// `en`, `"1,5"` in `de`). ``ABPlayerControlsStyle/rateLabelStyle``'s
+        /// `.text` template still wraps the result (`"%@×"` → `"1.5×"`).
+        case automatic
+        /// Consumer-provided formatter. Its return value is used verbatim as
+        /// the *entire* label — `rateLabelStyle`'s `.text` template does not
+        /// apply, matching ``TimeLabelFormat/custom(_:)``'s contract.
+        case custom(@Sendable (Float) -> String)
+    }
+
     /// Skip-button seek amount, in seconds. Restricted to 5-second steps between
     /// 5 and 60 — assignments are rounded to the nearest step and clamped into
     /// that range (e.g. `7` becomes `5`, `63` becomes `60`).
@@ -64,6 +100,11 @@ public struct ABPlayerControlsConfiguration: Sendable, Equatable {
     public var timeLabelLayout: TimeLabelLayout = .elapsedAndTotal
     public var timeFormat: TimeLabelFormat = .fixedHours
     public var showsSkipButtons = true
+    /// Whether the play/pause button is shown. `false` hides it the same
+    /// way ``showsSkipButtons`` hides the skip buttons.
+    public var showsPlayPauseButton = true
+    /// Whether the seek bar is shown. `false` collapses the row it occupies.
+    public var showsSeekBar = true
     public var handlesBackgroundTap = true
     public var allowsTrackTapToSeek = true
     public var initialVisibility: InitialVisibility = .visible
@@ -79,7 +120,55 @@ public struct ABPlayerControlsConfiguration: Sendable, Equatable {
     /// special-cased.
     public var promotesToCurrentOnPlay = true
 
+    /// Whether a buffering stall shows the spinner overlay described in
+    /// ``ABPlayerControlsView``'s buffering behavior. `false` disables both
+    /// the spinner and the play/pause glyph suppression that accompanies it.
+    public var showsBufferingIndicator = true
+
+    /// How touches that miss every control are handled. Defaults to
+    /// ``ABControlsTouchPassthrough/never`` — identical hit-testing to before
+    /// this option existed.
+    public var touchPassthrough: ABControlsTouchPassthrough = .never
+
+    /// Double-tap-to-seek on the overlay's edge bands. Defaults to
+    /// ``ABDoubleTapSeek/disabled`` — installing the gesture requires the
+    /// background single-tap recognizer to wait out a possible second tap
+    /// (`require(toFail:)`), which delays every single tap by the double-tap
+    /// timeout for every consumer, not just ones that want the feature.
+    public var doubleTapSeek: ABDoubleTapSeek = .disabled
+
+    /// Whether an accepted double-tap seek triggers a light haptic. Only
+    /// double-tap seeking uses this — skip buttons, rate changes, and
+    /// scrubbing are existing, non-opt-in interactions this round doesn't
+    /// change the feel of.
+    public var providesHapticFeedback = true
+
+    /// How the playback-rate value is formatted, on the button and in the
+    /// rate menu alike. Not part of `rateMenuContentsChanged`'s rebuild
+    /// gate in `applyConfiguration` — under `.custom`, every SwiftUI update
+    /// pass would otherwise recreate the `UIMenu` (see
+    /// `TimeLabelFormat.custom`'s Equatable doc comment for the same issue).
+    public var rateLabelFormat: RateLabelFormat = .automatic
+
+    /// The string placed between the elapsed and secondary time-label
+    /// fields (`"01:05/02:05"`'s `"/"`). Ignored by ``TimeLabelFormat/custom(_:)``,
+    /// which lays out its own complete label.
+    public var timeLabelSeparator = "/"
+
     public init() {}
+}
+
+extension ABPlayerControlsConfiguration.RateLabelFormat: Equatable {
+    /// `.custom` formatters can't be compared for equality — see
+    /// `TimeLabelFormat`'s identical conformance for the full rationale.
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+        case (.automatic, .automatic):
+            true
+        default:
+            false
+        }
+    }
 }
 
 extension ABPlayerControlsConfiguration.TimeLabelFormat: Equatable {

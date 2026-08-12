@@ -7,6 +7,21 @@ final class ABControlButton: UIButton {
     /// for the configured skip interval (e.g. `gobackward.20`). `nil` when the
     /// button renders a plain icon.
     private(set) var resolvedSkipBadgeNumber: Int?
+    /// The image `resolvedIcon` last resolved to, independent of whether it's
+    /// currently being shown — `isGlyphSuppressed` needs this to restore the
+    /// glyph without recomputing it (SF Symbol lookup, badge compositing).
+    private var resolvedImage: UIImage?
+
+    /// Hides the glyph without touching `isHidden`/`alpha` — both of those
+    /// remove the button from `UIView.hitTest`, which a buffering stall must
+    /// not do (the button stays tappable to pause). Only the button this
+    /// view suppresses during buffering ever sets this.
+    var isGlyphSuppressed = false {
+        didSet {
+            guard isGlyphSuppressed != oldValue else { return }
+            applyGlyphVisibility()
+        }
+    }
 
     private var highlightedAlpha: CGFloat = 0.5
 
@@ -35,9 +50,8 @@ final class ABControlButton: UIButton {
         }
         resolvedIcon = icon
         highlightedAlpha = min(max(style.buttonHighlightedAlpha, 0), 1)
-        let image = Self.badgedSymbolImage(named: name, number: badgeNumber, style: style)
-        setImage(image, for: .normal)
-        isHidden = image == nil
+        resolvedImage = Self.badgedSymbolImage(named: name, number: badgeNumber, style: style)
+        applyGlyphVisibility()
         tintColor = style.tintColor
         accessibilityTraits.insert(.button)
         invalidateIntrinsicContentSize()
@@ -52,21 +66,26 @@ final class ABControlButton: UIButton {
                 pointSize: style.iconPointSize,
                 weight: style.iconWeight
             )
-            let image = UIImage(systemName: name, withConfiguration: configuration)?
+            resolvedImage = UIImage(systemName: name, withConfiguration: configuration)?
                 .withRenderingMode(style.iconRenderingMode)
-            setImage(image, for: .normal)
-            isHidden = image == nil
         case .image(let image):
-            setImage(image.withRenderingMode(style.iconRenderingMode), for: .normal)
+            resolvedImage = image.withRenderingMode(style.iconRenderingMode)
             imageView?.contentMode = .scaleAspectFit
-            isHidden = false
         case .none:
-            setImage(nil, for: .normal)
-            isHidden = true
+            resolvedImage = nil
         }
+        applyGlyphVisibility()
         tintColor = style.tintColor
         accessibilityTraits.insert(.button)
         invalidateIntrinsicContentSize()
+    }
+
+    /// The single point that reconciles `resolvedImage` with what's actually
+    /// drawn — called after every icon resolution and every
+    /// `isGlyphSuppressed` change, so the two can never disagree.
+    private func applyGlyphVisibility() {
+        setImage(isGlyphSuppressed ? nil : resolvedImage, for: .normal)
+        isHidden = resolvedImage == nil && !isGlyphSuppressed
     }
 
     /// Draws `number` centered over the symbol as a template image (alpha channel

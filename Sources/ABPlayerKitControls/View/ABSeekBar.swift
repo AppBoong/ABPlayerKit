@@ -14,7 +14,7 @@ final class ABSeekBar: UIControl {
     var style = ABPlayerControlsStyle() {
         didSet {
             applyStyle()
-            if style.requiresSeekBarLayout(comparedTo: oldValue) {
+            if style.changeImpact(comparedTo: oldValue).contains(.seekBarLayout) {
                 setNeedsLayout()
             }
         }
@@ -250,21 +250,5 @@ final class ABSeekBar: UIControl {
     private static func clamp(_ value: Double) -> Double {
         guard value.isFinite else { return 0 }
         return min(max(value, 0), 1)
-    }
-}
-
-private extension ABPlayerControlsStyle {
-    func requiresSeekBarLayout(comparedTo previous: Self) -> Bool {
-        trackHeight != previous.trackHeight
-            || trackHeightWhileScrubbing != previous.trackHeightWhileScrubbing
-            || trackCornerRadius != previous.trackCornerRadius
-            || seekBarHorizontalInset != previous.seekBarHorizontalInset
-            || thumbSize != previous.thumbSize
-            || thumbSizeWhileScrubbing != previous.thumbSizeWhileScrubbing
-            || thumbBorderWidth != previous.thumbBorderWidth
-            || thumbCornerRadius != previous.thumbCornerRadius
-            || thumbShadowRadius != previous.thumbShadowRadius
-            || thumbImage != previous.thumbImage
-            || isThumbHidden != previous.isThumbHidden
     }
 }

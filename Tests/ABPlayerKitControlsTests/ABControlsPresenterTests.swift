@@ -333,3 +333,187 @@ struct ABControlsPresenterTests {
         #expect(presenter.currentPlaybackTime == time)
     }
 }
+
+@Suite("ABControlsPresenter combines isPlaying/isBuffering into showsPauseIcon", .timeLimit(.minutes(3)))
+struct ABControlsPresenterBufferingTests {
+    @Test("Given isPlaying and isBuffering combinations arriving timeControlStatus-first, showsPauseIcon is their logical OR", arguments: [
+        (false, false, false),
+        (false, true, true),
+        (true, false, true),
+        (true, true, true)
+    ])
+    func showsPauseIconIsLogicalOr(isPlaying: Bool, isBuffering: Bool, expected: Bool) {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.timeControlStatusChanged(isPlaying ? .playing : .paused)))
+        _ = presenter.handle(.playerEvent(.bufferingChanged(isBuffering)))
+        #expect(presenter.showsPauseIcon == expected)
+    }
+
+    @Test("Given the same combinations arriving bufferingChanged-first, showsPauseIcon is still their logical OR", arguments: [
+        (false, false, false),
+        (false, true, true),
+        (true, false, true),
+        (true, true, true)
+    ])
+    func showsPauseIconIsLogicalOrReverseOrder(isPlaying: Bool, isBuffering: Bool, expected: Bool) {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.bufferingChanged(isBuffering)))
+        _ = presenter.handle(.playerEvent(.timeControlStatusChanged(isPlaying ? .playing : .paused)))
+        #expect(presenter.showsPauseIcon == expected)
+    }
+
+    @Test("A bufferingChanged carrying the same value as the current state produces no effect")
+    func duplicateBufferingChangedProducesNoEffect() {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.bufferingChanged(true)))
+        #expect(presenter.handle(.playerEvent(.bufferingChanged(true))) == [])
+        _ = presenter.handle(.playerEvent(.bufferingChanged(false)))
+        #expect(presenter.handle(.playerEvent(.bufferingChanged(false))) == [])
+    }
+
+    @Test("A bufferingChanged that actually changes the value emits setBuffering and setPlaybackIcon together")
+    func bufferingChangeEmitsBothEffects() {
+        var presenter = ABControlsPresenter()
+        #expect(presenter.handle(.playerEvent(.bufferingChanged(true))) == [
+            .setBuffering(true),
+            .setPlaybackIcon(isPlaying: true)
+        ])
+    }
+
+    @Test("Given waitingToPlay plus bufferingChanged(true), the icon still shows pause and a tap pauses (the default automaticallyWaitsToMinimizeStalling tuning)")
+    func waitingToPlayWithBufferingShowsPauseIcon() {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.timeControlStatusChanged(.waitingToPlay)))
+        _ = presenter.handle(.playerEvent(.bufferingChanged(true)))
+        #expect(presenter.showsPauseIcon)
+        #expect(presenter.handle(.playPauseTapped(isPlaying: true, allowsPromotionTap: true)) == [.send(.pause)])
+    }
+
+    @Test("automaticallyWaitsToMinimizeStalling == false variant: paused plus bufferingChanged(true) also shows the pause icon and a tap pauses")
+    func pausedWithBufferingShowsPauseIcon() {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.timeControlStatusChanged(.paused)))
+        _ = presenter.handle(.playerEvent(.bufferingChanged(true)))
+        #expect(presenter.showsPauseIcon)
+        #expect(presenter.handle(.playPauseTapped(isPlaying: true, allowsPromotionTap: true)) == [.send(.pause)])
+    }
+
+    @Test("Given a player detaches while buffering, the detach effect also clears buffering so the spinner/glyph suppression can't outlive the player")
+    func detachWhileBufferingClearsBuffering() {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.bufferingChanged(true)))
+        #expect(presenter.handle(.detached) == [.resetTimeline, .setBuffering(false)])
+        #expect(!presenter.isBuffering)
+    }
+
+    @Test("Given a player detaches while not buffering, detaching adds no extra effect beyond resetTimeline")
+    func detachWhileNotBufferingAddsNoExtraEffect() {
+        var presenter = ABControlsPresenter()
+        #expect(presenter.handle(.detached) == [.resetTimeline])
+    }
+}
+
+@Suite("ABControlsPresenter replays from the start after playedToEnd", .timeLimit(.minutes(3)))
+struct ABControlsPresenterReplayTests {
+    @Test("Given playedToEnd then a play tap with no promotion needed, the command is restartFromStart alone")
+    func playedToEndThenTapRestartsWithoutPromotion() {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.playedToEnd))
+
+        #expect(presenter.handle(.playPauseTapped(isPlaying: false, allowsPromotionTap: false)) == [.send(.restartFromStart)])
+    }
+
+    @Test("Given playedToEnd on a non-current source with promotion allowed, the tap promotes then restarts")
+    func playedToEndThenTapPromotesAndRestarts() {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.playedToEnd))
+
+        #expect(presenter.handle(.playPauseTapped(isPlaying: false, allowsPromotionTap: true)) == [
+            .send(.promoteToCurrent),
+            .send(.restartFromStart)
+        ])
+    }
+
+    @Test("playedToEnd's own returned effect is still exactly one element — the replay flag is state, not an effect")
+    func playedToEndReturnsExactlyOneEffect() {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.timeControlStatusChanged(.playing)))
+
+        #expect(presenter.handle(.playerEvent(.playedToEnd)) == [.setPlaybackIcon(isPlaying: false)])
+        #expect(presenter.hasPlayedToEnd)
+    }
+
+    @Test("A seekCompleted event after playedToEnd clears the replay flag — the next tap plays normally, and seekCompleted's own effect array stays empty")
+    func seekCompletedClearsReplayFlag() {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.playedToEnd))
+
+        #expect(presenter.handle(.playerEvent(.seekCompleted(to: .zero))) == [])
+        #expect(!presenter.hasPlayedToEnd)
+        #expect(presenter.handle(.playPauseTapped(isPlaying: false, allowsPromotionTap: false)) == [.send(.play)])
+    }
+
+    @Test("A sourceChanged event after playedToEnd clears the replay flag")
+    func sourceChangedClearsReplayFlag() {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.playedToEnd))
+        _ = presenter.handle(.playerEvent(.sourceChanged(nil)))
+
+        #expect(!presenter.hasPlayedToEnd)
+        #expect(presenter.handle(.playPauseTapped(isPlaying: false, allowsPromotionTap: false)) == [.send(.play)])
+    }
+
+    @Test("An itemDetached event after playedToEnd clears the replay flag")
+    func itemDetachedClearsReplayFlag() {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.playedToEnd))
+        _ = presenter.handle(.playerEvent(.itemDetached(reason: .sourceChanged)))
+
+        #expect(!presenter.hasPlayedToEnd)
+    }
+
+    @Test("A timeControlStatusChanged(.playing) event after playedToEnd clears the replay flag")
+    func resumedPlaybackClearsReplayFlag() {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.playedToEnd))
+        _ = presenter.handle(.playerEvent(.timeControlStatusChanged(.playing)))
+
+        #expect(!presenter.hasPlayedToEnd)
+    }
+
+    @Test("timeControlStatusChanged(.paused)/.waitingToPlay after playedToEnd do NOT clear the replay flag — only .playing does")
+    func nonPlayingStatusDoesNotClearReplayFlag() {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.playedToEnd))
+        _ = presenter.handle(.playerEvent(.timeControlStatusChanged(.paused)))
+
+        #expect(presenter.hasPlayedToEnd)
+    }
+
+    @Test("A .detached input after playedToEnd clears the replay flag")
+    func detachedClearsReplayFlag() {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.playedToEnd))
+        _ = presenter.handle(.detached)
+
+        #expect(!presenter.hasPlayedToEnd)
+    }
+
+    @Test("A gradeChanged away from .current after playedToEnd clears the replay flag")
+    func gradeChangedAwayFromCurrentClearsReplayFlag() {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.playedToEnd))
+        _ = presenter.handle(.playerEvent(.gradeChanged(from: .current, to: .preloaded)))
+
+        #expect(!presenter.hasPlayedToEnd)
+    }
+
+    @Test("A gradeChanged that lands on .current does not clear the replay flag — only leaving .current does")
+    func gradeChangedToCurrentDoesNotClearReplayFlag() {
+        var presenter = ABControlsPresenter()
+        _ = presenter.handle(.playerEvent(.playedToEnd))
+        _ = presenter.handle(.playerEvent(.gradeChanged(from: .preloaded, to: .current)))
+
+        #expect(presenter.hasPlayedToEnd)
+    }
+}

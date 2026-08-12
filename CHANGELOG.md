@@ -19,16 +19,31 @@ All notable changes to ABPlayerKit are documented in this file.
 - Added `ABPictureInPictureSession` and `ABPlayerView.pictureInPictureSession` — bind a session to a view to enable Picture in Picture for that view's backing layer, without exposing `AVPlayerLayer` itself. Added the matching `ABVideoPlayer.init(player:videoGravity:pictureInPicture:)` for SwiftUI's explicit-ownership path. While a session is active, every `ABBackgroundPolicy`'s automatic background/foreground side effects are suppressed for that player, so PiP keeps rendering instead of being paused/detached out from under itself. Picture in Picture is supported only on the explicit-ownership path — see the README's new "Picture in Picture" section for scope and platform prerequisites.
 - Added `ABPlayerConfiguration.allowsExternalPlayback` (default `true`), `.usesExternalPlaybackWhileExternalScreenIsActive` (default `false`), and `.externalPlaybackVideoGravity` (default `.resizeAspect`) — direct passthroughs to the matching `AVPlayer` AirPlay properties, all defaulting to `AVPlayer`'s own defaults. Added the matching read-only `ABPlayer.isExternalPlaybackActive`. See the README's new "AirPlay" section.
 - Added the `ABPlayerKitNowPlaying` target: an opt-in bridge from `ABPlayer` to `MPNowPlayingInfoCenter`/`MPRemoteCommandCenter`, entered through `ABNowPlayingCenter.shared.attach(_:metadata:configuration:artwork:)`. Ownership is exclusive and automatic — only a `.current` player is eligible, and the most recently eligible one owns the surface (last-eligible-wins), restoring whatever state existed before the first attach once the last participant relinquishes. Remote commands activate only when a corresponding action exists. See the README's new "Now Playing and Remote Commands" section and the target's own DocC catalog.
+- Added a buffering indicator: `ABPlayerControlsView` overlays a spinner on the play/pause button's glyph while `ABPlayer.isBuffering` is true (button stays enabled and hit-testable throughout — a stall can still be paused). Controlled by `ABPlayerControlsConfiguration.showsBufferingIndicator` (default `true`) and `ABPlayerControlsStyle.bufferingIndicatorColor` (default `nil`, follows `tintColor`). Auto-hide is suppressed while buffering, without forcing controls visible.
+- Added `ABControlsSlot` (`.topTrailing`, `.transportTrailing`, `.bottomTrailing`) and `ABPlayerControlsView.accessoryViews(in:)`/`setAccessoryViews(_:in:)` — place consumer views at additional overlay positions. The existing `accessoryViews` property is now an alias for `.bottomTrailing`, with identical behavior.
+- Added `ABPlayerControlsConfiguration.showsPlayPauseButton`/`.showsSeekBar` (both default `true`) — hide either control the same way `showsSkipButtons` already does.
+- Added `ABControlsTouchPassthrough` (`.never`/`.whenControlsHidden`/`.always`) and `ABPlayerControlsConfiguration.touchPassthrough` (default `.never`) — let touches that miss every control pass through to whatever is behind the overlay. Never overrides the existing hit-test priority order; only applies when nothing else claimed the touch.
+- Added `ABDoubleTapSeek` (`.disabled`/`.edges(edgeWidthFraction:)`) and `ABPlayerControlsConfiguration.doubleTapSeek` (default `.disabled`) — double-tapping the overlay's leading/trailing edge bands seeks by `skipInterval`. Disabled by default so the background single-tap recognizer never waits out a double-tap timeout for consumers who don't opt in.
+- Added `ABPlayerControlsConfiguration.providesHapticFeedback` (default `true`) — a light haptic on an accepted double-tap seek.
+- Added a cumulative seek-feedback badge ("+20s"/"-10s") shown while a skip/double-tap/VoiceOver-adjustment seek streak is outstanding, driven entirely by the core's `pendingSeekTime`/`seekTargetChanged` — Controls never accumulates the delta itself. Styled via `ABPlayerControlsStyle.seekFeedbackTextColor`/`.seekFeedbackBackgroundColor`/`.seekFeedbackFont`.
+- Added replay-from-start: tapping play after playback reaches the end now seeks to zero before playing, instead of a bare `play()` (which does nothing at the end of an item).
+- Added `ABPlayerControlsConfiguration.RateLabelFormat` (`.automatic`/`.custom`) and `.rateLabelFormat` (default `.automatic`) — `.automatic` formats the playback rate with a locale-aware `NumberFormatter` (`"1.5"` in `en`, `"1,5"` in `de`) instead of the previous `%g`-based, always-dot-separated formatting. The rate menu's item titles now use the same formatting path as the button's own title (previously the menu always hardcoded a `"×"` suffix independent of `ABPlayerControlsStyle.rateLabelStyle`).
+- Added `ABPlayerControlsConfiguration.timeLabelSeparator` (default `"/"`) — the string between a time label's elapsed and secondary fields, previously hardcoded.
+- Added accessibility hints (`accessibilityHint`) on the play/pause, skip, and rate buttons and the seek bar, localized in `en`/`ko`.
 
 ### Changed
 
 - `ABPlayerControls`'s and `ABVideoPlayerWithControls`'s `style:`/`configuration:` initializer parameters are now `Optional` (default `nil`) instead of defaulting to `.default`/`.init()`, so the new Environment modifiers above can be distinguished from an explicit argument. Source-compatible: every existing call site that passes a value or omits the parameter keeps compiling and resolves to the exact same behavior, since an unset `Optional` and the old default resolve to the same fallback.
 - `ABVideoPlayer`'s `Coordinator` associated type changed from `Void` to a concrete (still-opaque, no public members) class backing the new `url:`/`source:` ownership. Only affects code that references `ABVideoPlayer.Coordinator` by name directly, which no consumer in this repository does.
+- The play/pause icon now reflects `isPlaying || isBuffering` instead of `isPlaying` alone, so a stall no longer flips the icon back to the play glyph while the user's intent is still to play (covers both the default `automaticallyWaitsToMinimizeStalling` tuning and the `== false` variant). A play/pause tap's live-value branch was extended the same way.
+- The visible "LIVE" duration marker is now Controls' own localized key (`controls.liveMarker`, en/ko) instead of reading `ABTimeFormatter.liveMarker` from the core module directly. The `en` value is unchanged (`"LIVE"`); this only changes which module owns the string.
+- `ABPlayerControlsStyle`, `ABControlIcon`, `ABControlsBackgroundStyle`, `ABTrackCornerRadius`, and `ABRateLabelStyle` are now `Sendable`. `ABPlayerControlsStyle.default`/`.minimal`/`.tinted` no longer require `@MainActor` isolation to be stored as global `static let`s, since the type itself is `Sendable` now — the `@MainActor` attribute on those three declarations was removed. See **Migration notes** below.
 
 ### Fixed
 
 - Progressive cache: resuming a partial download now validates the origin hasn't changed (`If-Range`/`ETag`/`Last-Modified`, with a defensive `Content-Range` offset/length check for origins with no validator) before appending to the cached prefix, instead of silently mixing bytes from two different versions of the resource.
 - `ABMediaCache.removeAll()`/`remove(_:)` no longer fail playback that's in progress for the deleted key — the current read completes over the network and the cache refills as playback continues.
+- A VoiceOver-adjustment seek streak's cumulative badge ("+20s") now shows the real accumulated move; it previously showed one `skipInterval` less than the actual distance (e.g. two 10s forward adjustments showed "+0s" then "+10s" instead of "+10s" then "+20s"). The spoken position (`accessibilityValue`) and the actual seek commands were never affected — only the visual badge's own delta. Skip-button and double-tap seeking, which don't share the accessibility path's optimistic pre-render, were unaffected.
 
 ### Migration notes
 
@@ -59,6 +74,17 @@ A default implementation (`Date().timeIntervalSince1970`) is provided, so existi
 #### `ABPlaybackTarget` changes are not consumer-visible
 
 The internal `ABPlaybackTarget` protocol (used only as this library's own `AVFoundation` test seam) gained `isExternalPlaybackActive` and `applyExternalPlayback(_:)`. This protocol is `internal`, not part of the public API, so no consumer code is affected.
+#### Playback-rate formatting is now locale-aware by default
+
+`ABPlayerControlsConfiguration.rateLabelFormat` defaults to `.automatic`, which now formats rate values with `NumberFormatter` for the current locale instead of the previous `String(format: "%g", rate)`. In `en` (and most locales), rendered text is unchanged (`"1.5"`, `"1"`); locales with a comma decimal separator (e.g. `de`) now render `"1,5"` instead of `"1.5"`. Consumers that need the previous, always-`en`-style formatting regardless of locale can set `rateLabelFormat = .custom { rate in String(format: "%g", rate) }`.
+
+#### `ABPlayerControlsStyle.default`/`.minimal`/`.tinted` are no longer `@MainActor`-isolated
+
+Code that accessed these presets with `await` (needed only because of the old `@MainActor` isolation) now gets a "no async operations occur within 'await' expression" warning, not a source break — the `await` is simply no longer necessary and can be dropped. No behavior changes; these were always main-actor-only values in practice (`ABPlayerControlsStyle` wasn't `Sendable` before), just now expressed without the isolation annotation.
+
+#### Play/pause icon and tap-branch now consider buffering, not just `isPlaying`
+
+Both the play/pause icon and the live-value branch a play/pause tap uses now read `isPlaying || isBuffering` instead of `isPlaying` alone. A consumer observing `ABControlsEvent.playPauseTapped(isPlayingAfterTap:)` may now occasionally see `true` at a moment `ABPlayer.isPlaying` itself still reads `false` (mid-stall, intent-to-play). No action needed unless code was relying on those two values always agreeing.
 
 ## [0.3.0] - 2026-08-05
 
