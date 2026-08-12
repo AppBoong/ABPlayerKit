@@ -2,6 +2,7 @@ import ABPlayerKit
 import ABTestSupport
 import Foundation
 import Testing
+import UniformTypeIdentifiers
 @testable import ABPlayerKitCache
 
 /// WP7 error-injection struct — a generic, `Equatable` marker error distinct
@@ -67,7 +68,30 @@ private final class ABFakeHTTPFetcher: ABHTTPFetching, @unchecked Sendable {
         return (error, reply)
     }
 
+    /// Fixture shim: `passthrough`/`rawPassthrough`/the metadata
+    /// GET probe moved from `data(for:)` to `stream(for:)` for memory
+    /// bounding, so tests that queue those round trips via `dataReplies`
+    /// need `stream(for:)` to serve them too. Once `streamReplies` is
+    /// exhausted, the next `stream(for:)` call is for one of those — not
+    /// another fill — so it's converted from the next queued `dataReplies`
+    /// entry into an equivalent one-shot `.response` + `.data` stream
+    /// instead of yielding nothing.
     func stream(for request: URLRequest) -> AsyncThrowingStream<ABHTTPFetchEvent, any Error> {
+        lock.lock()
+        let hasQueuedStreamReply = !streamReplies.isEmpty
+        lock.unlock()
+        guard hasQueuedStreamReply else {
+            let (error, reply) = takeDataReply(for: request)
+            return AsyncThrowingStream { continuation in
+                if let reply {
+                    continuation.yield(.response(reply.response))
+                    if !reply.data.isEmpty {
+                        continuation.yield(.data(reply.data))
+                    }
+                }
+                continuation.finish(throwing: error)
+            }
+        }
         let (events, error) = takeStreamReply(for: request)
         return AsyncThrowingStream { continuation in
             for event in events {
@@ -107,13 +131,51 @@ private final class ABControlledHTTPFetcher: ABHTTPFetching, @unchecked Sendable
         self.initialStreamEvents = initialStreamEvents
     }
 
+    /// Test-only signal that a fill's `stream(for:)` call has genuinely
+    /// happened (i.e. `launchFill` ran, which only happens once
+    /// `resolvedMetadata` has already resolved) — distinct from a reader
+    /// merely being registered (`readerRegistry.retain` happens before
+    /// metadata resolution, so it fires too early to prove a fill has
+    /// started). Tests that stall a fill and then purge it need this to
+    /// avoid a race where `removeAll`/`remove` lands while metadata
+    /// resolution is still in flight, in which case the fill only starts
+    /// *after* the purge and its own generation snapshot never observes
+    /// a later one.
+    var registeredStreamCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return continuations.count
+    }
+
     func data(for request: URLRequest) async throws -> (Data, ABHTTPResponse) {
         guard let reply = takeDataReply() else { throw URLError(.resourceUnavailable) }
         return (reply.data, reply.response)
     }
 
+    /// Fixture shim (same rationale as `ABFakeHTTPFetcher`'s):
+    /// once every queued `initialStreamEvents` entry (one per fill) has
+    /// been consumed, a further `stream(for:)` call is for a passthrough
+    /// round trip, not another fill — serve it as a self-terminating
+    /// one-shot stream built from the next queued `dataReplies` entry
+    /// instead of registering an open continuation nothing would ever
+    /// `finishStreams()`.
     func stream(for request: URLRequest) -> AsyncThrowingStream<ABHTTPFetchEvent, any Error> {
-        AsyncThrowingStream { continuation in
+        lock.lock()
+        let hasQueuedFillEvents = !initialStreamEvents.isEmpty
+        lock.unlock()
+        guard hasQueuedFillEvents else {
+            guard let reply = takeDataReply() else {
+                return AsyncThrowingStream { $0.finish(throwing: URLError(.resourceUnavailable)) }
+            }
+            return AsyncThrowingStream { continuation in
+                continuation.yield(.response(reply.response))
+                if !reply.data.isEmpty {
+                    continuation.yield(.data(reply.data))
+                }
+                continuation.finish()
+            }
+        }
+        return AsyncThrowingStream { continuation in
             let events = register(continuation)
             for event in events {
                 continuation.yield(event)
@@ -1035,6 +1097,731 @@ struct ABCacheStoreTests {
         fetcher.finishStreams()
     }
 
+    // MARK: - Resume validation + session-start revalidation
+
+    @Test("A resumed fill with a stored strong ETag sends If-Range alongside Range")
+    func resumeSendsIfRangeWithStrongETag() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("if-range-strong.mp4")
+        try seedWithValidator(
+            source: source,
+            data: Data("abc".utf8),
+            contentLength: 6,
+            validator: ABCacheValidator(etag: "\"v1\"", lastModified: nil),
+            lastAccessedAt: Date(timeIntervalSince1970: 1),
+            directory: directory
+        )
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [metadataReply(length: 6)],
+            streamReplies: [[
+                .response(.init(
+                    statusCode: 206,
+                    expectedContentLength: 3,
+                    mimeType: "video/mp4",
+                    headers: ["Content-Range": "bytes 3-5/6"]
+                )),
+                .data(Data("def".utf8))
+            ]]
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory, maximumDiskSize: 100, maximumEntrySize: 100),
+            httpFetcher: fetcher
+        )
+
+        _ = try await collect(store: store, source: source, length: 6)
+
+        #expect(fetcher.requests.contains {
+            $0.httpMethod == "GET"
+                && $0.value(forHTTPHeaderField: "Range") == "bytes=3-"
+                && $0.value(forHTTPHeaderField: "If-Range") == "\"v1\""
+        })
+    }
+
+    @Test("A resumed fill with only a stored weak ETag omits If-Range")
+    func resumeOmitsIfRangeForWeakETag() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("if-range-weak.mp4")
+        try seedWithValidator(
+            source: source,
+            data: Data("abc".utf8),
+            contentLength: 6,
+            validator: ABCacheValidator(etag: "W/\"v1\"", lastModified: nil),
+            lastAccessedAt: Date(timeIntervalSince1970: 1),
+            directory: directory
+        )
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [metadataReply(length: 6)],
+            streamReplies: [[
+                .response(.init(
+                    statusCode: 206,
+                    expectedContentLength: 3,
+                    mimeType: "video/mp4",
+                    headers: ["Content-Range": "bytes 3-5/6"]
+                )),
+                .data(Data("def".utf8))
+            ]]
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory, maximumDiskSize: 100, maximumEntrySize: 100),
+            httpFetcher: fetcher
+        )
+
+        _ = try await collect(store: store, source: source, length: 6)
+
+        let resumeRequest = fetcher.requests.first { $0.value(forHTTPHeaderField: "Range") == "bytes=3-" }
+        #expect(resumeRequest?.value(forHTTPHeaderField: "If-Range") == nil)
+    }
+
+    @Test("An If-Range mismatch that falls back to 200 truncates the partial file and refills entirely with the new bytes")
+    func ifRangeMismatchTruncatesAndRefillsFromScratch() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("if-range-mismatch.mp4")
+        try seedWithValidator(
+            source: source,
+            data: Data("old".utf8),
+            contentLength: 7,
+            validator: ABCacheValidator(etag: "\"v1\"", lastModified: nil),
+            lastAccessedAt: Date(timeIntervalSince1970: 1),
+            directory: directory
+        )
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [metadataReply(length: 7)],
+            streamReplies: [[
+                .response(.init(statusCode: 200, expectedContentLength: 7, mimeType: "video/mp4")),
+                .data(Data("newdata".utf8))
+            ]]
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory, maximumDiskSize: 100, maximumEntrySize: 100),
+            httpFetcher: fetcher
+        )
+
+        let full = try await collect(store: store, source: source, length: 7)
+
+        #expect(full == Data("newdata".utf8))
+        #expect(fetcher.requests.contains {
+            $0.value(forHTTPHeaderField: "Range") == "bytes=3-"
+                && $0.value(forHTTPHeaderField: "If-Range") == "\"v1\""
+        })
+    }
+
+    @Test("A validator-less origin whose resumed 206 starts at the wrong offset truncates and refetches from scratch")
+    func noValidatorContentRangeStartMismatchTruncatesAndRefetches() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("start-mismatch.mp4")
+        try seed(
+            source: source,
+            data: Data("abc".utf8),
+            contentLength: 10,
+            lastAccessedAt: Date(timeIntervalSince1970: 1),
+            directory: directory
+        )
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [metadataReply(length: 10)],
+            streamReplies: [
+                [
+                    .response(.init(
+                        statusCode: 206,
+                        expectedContentLength: 5,
+                        mimeType: "video/mp4",
+                        headers: ["Content-Range": "bytes 5-9/10"]
+                    )),
+                    .data(Data("XXXXX".utf8))
+                ],
+                [
+                    .response(.init(statusCode: 200, expectedContentLength: 10, mimeType: "video/mp4")),
+                    .data(Data("0123456789".utf8))
+                ]
+            ]
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory, maximumDiskSize: 100, maximumEntrySize: 100),
+            httpFetcher: fetcher
+        )
+
+        let full = try await collect(store: store, source: source, length: 10)
+
+        #expect(full == Data("0123456789".utf8))
+    }
+
+    @Test("A resumed 206 whose declared total length changed from what was recorded truncates and refetches")
+    func totalLengthChangeTruncatesAndRefetches() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("total-length-change.mp4")
+        try seed(
+            source: source,
+            data: Data("abc".utf8),
+            contentLength: 6,
+            lastAccessedAt: Date(timeIntervalSince1970: 1),
+            directory: directory
+        )
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [metadataReply(length: 6)],
+            streamReplies: [
+                [
+                    .response(.init(
+                        statusCode: 206,
+                        expectedContentLength: 5,
+                        mimeType: "video/mp4",
+                        headers: ["Content-Range": "bytes 3-7/8"]
+                    )),
+                    .data(Data("DEFGH".utf8))
+                ],
+                [
+                    .response(.init(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4")),
+                    .data(Data("ABCDEFGH".utf8))
+                ]
+            ]
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory, maximumDiskSize: 100, maximumEntrySize: 100),
+            httpFetcher: fetcher
+        )
+
+        let full = try await collect(store: store, source: source, length: 8)
+
+        #expect(full == Data("ABCDEFGH".utf8))
+    }
+
+    @Test("A completed entry's asset-session revalidation sends one conditional HEAD and serves cached bytes on 304")
+    func sessionRevalidation304ServesCachedMetadata() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("revalidate-304.mp4")
+        try seedWithValidator(
+            source: source,
+            data: Data("abcdef".utf8),
+            contentLength: 6,
+            validator: ABCacheValidator(etag: "\"v1\"", lastModified: nil),
+            lastAccessedAt: Date(timeIntervalSince1970: 1),
+            directory: directory
+        )
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [.init(data: Data(), response: .init(statusCode: 304, expectedContentLength: nil, mimeType: nil))],
+            streamReplies: []
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        store.beginAssetSession(for: source)
+        let metadata = try await store.metadata(for: source)
+
+        #expect(metadata.contentLength == 6)
+        #expect(metadata.contentType == "public.mpeg-4")
+        #expect(fetcher.requests.count == 1)
+        #expect(fetcher.requests.first?.httpMethod == "HEAD")
+        #expect(fetcher.requests.first?.value(forHTTPHeaderField: "If-None-Match") == "\"v1\"")
+    }
+
+    @Test("A session-start revalidation whose validator changed evicts the entry and refills")
+    func sessionRevalidationValidatorChangedEvictsAndRefills() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("revalidate-changed.mp4")
+        try seedWithValidator(
+            source: source,
+            data: Data("abcdef".utf8),
+            contentLength: 6,
+            validator: ABCacheValidator(etag: "\"v1\"", lastModified: nil),
+            lastAccessedAt: Date(timeIntervalSince1970: 1),
+            directory: directory
+        )
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [
+                .init(
+                    data: Data(),
+                    response: .init(
+                        statusCode: 200,
+                        expectedContentLength: 6,
+                        mimeType: "video/mp4",
+                        headers: ["ETag": "\"v2\""]
+                    )
+                )
+            ],
+            streamReplies: [[
+                .response(.init(
+                    statusCode: 200,
+                    expectedContentLength: 6,
+                    mimeType: "video/mp4",
+                    headers: ["ETag": "\"v2\""]
+                )),
+                .data(Data("ABCDEF".utf8))
+            ]]
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        store.beginAssetSession(for: source)
+        let full = try await collect(store: store, source: source, length: 6)
+
+        #expect(full == Data("ABCDEF".utf8))
+        #expect(fetcher.requests.filter { $0.httpMethod == "HEAD" }.count == 1)
+    }
+
+    @Test("A session-start revalidation that fails over the network fails open and keeps serving cached bytes")
+    func sessionRevalidationNetworkErrorFailsOpen() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("revalidate-network-error.mp4")
+        try seedWithValidator(
+            source: source,
+            data: Data("abcdef".utf8),
+            contentLength: 6,
+            validator: ABCacheValidator(etag: "\"v1\"", lastModified: nil),
+            lastAccessedAt: Date(timeIntervalSince1970: 1),
+            directory: directory
+        )
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [],
+            dataErrors: [ABFakeFetchError(id: "revalidation-network-error")],
+            streamReplies: []
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        store.beginAssetSession(for: source)
+        let full = try await collect(store: store, source: source, length: 6)
+
+        #expect(full == Data("abcdef".utf8))
+        #expect(fetcher.requests.count == 1)
+    }
+
+    @Test("10 concurrent loads at asset-session start dedupe to a single conditional revalidation")
+    func concurrentLoadsAtSessionStartDedupeToOneRevalidation() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("revalidate-concurrent.mp4")
+        try seedWithValidator(
+            source: source,
+            data: Data("abcdefgh".utf8),
+            contentLength: 8,
+            validator: ABCacheValidator(etag: "\"v1\"", lastModified: nil),
+            lastAccessedAt: Date(timeIntervalSince1970: 1),
+            directory: directory
+        )
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [.init(data: Data(), response: .init(statusCode: 304, expectedContentLength: nil, mimeType: nil))],
+            streamReplies: []
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        store.beginAssetSession(for: source)
+        let results = try await withThrowingTaskGroup(of: Data.self) { group in
+            for _ in 0..<10 {
+                group.addTask {
+                    let resource = try await store.load(source, range: ABByteRange(lowerBound: 0, upperBound: 7))
+                    return resource.data
+                }
+            }
+            var collected: [Data] = []
+            for try await data in group {
+                collected.append(data)
+            }
+            return collected
+        }
+
+        #expect(results.count == 10)
+        #expect(results.allSatisfy { $0 == Data("abcdefgh".utf8) })
+        #expect(fetcher.requests.filter { $0.httpMethod == "HEAD" }.count == 1)
+    }
+
+    // MARK: - Writer handle lifetime
+
+    @Test("A truncate-and-refill fill holds its writer handle open for the whole lifetime and closes it exactly once on completion")
+    func fillHandleStaysOpenThroughTruncateAndClosesOnCompletion() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("handle-lifecycle-complete.mp4")
+        try seed(
+            source: source,
+            data: Data("old".utf8),
+            contentLength: 7,
+            lastAccessedAt: Date(timeIntervalSince1970: 1),
+            directory: directory
+        )
+        let fetcher = ABControlledHTTPFetcher(
+            dataReplies: [metadataReply(length: 7)],
+            initialStreamEvents: [[
+                .response(.init(statusCode: 200, expectedContentLength: 7, mimeType: "video/mp4"))
+            ]]
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory, maximumDiskSize: 100, maximumEntrySize: 100),
+            httpFetcher: fetcher
+        )
+
+        let loadTask = Task {
+            try await store.load(source, range: ABByteRange(lowerBound: 0, upperBound: 6))
+        }
+
+        try await waitUntilHandleCount(store, equals: 1)
+
+        fetcher.finishStreams(with: [Data("newdata".utf8)])
+        _ = try? await loadTask.value
+
+        try await waitUntilHandleCount(store, equals: 0)
+        let full = try await collect(store: store, source: source, length: 7)
+        #expect(full == Data("newdata".utf8))
+    }
+
+    @Test("A fill that fails outright leaves no writer handle open")
+    func fillHandleClosesOnFailure() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("handle-lifecycle-fail.mp4")
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [metadataReply(length: 8)],
+            streamReplies: [[.response(.init(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4"))]],
+            streamErrors: [ABFakeFetchError(id: "handle-lifecycle-fail")]
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        await #expect(throws: ABCacheStore.StoreError.requestFailed) {
+            _ = try await store.load(source, range: ABByteRange(lowerBound: 0, upperBound: 7))
+        }
+
+        #expect(await store.fillHandleCount() == 0)
+    }
+
+    @Test("removeAll while a fill is in flight closes its writer handle")
+    func fillHandleClosesOnRemoveAll() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("handle-lifecycle-removeall.mp4")
+        let fetcher = ABControlledHTTPFetcher(
+            dataReplies: [metadataReply(length: 8)],
+            initialStreamEvents: [[
+                .response(.init(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4"))
+            ]]
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        let loadTask = Task {
+            try? await store.load(source, range: ABByteRange(lowerBound: 0, upperBound: 7))
+        }
+
+        try await waitUntilHandleCount(store, equals: 1)
+
+        try await store.removeAll()
+
+        #expect(await store.fillHandleCount() == 0)
+        _ = await loadTask.value
+    }
+
+    // MARK: - remove/removeAll reader demotion
+
+    @Test("Removing all cached media while a load is stalled on a fill lets that load finish via passthrough instead of failing")
+    func removeAllDemotesStalledLoadToPassthrough() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("purge-demo.mp4")
+        let response = ABHTTPResponse(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4")
+        let fetcher = ABControlledHTTPFetcher(
+            dataReplies: [
+                metadataReply(length: 8),
+                .init(
+                    data: Data("passthru".utf8),
+                    response: .init(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4")
+                )
+            ],
+            // Only `.response` — no `.data` — so the fill starts but never
+            // makes progress, mirroring the existing stalled-fill
+            // regression test.
+            initialStreamEvents: [[.response(response)]]
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        let loadTask = Task {
+            try await store.load(source, range: ABByteRange(lowerBound: 0, upperBound: 7))
+        }
+        // Waiting only for the reader to register isn't enough — that
+        // happens before metadata resolution, so `removeAll` could land
+        // while this call is still awaiting its HEAD and the fill hasn't
+        // started yet. Wait for the fill's own stream to be registered too
+        // (see `registeredStreamCount`'s doc comment), so `removeAll`
+        // deterministically lands after the fill's generation snapshot was
+        // captured, guaranteeing the demotion path actually fires.
+        try await waitUntil { !store.activeReaderKeys().isEmpty }
+        try await waitUntil { fetcher.registeredStreamCount >= 1 }
+
+        try await store.removeAll()
+
+        enum Outcome: Equatable { case succeeded(Data), threw, timedOut }
+        let outcome = await withTaskGroup(of: Outcome.self) { group in
+            group.addTask {
+                do {
+                    let resource = try await loadTask.value
+                    return .succeeded(resource.data)
+                } catch {
+                    return .threw
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(2))
+                return .timedOut
+            }
+            let first = await group.next() ?? .timedOut
+            group.cancelAll()
+            return first
+        }
+
+        #expect(outcome == .succeeded(Data("passthru".utf8)))
+        fetcher.finishStreams()
+    }
+
+    @Test("removeAll drops totalSize to 0 immediately, even with an active reader and in-flight fill")
+    func removeAllDropsTotalSizeImmediately() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("purge-immediate.mp4")
+        let response = ABHTTPResponse(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4")
+        let fetcher = ABControlledHTTPFetcher(
+            dataReplies: [metadataReply(length: 8)],
+            initialStreamEvents: [[.response(response), .data(Data("aaaaaaaa".utf8))]]
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        _ = try await store.load(source, range: ABByteRange(lowerBound: 0, upperBound: 7))
+        #expect(await store.totalSize() == 8)
+
+        try await store.removeAll()
+
+        #expect(await store.totalSize() == 0)
+    }
+
+    @Test("remove(_:) demotes only that key's reader; a different key's reader keeps its normal cache path")
+    func removeOnlyDemotesTargetedKey() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let removedSource = mediaSource("purge-target.mp4")
+        let keptSource = mediaSource("purge-bystander.mp4")
+        let removedResponse = ABHTTPResponse(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4")
+        let keptResponse = ABHTTPResponse(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4")
+        let fetcher = ABControlledHTTPFetcher(
+            dataReplies: [
+                metadataReply(length: 8),
+                metadataReply(length: 8),
+                .init(
+                    data: Data("network!".utf8),
+                    response: .init(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4")
+                )
+            ],
+            initialStreamEvents: [
+                [.response(removedResponse)],
+                [.response(keptResponse), .data(Data("bystandr".utf8))]
+            ]
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        let removedLoad = Task {
+            try await store.load(removedSource, range: ABByteRange(lowerBound: 0, upperBound: 7))
+        }
+        // See the analogous wait in `removeAllDemotesStalledLoadToPassthrough`
+        // — the reader registering doesn't prove the fill (and thus its
+        // purge-generation snapshot) has started yet.
+        try await waitUntil { !store.activeReaderKeys().isEmpty }
+        try await waitUntil { fetcher.registeredStreamCount >= 1 }
+
+        let keptResult = try await store.load(keptSource, range: ABByteRange(lowerBound: 0, upperBound: 7))
+        #expect(keptResult.data == Data("bystandr".utf8))
+
+        try await store.remove(removedSource)
+
+        let removedResult = try await removedLoad.value
+        #expect(removedResult.data == Data("network!".utf8))
+
+        fetcher.finishStreams()
+    }
+
+    @Test("Playback that continues after a delete starts a fresh fill and the cache refills")
+    func loadAfterRemoveStartsFreshFillAndRefills() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("purge-refill.mp4")
+        let response = ABHTTPResponse(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4")
+        let fetcher = ABControlledHTTPFetcher(
+            dataReplies: [
+                metadataReply(length: 8),
+                .init(
+                    data: Data("network!".utf8),
+                    response: .init(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4")
+                ),
+                metadataReply(length: 8),
+                .init(
+                    data: Data("refilled".utf8),
+                    response: .init(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4")
+                )
+            ],
+            initialStreamEvents: [[.response(response)]]
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        let loadTask = Task {
+            try await store.load(source, range: ABByteRange(lowerBound: 0, upperBound: 7))
+        }
+        // See the analogous wait in `removeAllDemotesStalledLoadToPassthrough`.
+        try await waitUntil { !store.activeReaderKeys().isEmpty }
+        try await waitUntil { fetcher.registeredStreamCount >= 1 }
+
+        try await store.removeAll()
+        let firstResult = try await loadTask.value
+        #expect(firstResult.data == Data("network!".utf8))
+        #expect(await store.totalSize() == 0)
+
+        let refilled = try await collect(store: store, source: source, length: 8)
+        #expect(refilled == Data("refilled".utf8))
+        #expect(await store.totalSize() == 8)
+    }
+
+    @Test("A fresh load's own purge-generation snapshot isn't affected by an earlier, unrelated removeAll")
+    func freshLoadUnaffectedByEarlierRemoveAll() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let earlierSource = mediaSource("purge-earlier.mp4")
+        let laterSource = mediaSource("purge-later.mp4")
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [metadataReply(length: 4), metadataReply(length: 4)],
+            streamReplies: [
+                [
+                    .response(.init(statusCode: 200, expectedContentLength: 4, mimeType: "video/mp4")),
+                    .data(Data("aaaa".utf8))
+                ],
+                [
+                    .response(.init(statusCode: 200, expectedContentLength: 4, mimeType: "video/mp4")),
+                    .data(Data("bbbb".utf8))
+                ]
+            ]
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        _ = try await store.load(earlierSource, range: ABByteRange(lowerBound: 0, upperBound: 3))
+        try await store.removeAll()
+
+        let laterResult = try await store.load(laterSource, range: ABByteRange(lowerBound: 0, upperBound: 3))
+
+        #expect(laterResult.data == Data("bbbb".utf8))
+        #expect(await store.totalSize() == 4)
+    }
+
+    // MARK: - Content-type fallback + memory-bounded passthrough
+
+    @Test("A generic octet-stream MIME type yields to the URL extension's more specific type")
+    func genericMimeTypeYieldsToExtensionFallback() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("content-type-fallback.mp4")
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [
+                .init(
+                    data: Data(),
+                    response: .init(statusCode: 200, expectedContentLength: 10, mimeType: "application/octet-stream")
+                )
+            ],
+            streamReplies: []
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        let metadata = try await store.metadata(for: source)
+
+        let expected = UTType(filenameExtension: "mp4")!.identifier
+        #expect(metadata.contentType == expected)
+    }
+
+    @Test("A specific server-declared MIME type is trusted over the URL extension guess")
+    func specificMimeTypeWinsOverExtensionGuess() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("content-type-specific.mp4")
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [
+                .init(
+                    data: Data(),
+                    response: .init(statusCode: 200, expectedContentLength: 10, mimeType: "video/quicktime")
+                )
+            ],
+            streamReplies: []
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        let metadata = try await store.metadata(for: source)
+
+        let expected = UTType(mimeType: "video/quicktime")!.identifier
+        #expect(metadata.contentType == expected)
+    }
+
+    @Test("A generic octet-stream MIME type with no URL extension to refine it falls back to public.data")
+    func genericMimeTypeWithoutExtensionFallsBackToPublicData() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = ABMediaSource(url: URL(string: "https://example.com/no-extension")!)
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [
+                .init(
+                    data: Data(),
+                    response: .init(statusCode: 200, expectedContentLength: 10, mimeType: "application/octet-stream")
+                )
+            ],
+            streamReplies: []
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        let metadata = try await store.metadata(for: source)
+
+        #expect(metadata.contentType == UTType.data.identifier)
+    }
+
+    @Test("A bounded passthrough whose origin ignores Range and returns an oversized body still collects exactly the requested byte count")
+    func boundedPassthroughStopsAtExpectedCountWhenOriginIgnoresRange() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("bounded-oversized.mp4")
+        let contentLength: Int64 = 20
+        let fullBody = Data((0..<20).map { UInt8(65 + $0) })
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [
+                metadataReply(length: contentLength),
+                .init(
+                    data: fullBody,
+                    response: .init(statusCode: 200, expectedContentLength: 20, mimeType: "video/mp4")
+                )
+            ],
+            streamReplies: []
+        )
+        let store = try ABCacheStore(
+            configuration: .init(directory: directory, maximumDiskSize: 100, maximumEntrySize: 4),
+            httpFetcher: fetcher
+        )
+
+        let resource = try await store.load(source, range: ABByteRange(lowerBound: 5, upperBound: 9))
+
+        #expect(resource.data == Data("FGHIJ".utf8))
+        #expect(await store.totalSize() == 0)
+    }
+
+    @Test("An unbounded passthrough exceeding the fixed memory cap throws entryTooLarge instead of buffering everything")
+    func unboundedPassthroughExceedingCapThrowsEntryTooLarge() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = mediaSource("unbounded-oversized.mp4")
+        let chunk = Data(repeating: 0xAB, count: 1_024 * 1_024)
+        let fetcher = ABFakeHTTPFetcher(
+            dataReplies: [
+                .init(data: Data(), response: .init(statusCode: 200, expectedContentLength: nil, mimeType: "video/mp4"))
+            ],
+            streamReplies: [
+                [.response(.init(statusCode: 200, expectedContentLength: nil, mimeType: "video/mp4"))]
+                    + Array(repeating: ABHTTPFetchEvent.data(chunk), count: 9)
+            ]
+        )
+        let store = try ABCacheStore(configuration: .init(directory: directory), httpFetcher: fetcher)
+
+        await #expect(throws: ABCacheStore.StoreError.entryTooLarge) {
+            _ = try await store.load(source, range: ABByteRange(lowerBound: 0, upperBound: nil))
+        }
+    }
+
     private func collect(
         store: ABCacheStore,
         source: ABMediaSource,
@@ -1114,6 +1901,63 @@ struct ABCacheStoreTests {
         try JSONEncoder().encode(index).write(
             to: directory.appendingPathComponent("progressive-index.json")
         )
+    }
+
+    /// Like `seed(source:data:contentLength:lastAccessedAt:directory:)` but
+    /// also stamps a `validator` on the seeded entry — kept
+    /// separate rather than adding an optional parameter to the shared
+    /// multi-entry `seed` helper above, since no existing caller needs one.
+    private func seedWithValidator(
+        source: ABMediaSource,
+        data: Data,
+        contentLength: Int64,
+        validator: ABCacheValidator?,
+        lastAccessedAt: Date,
+        directory: URL
+    ) throws {
+        let dataDirectory = directory.appendingPathComponent("Progressive", isDirectory: true)
+        try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true)
+        let key = ABCacheKey.derive(from: source)
+        let entry = ABCacheIndex.Entry(
+            key: key,
+            size: Int64(data.count),
+            contentLength: contentLength,
+            contentType: "public.mpeg-4",
+            isComplete: Int64(data.count) >= contentLength,
+            lastAccessedAt: lastAccessedAt,
+            validator: validator
+        )
+        try data.write(to: dataDirectory.appendingPathComponent(entry.fileName))
+        let index = ABCacheIndex(entries: [key: entry])
+        try JSONEncoder().encode(index).write(
+            to: directory.appendingPathComponent("progressive-index.json")
+        )
+    }
+
+    /// Like `waitUntil` (`Support/ABWaitUntil.swift`) but for an
+    /// actor-isolated, `async` predicate — `waitUntil`'s predicate is a
+    /// synchronous `@MainActor` closure, so it can't `await` an actor call
+    /// like `store.fillHandleCount()` directly. Scoped to
+    /// this file rather than added to the shared helper, which is CI's to
+    /// own.
+    private func waitUntilHandleCount(
+        _ store: ABCacheStore,
+        equals expected: Int,
+        deadline: Duration = .seconds(2),
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async throws {
+        let clock = ContinuousClock()
+        let start = clock.now
+        while await store.fillHandleCount() != expected {
+            if clock.now - start >= deadline {
+                Issue.record(
+                    "fillHandleCount() did not reach \(expected) in time",
+                    sourceLocation: sourceLocation
+                )
+                throw ABWaitUntilTimedOut()
+            }
+            await Task.yield()
+        }
     }
 
     private func cacheFileExists(for source: ABMediaSource, directory: URL) -> Bool {

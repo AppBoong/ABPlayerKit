@@ -46,6 +46,35 @@ struct ABByteRangeTests {
 
 }
 
+@Suite("ABContentRange parsing", .timeLimit(.minutes(3)))
+struct ABContentRangeTests {
+    @Test("Parses a fully-specified Content-Range header")
+    func parsesFullyKnownRange() {
+        let parsed = ABContentRange.parse("bytes 3-5/6")
+        #expect(parsed == ABContentRange(start: 3, end: 5, total: 6))
+    }
+
+    @Test("Parses a Content-Range header with an unknown total")
+    func parsesUnknownTotal() {
+        let parsed = ABContentRange.parse("bytes 0-9/*")
+        #expect(parsed == ABContentRange(start: 0, end: 9, total: nil))
+    }
+
+    @Test("Parses a Content-Range header with an unknown range but known total")
+    func parsesUnknownRangeKnownTotal() {
+        let parsed = ABContentRange.parse("bytes */1234")
+        #expect(parsed == ABContentRange(start: nil, end: nil, total: 1234))
+    }
+
+    @Test("Rejects malformed Content-Range headers")
+    func rejectsMalformedHeaders() {
+        #expect(ABContentRange.parse("bytes */*") == nil)
+        #expect(ABContentRange.parse("items 0-9/10") == nil)
+        #expect(ABContentRange.parse("bytes 10-5/20") == nil)
+        #expect(ABContentRange.parse("not-a-content-range") == nil)
+    }
+}
+
 @Suite("ABCacheIndex LRU and persistence", .timeLimit(.minutes(3)))
 struct ABCacheIndexTests {
     @Test("Evicts least-recently-used entries until under the limit")
