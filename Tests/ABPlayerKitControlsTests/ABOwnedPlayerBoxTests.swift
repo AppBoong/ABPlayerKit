@@ -9,7 +9,13 @@ import Testing
 @Suite("ABOwnedPlayerBox backs ABVideoPlayerWithControls's url:/source: initializers", .timeLimit(.minutes(3)))
 @MainActor
 struct ABOwnedPlayerBoxTests {
-    private let url = URL(string: "https://example.com/owned-box-test.mp4")!
+    // A nonexistent *local* file, not a remote host: `AVPlayer.play()` sets
+    // `rate` synchronously regardless of the underlying item's validity
+    // (so `isPlaying` still flips as these tests need), but a missing local
+    // file fails fast. An unreachable remote host instead leaves a real
+    // `AVPlayer` retrying DNS/connection with no timeout of its own for the
+    // rest of the test run, competing for CPU with every other suite.
+    private let url = URL(fileURLWithPath: "/private/tmp/abplayerkit-owned-box-test-\(UUID().uuidString).mp4")
 
     private func ignoringBackground() -> ABPlayerConfiguration {
         ABPlayerConfiguration(backgroundPolicy: .ignore)

@@ -91,7 +91,18 @@ struct ABVideoPlayerOwnershipTests {
         let player = coordinator.player(configuration: ignoringBackground(), videoGravity: .resizeAspectFill)
         coordinator.apply(source: ABMediaSource(url: firstURL), autoplay: false)
 
-        let secondSource = ABMediaSource(url: URL(string: "https://example.com/second.mp4")!)
+        // A second, genuinely distinct local file (a runtime copy of the
+        // same fixture) rather than an unreachable network URL — proving
+        // autoplay re-applies on a source change needs `isPlaying` to
+        // actually turn `true`, which an unreachable host would leave a
+        // real `AVPlayer` retrying indefinitely to achieve, well past this
+        // test's own completion.
+        let secondURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tiny-copy-\(UUID().uuidString)", isDirectory: false)
+            .appendingPathExtension("mp4")
+        try FileManager.default.copyItem(at: firstURL, to: secondURL)
+        defer { try? FileManager.default.removeItem(at: secondURL) }
+        let secondSource = ABMediaSource(url: secondURL)
         coordinator.apply(source: secondSource, autoplay: true)
 
         #expect(player.source == secondSource)
