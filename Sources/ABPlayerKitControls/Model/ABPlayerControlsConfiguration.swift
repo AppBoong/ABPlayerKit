@@ -56,9 +56,9 @@ public struct ABPlayerControlsConfiguration: Sendable, Equatable {
         /// used verbatim as the *entire* time-label text; `timeLabelLayout`'s
         /// elapsed/total/remaining combination does not apply to `.custom`, since the
         /// formatter already receives both values and is expected to lay out the
-        /// whole label itself (round3 Phase4 WP12 — layering the automatic
-        /// combination on top of an already-complete `.custom` string previously
-        /// produced doubled output, e.g. `"12s/90s/90s/90s"`).
+        /// whole label itself: layering the automatic combination on top of
+        /// an already-complete `.custom` string would produce doubled
+        /// output, e.g. `"12s/90s/90s/90s"`.
         case custom(@Sendable (TimeInterval, TimeInterval?) -> String)
     }
 

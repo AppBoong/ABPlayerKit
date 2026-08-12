@@ -146,19 +146,16 @@ struct ABControlsPresenter: Equatable {
             // resolved just before calling `handle(_:)` — this decision
             // deliberately does NOT read `self.isPlaying` (this type's own
             // cached copy, last updated by `.timeControlStatusChanged`).
-            // Round4 review MJ-3: an earlier version branched on
-            // `self.isPlaying`, which diverges from the live value while
-            // buffering (`timeControlStatus == .waitingToPlayAtSpecifiedRate`
-            // has `player.isPlaying == true` — rate≠0, not paused — but
-            // never set `self.isPlaying = true`, since only `.playing`
-            // does). The pre-extraction `togglePlayback` always branched on
-            // `player.isPlaying`; this restores that exact source, per the
-            // "pure move" principle this whole decomposition is supposed to
-            // hold to. `self.isPlaying` is still updated optimistically
-            // afterward (matching the pre-extraction code's own
-            // `isPlayingState = true/false` assignment, right after the
+            // Branching on `self.isPlaying` (this type's own cached copy)
+            // instead would diverge from the live value while buffering:
+            // `timeControlStatus == .waitingToPlayAtSpecifiedRate` has
+            // `player.isPlaying == true` — rate≠0, not paused — but never
+            // sets `self.isPlaying = true`, since only `.playing` does.
+            // Branching on the live `player.isPlaying` the caller resolved
+            // keeps this decision correct through buffering. `self.isPlaying`
+            // is still updated optimistically afterward, right after the
             // branch, independent of whether a reentrant
-            // `.timeControlStatusChanged` ever confirms it).
+            // `.timeControlStatusChanged` ever confirms it.
             self.isPlaying = !isPlaying
             if isPlaying {
                 return [.send(.pause)]

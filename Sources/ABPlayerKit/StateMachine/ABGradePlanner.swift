@@ -1,10 +1,11 @@
 /// Turns a `(from, to)` grade transition into the ordered list of actions
 /// needed to realize it. Pure — no `AVFoundation` import, no state, 100%
-/// unit-testable (DESIGN-ABPlayerKit.md §4.2).
+/// unit-testable.
 ///
-/// Deviations from the literal table in DESIGN-ABPlayerKit.md §4.2, chosen to
-/// keep invariants I1–I5 internally consistent (documented at each call site
-/// below and in the final implementation report):
+/// Deviations from the literal from/to transition table this planner
+/// implements, chosen to keep invariants I1–I5 internally consistent
+/// (documented at each call site below and in the final implementation
+/// report):
 /// - `.applyTuning` is always ordered *before* the matching `.attachItem`
 ///   (the table's prose lists them the other way around in a couple of
 ///   cells, but invariant I4 is explicit that tuning must land before

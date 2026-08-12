@@ -2,8 +2,7 @@
 import UIKit
 
 /// A `UIView` whose backing layer is an `AVPlayerLayer`. Owns first-frame
-/// detection for whichever `ABPlayer` is currently attached
-/// (DESIGN-ABPlayerKit.md §5.5).
+/// detection for whichever `ABPlayer` is currently attached.
 @MainActor
 public final class ABPlayerView: UIView {
     public override class var layerClass: AnyClass { AVPlayerLayer.self }
@@ -53,9 +52,8 @@ public final class ABPlayerView: UIView {
     /// When `true`, gravity is chosen from the attached item's
     /// `presentationSize` once known, instead of always using the
     /// configured default. Default `false` — the reels convention is
-    /// always `resizeAspectFill` (DESIGN-ABPlayerKit.md §10, weakness #15:
-    /// replaces a dead, never-called `applyVideoGravity` with a single
-    /// opt-in setting).
+    /// always `resizeAspectFill`. Replaces a dead, never-called
+    /// `applyVideoGravity` with a single opt-in setting.
     public var adaptsGravityToAspectRatio = false {
         didSet { applyAdaptiveGravityIfNeeded() }
     }

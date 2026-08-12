@@ -13,14 +13,14 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
     private let observations = ABObservationBag()
     private var isLooping = false
     private var desiredRate: Float = 1.0
-    /// Lock-protected rather than `nonisolated(unsafe)` stored properties
-    /// (round3 Phase1+2 review M3): a raw `nonisolated(unsafe)` removed
-    /// isolation checking from every access site, not just `deinit`, and
-    /// didn't stop `removeTimeObserver` itself from running off the main
-    /// thread — a documented race with the observer block, which this type
-    /// always registers on the main queue (`queue: nil` below). All
-    /// access — normal `@MainActor` call sites and `deinit` alike — now
-    /// goes through this single box.
+    /// Lock-protected rather than `nonisolated(unsafe)` stored properties:
+    /// a raw `nonisolated(unsafe)` would remove isolation checking from
+    /// every access site, not just `deinit`, and wouldn't stop
+    /// `removeTimeObserver` itself from running off the main thread — a
+    /// documented race with the observer block, which this type always
+    /// registers on the main queue (`queue: nil` below). All access —
+    /// normal `@MainActor` call sites and `deinit` alike — goes through
+    /// this single box.
     private let periodicObserver = PeriodicObserverBox()
 
     var isPlaying: Bool {
@@ -323,7 +323,7 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         /// Mirrors `ABCacheStore`'s `ABCacheProgressWaiter.resolve()
         /// -> Bool` so concurrency tests have a real oracle to assert
         /// against instead of a vacuous "the result is one of the possible
-        /// cases" check (round3 Phase1+2 review m2).
+        /// cases" check.
         @discardableResult
         func resolve(_ result: ReadyWaitResult) -> Bool {
             lock.lock()
@@ -558,7 +558,7 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
 /// Lock-protected holder for the single periodic time observer
 /// `ABAVPlaybackTarget` may have registered, so both normal `@MainActor`
 /// call sites and `ABAVPlaybackTarget.deinit` (nonisolated) can clear it
-/// through the same, safe path (round3 Phase1+2 review M3). `removeIfNeeded`
+/// through the same, safe path. `removeIfNeeded`
 /// always performs the actual `removeTimeObserver` call on the main
 /// thread — the observer itself was registered with `queue: nil` (main
 /// queue), and `AVPlayer.removeTimeObserver` racing that queue's callback

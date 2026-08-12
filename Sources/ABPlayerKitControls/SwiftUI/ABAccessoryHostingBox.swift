@@ -3,11 +3,10 @@ import UIKit
 
 /// Owns a `UIHostingController<AnyView>` so a SwiftUI accessory view can sit
 /// inside `ABPlayerControlsView.accessoryViews` (a plain `[UIView]`) without
-/// that API knowing anything about SwiftUI (see `DESIGN-OPEN-QUESTIONS.md`
-/// Q6-A — this type is the mitigation Q6-A commits to for the hosting risk
-/// Q6 originally flagged).
+/// that API knowing anything about SwiftUI.
 ///
-/// Every failure mode Q6 raised is handled explicitly here, not silently:
+/// Every failure mode that hosting risk raises is handled explicitly here,
+/// not silently:
 /// 1. `sizingOptions = [.intrinsicContentSize]` — without it, the
 ///    `UIStackView` this view sits in has no way to size it and it collapses
 ///    to 0×0.
@@ -26,18 +25,18 @@ import UIKit
 ///    itself windowed — the container walks its own responder chain for the
 ///    nearest `UIViewController` and, if found, performs the full
 ///    `addChild` → `didMove(toParent:)` handshake `detach()` reverses.
-///    (round4 review MJ-2: an earlier version triggered this only from
-///    `ABPlayerControls.update(_:coordinator:)`, which runs once at
-///    `makeUIView` time — before the view has any window — and is never
-///    guaranteed to run again afterward for static accessory content, so
-///    attachment silently never happened on the ordinary first-display
-///    path. Self-observing `didMoveToWindow` fixes this at the source
-///    instead of depending on a caller's update cadence.)
+///    (triggering this only from
+///    `ABPlayerControls.update(_:coordinator:)` instead — which runs once
+///    at `makeUIView` time, before the view has any window, and is never
+///    guaranteed to run again afterward for static accessory content —
+///    would leave attachment silently never happening on the ordinary
+///    first-display path. Self-observing `didMoveToWindow` avoids
+///    depending on a caller's update cadence.)
 /// 5. **If no parent is found**, this box's `view` still lays out and
 ///    renders — it's already a plain `UIView` in the hierarchy — but
 ///    safe-area propagation, `UIViewController` appearance callbacks, and
 ///    trait inheritance into the hosted SwiftUI content are not guaranteed.
-///    This is Q6's original risk, deliberately left visible rather than
+///    This risk is deliberately left visible rather than
 ///    hidden: `attach(to:)` just returns without attaching, and callers that
 ///    need the guarantee should ensure their view sits inside a real
 ///    `UIViewController`'s hierarchy.

@@ -88,10 +88,10 @@ private final class ABCacheProgressWaiter: @unchecked Sendable {
 /// **not** actor-isolated (mirrors `ABCacheReaderRegistry` just above): the
 /// `onCancel` side of `withTaskCancellationHandler` runs synchronously,
 /// outside actor isolation, and still needs to remove exactly the one
-/// waiter that was cancelled so it stops blocking LRU eviction (WP4 —
-/// previously a cancelled waiter stayed in this registry, and by extension
-/// `load(_:range:)` never returned, keeping `readerRegistry` retained for
-/// that key forever).
+/// waiter that was cancelled so it stops blocking LRU eviction: without
+/// this removal, a cancelled waiter would stay in this registry, and by
+/// extension `load(_:range:)` would never return, keeping `readerRegistry`
+/// retained for that key forever.
 private final class ABCacheProgressWaiterRegistry: @unchecked Sendable {
     private let lock = NSLock()
     private var waiters: [String: [UUID: ABCacheProgressWaiter]] = [:]
@@ -223,31 +223,30 @@ actor ABCacheStore {
     nonisolated private let revalidationRegistry = ABCacheRevalidationRegistry()
     /// In-flight `remoteMetadata` requests, keyed by cache key, so N
     /// concurrent cold-key callers share one HEAD instead of each issuing
-    /// their own (round3 Phase1+2 review M5 — `fills` already coalesced the
-    /// GET via the synchronous `guard fills[key] == nil` in
-    /// `startFillIfNeeded`, but `resolvedMetadata`/`metadata(for:)` had no
-    /// equivalent for the HEAD that precedes it).
+    /// their own: `fills` coalesces the GET via the synchronous
+    /// `guard fills[key] == nil` in `startFillIfNeeded`, and this registry is
+    /// the equivalent for the HEAD that precedes it.
     ///
     /// Values are wrapped in a reference-type holder (rather than storing
-    /// `Task` directly) so cleanup can compare identity (round4 review
-    /// N12): if `reset()` — or a second HEAD that arrived after this key's
-    /// entry was already cleared — has since installed a *different*
-    /// holder for the same key, cleanup must not clobber it out from under
-    /// whoever owns it now.
+    /// `Task` directly) so cleanup can compare identity: if `reset()` — or
+    /// a second HEAD that arrived after this key's entry was already
+    /// cleared — has since installed a *different* holder for the same
+    /// key, cleanup must not clobber it out from under whoever owns it
+    /// now.
     ///
     /// Caching the result and clearing the slot both happen from *inside*
     /// the task's own body (`finishMetadataRequest`, called from the `Task`
     /// closure below), not from whichever caller's `resolvedMetadata` call
-    /// happens to be awaiting it (round4 review mn-4, completing N12): an
-    /// unstructured `Task` doesn't stop running just because one awaiter's
-    /// `try await request.value` gets cancelled — cancelling that await
-    /// only makes *that call* throw `CancellationError`, it doesn't cancel
-    /// the task. The old code tied caching/cleanup to the *first* caller's
-    /// `defer`, so a cancelled first caller left the task to finish with
-    /// nothing recording its result: the slot stayed cleared, a second
-    /// caller launched an entirely new HEAD, and the orphaned first task's
-    /// eventual result was silently discarded uncached. Tying both to the
-    /// task's own completion instead means every path out — success,
+    /// happens to be awaiting it: an unstructured `Task` doesn't stop
+    /// running just because one awaiter's `try await request.value` gets
+    /// cancelled — cancelling that await only makes *that call* throw
+    /// `CancellationError`, it doesn't cancel the task. Tying caching and
+    /// cleanup to the *first* caller's `defer` instead would let a
+    /// cancelled first caller leave the task to finish with nothing
+    /// recording its result: the slot would stay cleared, a second caller
+    /// would launch an entirely new HEAD, and the orphaned first task's
+    /// eventual result would be silently discarded uncached. Tying both to
+    /// the task's own completion instead means every path out — success,
     /// thrown error, or the task's own cancellation via `removeAll()` —
     /// finishes exactly once, regardless of how many callers were
     /// awaiting it or whether any of them got cancelled first.
@@ -256,9 +255,10 @@ actor ABCacheStore {
         /// closure, which — being `@Sendable` — can't capture this
         /// non-`Sendable` class instance itself without either an
         /// actor-isolation data-race diagnostic or `@unchecked Sendable`
-        /// (banned in this codebase — see `DESIGN-OPEN-QUESTIONS.md` Q13's
-        /// rationale, same reasoning as banning `MainActor.assumeIsolated`
-        /// as a compile-error workaround). A plain `UUID` is trivially
+        /// (banned in this codebase: it would silence the compiler's
+        /// actor-isolation diagnostic instead of proving the capture safe,
+        /// the same reason `MainActor.assumeIsolated` is banned as a
+        /// compile-error workaround). A plain `UUID` is trivially
         /// `Sendable` and serves the identity comparison just as well.
         let id = UUID()
         var task: Task<RemoteMetadata, Error>!
@@ -321,8 +321,8 @@ actor ABCacheStore {
     /// store deallocates — without it, their continuations (and whatever
     /// `load(_:range:)` callers are awaiting them) leak forever, since
     /// nothing else will ever call `resumeWaiters`/`resolveAll` for a
-    /// deallocated store (round3 Phase1+2 review m12; `resolveEverything()`
-    /// already existed for `removeAll()`, just not for teardown).
+    /// deallocated store; `resolveEverything()` already existed for
+    /// `removeAll()`, just not for teardown.
     /// `progressWaiters` is `nonisolated`, so this is safe to run from
     /// `deinit` (nonisolated even on an `actor`) without needing any
     /// workaround for the actor-isolated storage elsewhere in this type.
@@ -342,7 +342,7 @@ actor ABCacheStore {
         metadataCache.count
     }
 
-    /// Test-only introspection (WP7): a snapshot of the metadata LRU order,
+    /// Test-only introspection: a snapshot of the metadata LRU order,
     /// oldest (next to evict) first. Lets tests assert that re-touching a
     /// key (a second `metadata(for:)` call) moves it to the
     /// most-recently-used end instead of letting it evict on the next
@@ -351,7 +351,7 @@ actor ABCacheStore {
         metadataCacheOrder
     }
 
-    /// Test-only introspection (WP4 regression coverage): the set of keys
+    /// Test-only introspection: the set of keys
     /// `load(_:range:)` currently has an active reader for. A cancelled
     /// `waitForProgress` waiter that fails to unwind `load(_:range:)`
     /// promptly would leave its key in here forever, blocking that key from
@@ -500,7 +500,7 @@ actor ABCacheStore {
                     isEndOfResource: true
                 )
             }
-            // WP11: a request far ahead of the linear fill's current
+            // A request far ahead of the linear fill's current
             // prefix would otherwise wait for that fill to sequentially
             // crawl all the way there — unbounded for a distant seek
             // against a non-faststart file. Serve it directly instead of
@@ -558,7 +558,7 @@ actor ABCacheStore {
             }
         }
         // Coalesce concurrent cold-key requests onto a single in-flight
-        // HEAD (M5): the first caller creates the task and stores it before
+        // HEAD: the first caller creates the task and stores it before
         // its first suspension point, so every other caller that arrives
         // before it completes awaits the same `Task` instead of issuing its
         // own request.
@@ -571,7 +571,8 @@ actor ABCacheStore {
         // request. `finishMetadataRequest` — called from *inside* the task,
         // not from this call's own completion — does the caching and slot
         // cleanup exactly once, regardless of whether this specific await
-        // gets cancelled (see this type's doc comment, round4 mn-4).
+        // gets cancelled (see the doc comment on `pendingMetadataRequests`
+        // above).
         let holder = PendingMetadataRequest()
         let holderID = holder.id
         pendingMetadataRequests[key] = holder
@@ -657,7 +658,7 @@ actor ABCacheStore {
         // and blindly nil-ing the slot here would either resurrect a
         // coalescing gap (drop a newer, still in-flight holder) or be a
         // harmless no-op. Comparing identity by `id` makes this exact
-        // instead of "last one out wins" (round4 N12).
+        // instead of "last one out wins".
         if pendingMetadataRequests[key]?.id == holderID {
             pendingMetadataRequests[key] = nil
         }
@@ -910,12 +911,11 @@ actor ABCacheStore {
             resolvedRange.upperBound ?? (contentLength - 1),
             contentLength - 1
         )
-        // Cap each round trip to `passthroughChunkSize` (round3 Phase4
-        // WP11.2) so a caller streaming a large range —
-        // `ABResourceLoaderDelegate`'s loop, which already re-requests
-        // from `currentOffset` after every response — gets it back in
-        // bounded pieces instead of one large in-memory `Data` allocation
-        // per round trip.
+        // Cap each round trip to `passthroughChunkSize` so a caller
+        // streaming a large range — `ABResourceLoaderDelegate`'s loop,
+        // which already re-requests from `currentOffset` after every
+        // response — gets it back in bounded pieces instead of one large
+        // in-memory `Data` allocation per round trip.
         let requestedUpperBound = Swift.min(fullUpperBound, resolvedRange.lowerBound + passthroughChunkSize - 1)
         var request = request(for: source)
         request.setValue(
@@ -1137,7 +1137,7 @@ actor ABCacheStore {
     /// (keyed by `id`) and removes it from `progressWaiters` immediately —
     /// synchronously, from a non-actor-isolated context — so the caller's
     /// following `Task.checkCancellation()` throws promptly instead of
-    /// leaving a dead entry that blocks LRU eviction (WP4).
+    /// leaving a dead entry that blocks LRU eviction.
     private func waitForProgress(key: String) async {
         let id = UUID()
         let waiter = ABCacheProgressWaiter()
@@ -1261,9 +1261,9 @@ actor ABCacheStore {
         Swift.max(0, Swift.min(configuration.maximumEntrySize, configuration.maximumDiskSize))
     }
 
-    /// Per-round-trip cap for `passthrough` responses (round3 Phase4
-    /// WP11.2) — fixed, not configurable, since it bounds an in-memory
-    /// `Data` allocation rather than expressing a cache policy tradeoff.
+    /// Per-round-trip cap for `passthrough` responses — fixed, not
+    /// configurable, since it bounds an in-memory `Data` allocation
+    /// rather than expressing a cache policy tradeoff.
     private var passthroughChunkSize: Int64 { 1_024 * 1_024 }
 
     /// Fixed cap for a passthrough read whose length isn't

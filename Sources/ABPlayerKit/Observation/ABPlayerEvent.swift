@@ -104,8 +104,7 @@ public enum ABPlayerEvent: Sendable, Equatable {
     case mutedChanged(Bool)
     /// An `AVAudioSession` interruption (phone call, Siri, another app
     /// taking the session) began and paused this player. Only emitted when
-    /// `ABPlayerConfiguration/interruptionPolicy != .ignore` (round3
-    /// Phase4 WP10).
+    /// `ABPlayerConfiguration/interruptionPolicy != .ignore`.
     case audioInterruptionBegan
     /// A previously-began interruption ended. `resumed` is `true` only if
     /// `ABInterruptionPolicy/pauseAndResume` was configured, the system

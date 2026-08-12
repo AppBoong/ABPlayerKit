@@ -4,7 +4,7 @@ import CoreGraphics
 /// Signals the concrete target reports back to `ABPlayer`, independent of
 /// the commands `ABPlayer` issues *to* the target. Kept as a plain enum
 /// rather than a delegate protocol so the test seam stays at exactly one
-/// protocol (`ABPlaybackTarget` itself) per PLANNING.md §6.
+/// protocol (`ABPlaybackTarget` itself).
 enum ABTargetEvent: Sendable, Equatable {
     case itemStatusChanged(ABItemStatus)
     case playbackStalled
@@ -40,7 +40,7 @@ struct ABExternalPlaybackSettings: Equatable {
 /// The one seam between `ABPlayer` and real `AVFoundation` calls. Kept
 /// `internal` — consumers reach real playback through `ABPlayer`'s public
 /// surface, never through this protocol (`@testable import` is how tests
-/// reach it, per DESIGN-ABPlayerKit.md §7).
+/// reach it).
 ///
 /// Expanded slightly beyond the design doc's literal method list
 /// (`avPlayer`/`avPlayerItem` accessors, `seek`/`setMuted`/`isPlaying`/

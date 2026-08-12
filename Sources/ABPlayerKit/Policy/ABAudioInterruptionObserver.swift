@@ -5,15 +5,14 @@ import Foundation
 /// notifications for a single `ABPlayer` instance. Follows
 /// `ABApplicationStateObserver`'s pattern (Policy/ABApplicationStateObserver.swift):
 /// no global/static observers, each instance owns and tears down its own
-/// tokens (DESIGN-ABPlayerKit.md §10, weakness #12).
+/// tokens.
 ///
 /// Deliberately reads real `AVAudioSession.interruptionNotification`/
 /// `routeChangeNotification` names and their real `userInfo` key/value
 /// types (so production code observes the actual system notification), but
 /// never calls `AVAudioSession.sharedInstance()` itself — tests inject a
 /// private `NotificationCenter` and post fabricated `userInfo` dictionaries
-/// instead of exercising the real, process-global audio session (round3
-/// Phase4 WP10.5).
+/// instead of exercising the real, process-global audio session.
 @MainActor
 final class ABAudioInterruptionObserver {
     // `nonisolated(unsafe)`: NotificationCenter observer tokens are opaque,

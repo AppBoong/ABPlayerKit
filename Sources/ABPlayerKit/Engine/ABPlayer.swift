@@ -5,18 +5,17 @@ import Observation
 
 /// Owns a single playback grade, broadcasts its lifecycle as events, and
 /// guarantees every release path passes through `replaceCurrentItem(nil)`.
-/// See DESIGN-ABPlayerKit.md §5.3.
 ///
-/// `@Observable` (round3 Phase3 WP9 — the reason this package requires
-/// iOS 17+, Q7 in DESIGN-OPEN-QUESTIONS.md) so SwiftUI views reading
+/// `@Observable` (the reason this package requires iOS 17+) so SwiftUI
+/// views reading
 /// `grade`/`isScrubbing`/`hasDisplayedFirstFrame`/`lastError`/`source`/
 /// `configuration` directly re-render on change, with no observer bridge
 /// required. The token-based `addObserver`/`ABPlayerEvent` system
 /// (Observation/ABHandlerRegistry.swift) is unaffected and stays the
 /// primary mechanism for anything that isn't a simple property read —
 /// discrete lifecycle events, UIKit consumers, and anything needing the
-/// *reason* a value changed (Q3 in DESIGN-OPEN-QUESTIONS.md: the two
-/// systems are deliberately parallel, not a replacement for one another).
+/// *reason* a value changed: the two systems are deliberately parallel,
+/// not a replacement for one another.
 @MainActor
 @Observable
 public final class ABPlayer {
@@ -52,7 +51,7 @@ public final class ABPlayer {
     public private(set) var pendingSeekTime: CMTime?
 
     /// Escape hatch — kept public for study purposes and consumer
-    /// fallback (DESIGN-ABPlayerKit.md §1). Grade-related state must still
+    /// fallback. Grade-related state must still
     /// go through `set(source:grade:)`/`promote(to:)`/`release()`.
     public var avPlayer: AVPlayer? { target.avPlayer }
     public var avPlayerItem: AVPlayerItem? { target.avPlayerItem }
@@ -110,8 +109,7 @@ public final class ABPlayer {
     // this `@MainActor` class) can cancel them directly — `@Observable`
     // rewrites tracked stored properties into computed ones backed by a
     // private accessor that calls into `ObservationRegistrar`, which would
-    // silently defeat that nonisolated-access guarantee (round3 Phase3
-    // WP9.2).
+    // silently defeat that nonisolated-access guarantee.
     @ObservationIgnored
     private var lastAppliedTuningRole: ABTuningRole = .preload
     /// Reported by `ABPlayerView.layoutSubviews()`; `.zero` while no view
@@ -183,18 +181,17 @@ public final class ABPlayer {
     /// (`Policy/ABAudioSessionCoordinator.swift`) — shared across every
     /// `ABPlayer` instance so concurrent players (the feed scenario)
     /// coordinate one snapshot/refcount instead of stomping each other's
-    /// state (round3 Phase1+2 review C1). Overridable only from the
-    /// test-only initializer below.
+    /// state. Overridable only from the test-only initializer below.
     private let audioSessionCoordinator: ABAudioSessionCoordinator
     /// This instance's stable identity for `audioSessionCoordinator`
     /// bookkeeping. `nonisolated` (and computed fresh, not cached) so it
     /// can be read from `deinit`, which is nonisolated even on this
     /// `@MainActor` class.
     private nonisolated var audioSessionToken: ObjectIdentifier { ObjectIdentifier(self) }
-    /// Whether `play()` still needs to (re)activate the audio session
-    /// (round4 review N1). `applyAudioSessionPolicyIfNeeded()`'s M1 fix
-    /// ("never memoize, always reactivate") made every `play()` call issue
-    /// a synchronous `setCategory`/`setActive` IPC to mediaserverd, even
+    /// Whether `play()` still needs to (re)activate the audio session.
+    /// `applyAudioSessionPolicyIfNeeded()` always reactivates rather than
+    /// memoizing, so every `play()` call issues a synchronous
+    /// `setCategory`/`setActive` IPC to mediaserverd, even
     /// though most `play()` calls follow a grade promotion (or another
     /// `play()`) that already just activated the exact same policy — a
     /// real cost for feed autoplay, where every cell's promotion is
@@ -256,9 +253,9 @@ public final class ABPlayer {
     /// `audioSessionCoordinator.leave` is a no-op for a token that never
     /// applied a policy, and its own internals are lock-protected rather
     /// than actor-isolated, so it's safe to call unconditionally from this
-    /// nonisolated `deinit` — the fix for M4 ("WP1 and WP2 don't compose":
-    /// a consumer dropping this instance without calling `release()` used
-    /// to leave the audio session permanently in this player's category).
+    /// nonisolated `deinit`: without this call, a consumer dropping this
+    /// instance without calling `release()` would leave the audio session
+    /// permanently in this player's category.
     /// Any restore failure is dropped rather than surfaced — by the time
     /// `deinit` runs there is no observer left to receive a `.failed`
     /// event.
@@ -337,10 +334,9 @@ public final class ABPlayer {
             applyAudioSessionPolicyIfNeeded()
         }
         if resolvedGrade == .released {
-            // `release()` is one of the two explicit restore triggers
-            // (Q4 in DESIGN-OPEN-QUESTIONS.md) — the other is the policy
-            // itself switching back to `.unmanaged`, handled in
-            // `applyConfigurationChange`.
+            // `release()` is one of the two explicit restore triggers —
+            // the other is the policy itself switching back to
+            // `.unmanaged`, handled in `applyConfigurationChange`.
             restoreAudioSessionPolicyIfNeeded()
         }
 
@@ -373,9 +369,9 @@ public final class ABPlayer {
             rejectCall(.play)
             return
         }
-        // Also covers "playback start" from Q4's apply trigger — e.g. the
-        // policy was switched to a managed one after promotion but before
-        // the first `play()`. Not forced (round4 N1) — only reactivates if
+        // Also covers "playback start" as an audio session apply trigger —
+        // e.g. the policy was switched to a managed one after promotion but
+        // before the first `play()`. Not forced — only reactivates if
         // `audioSessionActivationDirty`, since a grade promotion or an
         // earlier `play()` typically already activated this exact policy.
         applyAudioSessionPolicyIfNeeded(force: false)
@@ -886,10 +882,10 @@ public final class ABPlayer {
         // driven by `set(source:grade:)`) is untouched by this guard.
         //
         // Compares only the tuning that actually applies to the resolved
-        // role — not an OR of both (round3 Phase1+2 review m1). With the
-        // OR, changing `preloadTuning` alone while `.current` passed the
-        // guard despite `currentTuning` being unchanged, re-applying the
-        // identical tuning and broadcasting a spurious
+        // role, not an OR of both: with an OR, changing `preloadTuning`
+        // alone while `.current` would pass the guard despite
+        // `currentTuning` being unchanged, re-applying the identical
+        // tuning and broadcasting a spurious
         // `.tuningApplied(.current, sameValue)`.
         let role: ABTuningRole = grade == .current ? .current : .preload
         let previousRoleTuning = role == .preload
@@ -1011,7 +1007,7 @@ public final class ABPlayer {
         broadcast(.callRejected(call, grade: grade))
     }
 
-    // MARK: - Audio interruption / route change (round3 Phase4 WP10)
+    // MARK: - Audio interruption / route change
 
     private func reconcileInterruptionObserver() {
         // Also installed whenever this instance actively manages the audio
@@ -1020,10 +1016,10 @@ public final class ABPlayer {
         // with both of those at their do-nothing settings, this instance
         // still needs `handleInterruptionBegan` to fire so it can re-dirty
         // `audioSessionActivationDirty` when iOS deactivates the session out
-        // from under it (round4 MJ-1 fix's second half; the callbacks this
-        // observer drives besides that re-dirtying — pause-on-interruption,
-        // pause-on-route-change — stay correctly gated by their own policy
-        // checks inside `handleInterruptionEnded`/`handleRouteChangeDeviceUnavailable`).
+        // from under it (the callbacks this observer drives besides that
+        // re-dirtying — pause-on-interruption, pause-on-route-change — stay
+        // correctly gated by their own policy checks inside
+        // `handleInterruptionEnded`/`handleRouteChangeDeviceUnavailable`).
         guard configuration.interruptionPolicy != .ignore
             || configuration.pausesOnRouteChangeDeviceUnavailable
             || configuration.audioSessionPolicy != .unmanaged else {
@@ -1044,15 +1040,14 @@ public final class ABPlayer {
         // iOS deactivates the audio session for the duration of the
         // interruption regardless of `interruptionPolicy` — the next
         // `play()` (from `handleInterruptionEnded`'s resume, or a manual
-        // one) must reactivate it rather than being skipped by N1's
+        // one) must reactivate it rather than being skipped by the
         // dirty-flag optimization above. This is a fact about *session
         // state*, not about whether to pause/resume playback, so it must
-        // not be gated by the policy guard below (round4 MJ-1 fix — the
-        // dirty flag used to sit after the guard, silently reintroducing
-        // round3 Phase1+2's M1 under the default `.ignore` policy: the
+        // not be gated by the policy guard below. If the dirty flag were set
+        // after that guard, the default `.ignore` policy would break: the
         // observer still fires and deactivation still happens, but nothing
-        // recorded it, so a later `play()`'s `force: false` optimization
-        // skipped reactivation and left playback silently muted).
+        // would record it, so a later `play()`'s `force: false` optimization
+        // would skip reactivation and leave playback silently muted.
         audioSessionActivationDirty = true
         guard configuration.interruptionPolicy != .ignore else { return }
         // Reads the target directly (not the `isPlaying` mirror) for the
@@ -1076,8 +1071,8 @@ public final class ABPlayer {
         wasPlayingBeforeInterruption = false
         if resumes {
             // `play()` reactivates the audio session through
-            // `applyAudioSessionPolicyIfNeeded()` → `audioSessionCoordinator`
-            // (round3 Phase3 WP2 M1's "always reactivate" fix), so an
+            // `applyAudioSessionPolicyIfNeeded()` → `audioSessionCoordinator`,
+            // which always reactivates rather than memoizing, so an
             // interruption that deactivated the session ends with it
             // correctly reactivated rather than silently staying inactive.
             play()
@@ -1093,30 +1088,30 @@ public final class ABPlayer {
         broadcast(.audioRouteChangedDeviceUnavailable)
     }
 
-    // MARK: - Audio session (Q4 in DESIGN-OPEN-QUESTIONS.md)
+    // MARK: - Audio session
 
     /// Applies `configuration.audioSessionPolicy` through
     /// `audioSessionCoordinator` if it isn't `.unmanaged`. No-op while not
     /// `.current` — callers gate this at grade `.current` promotion and
-    /// `play()` (playback start), per the confirmed Q4 design.
+    /// `play()` (playback start).
     ///
     /// `force: true` (the default — used by grade promotion and by an
     /// explicit `audioSessionPolicy` switch) always (re)activates, never
     /// memoized on "already applied", so a promotion after an interruption
-    /// reactivates the session instead of silently staying inactive
-    /// (round3 Phase1+2 review M1). `force: false` (used only by `play()`)
-    /// additionally requires `audioSessionActivationDirty`, so a `play()`
-    /// that immediately follows an already-successful apply is a no-op
-    /// instead of a redundant IPC (round4 N1) — reactivation is still
-    /// guaranteed for the case M1 exists to fix, because
+    /// reactivates the session instead of silently staying inactive.
+    /// `force: false` (used only by `play()`) additionally requires
+    /// `audioSessionActivationDirty`, so a `play()` that immediately
+    /// follows an already-successful apply is a no-op instead of a
+    /// redundant IPC — reactivation is still guaranteed for the case this
+    /// dirty-flag gating exists to protect, because
     /// `handleInterruptionBegan`/`handleWillEnterForeground` re-dirty the
     /// flag at the two points the session might actually have gone
     /// inactive out from under this instance.
     ///
     /// The coordinator itself snapshots the host's prior category/mode/
     /// options exactly once, before its *first* participant's apply, and
-    /// keeps that snapshot across a failed activate (M2) or additional
-    /// participants (C1).
+    /// keeps that snapshot across a failed activate or additional
+    /// participants.
     private func applyAudioSessionPolicyIfNeeded(force: Bool = true) {
         guard grade == .current else { return }
         let policy = configuration.audioSessionPolicy
@@ -1131,19 +1126,19 @@ public final class ABPlayer {
     }
 
     /// Leaves `audioSessionCoordinator`. Callers gate this at the policy
-    /// switching back to `.unmanaged` and at `release()`, per Q4. A no-op
+    /// switching back to `.unmanaged` and at `release()`. A no-op
     /// if this instance never participated, and only actually restores the
     /// host's snapshot once every other participating player has also left
-    /// (C1) — so this is safe to call unconditionally from either trigger.
+    /// — so this is safe to call unconditionally from either trigger.
     private func restoreAudioSessionPolicyIfNeeded() {
         if case .failure(let error)? = audioSessionCoordinator.leave(audioSessionToken) {
             surfaceAudioSessionFailure(error)
         }
     }
 
-    /// Q4 explicitly rules out swallowing apply/restore failures — surface
+    /// Apply/restore failures are never swallowed — surface
     /// them the same way every other asynchronous failure in this type is
-    /// surfaced (DESIGN-ABPlayerKit.md §6).
+    /// surfaced.
     private func surfaceAudioSessionFailure(_ error: Error) {
         let nsError = error as NSError
         let policyError = ABPlayerError.audioSessionOperationFailed(

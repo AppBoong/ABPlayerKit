@@ -3,7 +3,7 @@ import Foundation
 
 /// Watches `AVPlayerLayer.isReadyForDisplay` and `AVPlayerItem.status`
 /// together and reports the first moment both are true for the *current*
-/// item — the TTFF end point (DESIGN-ABPlayerKit.md §5.5).
+/// item — the TTFF (time-to-first-frame) end point.
 ///
 /// The AND-decision itself is a pure, fully unit-testable function
 /// (`shouldReport`); only the KVO wiring around it needs a live

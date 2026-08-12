@@ -4,8 +4,7 @@ import SwiftUI
 /// Thin `UIViewRepresentable` wrapper over `ABPlayerView`. Lives in the same
 /// target as the rest of the core — the wrapper is under 40 lines and
 /// `SwiftUI` has effectively zero link cost on iOS 17+, so splitting it into
-/// its own target would only cost consumers a second `import`
-/// (DESIGN-ABPlayerKit.md §2).
+/// its own target would only cost consumers a second `import`.
 public struct ABVideoPlayer: UIViewRepresentable {
     private enum Ownership {
         case explicit(ABPlayer)

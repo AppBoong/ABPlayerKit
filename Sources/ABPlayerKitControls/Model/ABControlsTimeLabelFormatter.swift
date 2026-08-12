@@ -28,7 +28,7 @@ struct ABControlsTimeLabelFormatter {
     /// unknown-duration item) — callers resolve that once, at the `CMTime`
     /// boundary, so this type never needs to know about `CMTime` itself.
     ///
-    /// `.custom` contract (round3 Phase4 WP12): the formatter receives both
+    /// `.custom` contract: the formatter receives both
     /// the elapsed seconds and the reference duration in one call and is
     /// expected to produce the *entire* label text itself — `timeLabelLayout`'s
     /// elapsed/secondary combination does not apply, since the consumer
@@ -82,9 +82,10 @@ struct ABControlsTimeLabelFormatter {
     /// passed to `.automatic` so every label in a render pass (elapsed, total,
     /// remaining) agrees on field width. Never called for `.custom` — `label`
     /// branches on `.custom` once, at its own entry point, before this helper
-    /// is ever reached (round3 Phase4 fix — REVIEW-round3-final.md N14: the
-    /// pre-extraction `formattedTime` carried a `.custom` case that was always
-    /// dead code for exactly this reason, silently).
+    /// is ever reached. The `.custom` case in the switch below exists purely
+    /// as a safety net: reaching it would mean `label`'s own `.custom`
+    /// branch was bypassed, so it traps with `assertionFailure` instead of
+    /// silently returning a wrong value.
     private func formattedTime(_ seconds: TimeInterval, referenceDuration: TimeInterval?) -> String {
         switch timeFormat {
         case .automatic:
@@ -99,10 +100,10 @@ struct ABControlsTimeLabelFormatter {
 
     /// Always `HH:MM:SS`, zero-padded, including the hours field even when
     /// zero. `.fixedHours`'s own formatter, not `ABTimeFormatter.string(from:)`
-    /// — that core API's default contract is the minimal `M:SS`/`H:MM:SS` form
-    /// (see `docs/DESIGN-v0.2-CONTROLS.md` §5.4); `.fixedHours` exists
-    /// specifically for consumers who want the always-padded clock look
-    /// instead, so it can't delegate to a formatter with different semantics.
+    /// — that core API's default contract is the minimal `M:SS`/`H:MM:SS`
+    /// form; `.fixedHours` exists specifically for consumers who want the
+    /// always-padded clock look instead, so it can't delegate to a
+    /// formatter with different semantics.
     private static func fixedHoursString(from seconds: TimeInterval) -> String {
         guard seconds.isFinite else { return "--:--:--" }
         let totalSeconds = Int(max(0, seconds).rounded(.down))

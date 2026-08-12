@@ -3,8 +3,7 @@ import Foundation
 /// Collects invalidation closures (KVO observations, `NotificationCenter`
 /// tokens, `ABObservationToken`s, ...) and tears every one of them down
 /// together, from `release()`/`deinit` — either can run on any thread, so
-/// this type is deliberately **not** actor-isolated (DESIGN-ABPlayerKit.md
-/// §3).
+/// this type is deliberately **not** actor-isolated.
 final class ABObservationBag: @unchecked Sendable {
     private let lock = NSLock()
     private var invalidators: [() -> Void] = []

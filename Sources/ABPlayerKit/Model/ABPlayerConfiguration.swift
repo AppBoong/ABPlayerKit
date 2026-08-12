@@ -2,7 +2,7 @@ import Foundation
 @preconcurrency import AVFoundation
 
 /// Every knob an `ABPlayer` needs, gathered into one injectable value.
-/// No DI container — init injection only (PLANNING.md §6).
+/// No DI container — init injection only.
 public struct ABPlayerConfiguration: Sendable, Equatable {
     public var preloadTuning: ABPlaybackTuning
     public var currentTuning: ABPlaybackTuning
@@ -21,7 +21,7 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
     public var rewindOnDemotion: Bool
     public var backgroundPolicy: ABBackgroundPolicy
     public var audioSessionPolicy: ABAudioSessionPolicy
-    /// Opt-in `AVAudioSession` interruption handling (round3 Phase4 WP10).
+    /// Opt-in `AVAudioSession` interruption handling.
     /// Defaults to `.ignore` — matches `audioSessionPolicy`'s "do nothing
     /// unless asked" convention.
     public var interruptionPolicy: ABInterruptionPolicy
@@ -31,7 +31,9 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
     /// its own notification with its own default (`true`, matching the
     /// platform HIG convention that content should pause rather than
     /// continue playing out loud when the listening device disappears).
-    /// Round3 Phase4 WP10.3.
+    /// Governs only device-unavailable route-change pausing; audio session
+    /// interruption handling is controlled separately via
+    /// `interruptionPolicy`.
     public var pausesOnRouteChangeDeviceUnavailable: Bool
     public var videoGravity: AVLayerVideoGravity
     /// `AVPlayer.allowsExternalPlayback`. Default `true` — matches
