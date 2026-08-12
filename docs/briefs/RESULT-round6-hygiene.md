@@ -117,3 +117,128 @@ exit=1
 
 - `ABAccessoryHostingBox.swift`의 40번째 줄("Q6's original risk")은 grep 인벤토리(85줄)에 포함되지 않았지만, 위 §5에서 설명한 자기모순을 피하기 위해 함께 수정했다. 이 줄은 "round/Phase/§/문서명" 패턴에 걸리지 않아(§4-2 재스캔에서도 잡히지 않음) 위생 재스캔 결과에는 영향이 없다.
 - 그 외 코드/식별자/포매팅 변경은 없다. `swift build`(호스트 macOS, iOS SDK 없음)는 `ABApplicationStateObserver.swift`의 `import UIKit`에서 예상된 "no such module 'UIKit'" 오류로 실패했지만 이는 이 작업과 무관한 플랫폼 문제이며, §4-3의 `xcodebuild`(iOS 시뮬레이터 대상) 3회 실행 전부가 그린이므로 실제 컴파일 가능성은 검증됐다.
+
+---
+
+## 7. 2차분 — 게이트가 지적한 접두어 없는 리뷰 ID (21줄 / 4파일)
+
+게이트(Opus)가 1차 grep의 불완전함을 지적했다: `round`/`Phase`/`§`/문서명 접두어가 붙은 형태만 잡고, **접두어 없이 홀로 쓰인 리뷰 ID**(`(C1)`, `(M2)`, `WP4`, `N1's`, `per Q4` 등)는 놓쳤다. 게이트가 제시한 확장 패턴으로 재조사해 21줄 / 4파일을 추가로 처리했다.
+
+### 7-1. 확장 재스캔 명령과 결과 (수정 전, 게이트가 지적한 그대로 재현)
+
+```
+$ grep -rnE '(^|[^A-Za-z0-9])(MJ-[0-9]+|mn-[0-9]+|[NMC][0-9]+|WP[0-9]+(\.[0-9]+)?|Q[0-9]+(-[A-Z])?)([^A-Za-z0-9]|$)' --include='*.swift' --include='*.md' Sources/
+Sources/ABPlayerKitCache/ABCacheStore.swift:91:/// waiter that was cancelled so it stops blocking LRU eviction (WP4 —
+Sources/ABPlayerKitCache/ABCacheStore.swift:345:    /// Test-only introspection (WP7): a snapshot of the metadata LRU order,
+Sources/ABPlayerKitCache/ABCacheStore.swift:354:    /// Test-only introspection (WP4 regression coverage): the set of keys
+Sources/ABPlayerKitCache/ABCacheStore.swift:503:            // WP11: a request far ahead of the linear fill's current
+Sources/ABPlayerKitCache/ABCacheStore.swift:561:        // HEAD (M5): the first caller creates the task and stores it before
+Sources/ABPlayerKitCache/ABCacheStore.swift:1140:    /// leaving a dead entry that blocks LRU eviction (WP4).
+Sources/ABPlayerKit/Engine/ABPlayer.swift:256:    /// nonisolated `deinit` — the fix for M4 ("WP1 and WP2 don't compose":
+Sources/ABPlayerKit/Engine/ABPlayer.swift:1043:        // one) must reactivate it rather than being skipped by N1's
+Sources/ABPlayerKit/Engine/ABPlayer.swift:1113:    /// keeps that snapshot across a failed activate (M2) or additional
+Sources/ABPlayerKit/Engine/ABPlayer.swift:1114:    /// participants (C1).
+Sources/ABPlayerKit/Engine/ABPlayer.swift:1129:    /// switching back to `.unmanaged` and at `release()`, per Q4. A no-op
+Sources/ABPlayerKit/Engine/ABPlayer.swift:1132:    /// (C1) — so this is safe to call unconditionally from either trigger.
+Sources/ABPlayerKit/Policy/ABAudioSessionCoordinator.swift:19:/// strong reference (M4).
+Sources/ABPlayerKit/Policy/ABAudioSessionCoordinator.swift:33:    /// earlier participant changed it to in between (C1).
+Sources/ABPlayerKit/Policy/ABAudioSessionCoordinator.swift:37:    /// this is `true` — a category-only partial failure (M2) or a host
+Sources/ABPlayerKit/Policy/ABAudioSessionCoordinator.swift:39:    /// force-deactivated (C2).
+Sources/ABPlayerKit/Policy/ABAudioSessionCoordinator.swift:50:    /// inactive (M1). Snapshots the host's prior category only when `token`
+Sources/ABPlayerKit/Policy/ABAudioSessionCoordinator.swift:51:    /// is the first participant (C1).
+Sources/ABPlayerKit/Policy/ABAudioSessionCoordinator.swift:65:            // M2: keep `hostSnapshot` and the `participants` entry even on
+Sources/ABPlayerKit/Policy/ABAudioSessionCoordinator.swift:78:    /// triggers a restore (C1) — siblings still holding a policy are left
+exit=0
+
+$ grep -rnE 'REVIEW[0-9]*-|IMPL-[a-z0-9.]+-RESULT' --include='*.swift' --include='*.md' Sources/
+Sources/ABPlayerKitControls/Layout/ABControlsLayout.swift:89:    /// (both were tried and rejected — see IMPL-v0.2-RESULT.md's
+Sources/ABPlayerKitControls/Layout/ABControlsLayout.swift:90:    /// REVIEW2-FIXES-DONE entry for the numbers): a value tuned to land
+exit=0
+```
+
+**오탐 검토**: 위 22개 매치 줄 전부를 직접 대조한 결과, 코드 식별자나 정상 영어 단어에 우연히 걸린 오탐은 없었다 — 전부 실제 리뷰 ID(`M1`~`M4`, `C1`/`C2`, `N1`, `WP4`/`WP7`/`WP11`, `Q4`)이거나 내부 문서명(`IMPL-v0.2-RESULT.md`, `REVIEW2-FIXES-DONE`)이었다. 보고할 오탐 없음.
+
+### 7-2. 처리 내역
+
+- **`ABAudioSessionCoordinator.swift`** (8줄: 19, 33, 37, 39, 50, 51, 65, 78) — 전부 괄호째 제거만으로 문장이 그대로 성립하는 "꼬리표" 유형이었다(게이트 예상대로). `// M2: keep ...` 한 줄만 문장 선두 라벨 형태라 `// Keep ...`으로 콜론째 제거.
+- **`ABPlayer.swift`** (6줄: 256, 1043, 1113, 1114, 1129, 1132) — 1113/1114/1129/1132/1043은 꼬리표 제거. **256번은 ID가 문장의 실제 주어인 경우** — `the fix for M4 ("WP1 and WP2 don't compose": ... used to leave the audio session permanently ...)` — 였다. 브리프 예시 2와 동일하게 "과거에 이런 일이 있었다" → "이 호출이 없으면 이런 일이 벌어진다"로 재작성했다.
+- **`ABCacheStore.swift`** (6줄: 91, 345, 354, 503, 561, 1140) — 91번은 `(WP4 — previously a cancelled waiter stayed ...)` 과거형 버그 서술을 "without this removal, ... would stay/never return ..." 가정법으로 변환. 나머지 5줄은 꼬리표 제거.
+- **`ABControlsLayout.swift`** (89~90행, 1건) — 게이트가 지시한 그대로: `IMPL-v0.2-RESULT.md`/`REVIEW2-FIXES-DONE` 인용을 제거하고 "고정점/포인트비율 보정 두 방식 모두 시도했고 기각했다"는 사실만 남겼다. 그 뒤에 이어지는 "12pt 기본 폰트에서는 맞았지만 접근성 대형 폰트에서 체계적으로 어긋났다"는 이미 있던 문장이 왜 기각됐는지를 그대로 설명하므로 정보 손실 없음.
+
+### 7-3. §4-1 코드 무변경 재확인 (2차분 반영 후, origin/main 대비 누적)
+
+```
+$ git diff origin/main -- Sources/ | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE '^[+-]\s*(///|//|\*)'
+-Internally this hosts your content in a `UIHostingController` that `ABAccessoryHostingBox` attaches as a child of the nearest `UIViewController` it can find by walking up from the controls view once it's actually in a window (see `DESIGN-OPEN-QUESTIONS.md` Q6-A for why this exists — an original design consideration behind this project's playback engine hit this same hosting problem and originally settled on UIKit-only overlays specifically to avoid it). **If no `UIViewController` is found** (an unusual hosting setup with no view controller anywhere in the view hierarchy), the accessory view still lays out and renders — but safe-area propagation, `UIViewController` appearance callbacks, and trait inheritance into the hosted content are not guaranteed. The `accessoryViews: [UIView]` initializers above stay the safer choice when you need those guarantees without a real, or reachable, view controller.
++Internally this hosts your content in a `UIHostingController` that `ABAccessoryHostingBox` attaches as a child of the nearest `UIViewController` it can find by walking up from the controls view once it's actually in a window — attaching as a real child view controller, rather than just embedding its view, is what gives the hosted content safe-area propagation, `UIViewController` appearance callbacks, and trait inheritance for free. **If no `UIViewController` is found** (an unusual hosting setup with no view controller anywhere in the view hierarchy), the accessory view still lays out and renders — but those three guarantees do not hold. The `accessoryViews: [UIView]` initializers above stay the safer choice when you need those guarantees without a real, or reachable, view controller.
+exit=0
+```
+
+동일한 DocC 예외 2줄뿐 — 1차분과 동일한, 브리프가 명시한 예외 대상. 그 외 `.swift` 파일에서 코드 라인 변경은 여전히 0줄.
+
+### 7-4. §4-2 위생 재스캔 — 3개 패턴 전부, 2차분 반영 후 (원본 출력 + exit code)
+
+```
+$ grep -rnE '(DESIGN|PLANNING|REVIEW|ROADMAP|HANDOFF)[^ ]*\.md|round ?[0-9]|Round ?[0-9]|Phase [0-9]|§[0-9]' --include='*.swift' --include='*.md' Sources/; echo "exit=$?"
+exit=1
+
+$ grep -rnE '(^|[^A-Za-z0-9])(MJ-[0-9]+|mn-[0-9]+|[NMC][0-9]+|WP[0-9]+(\.[0-9]+)?|Q[0-9]+(-[A-Z])?)([^A-Za-z0-9]|$)' --include='*.swift' --include='*.md' Sources/; echo "exit=$?"
+exit=1
+
+$ grep -rnE 'REVIEW[0-9]*-|IMPL-[a-z0-9.]+-RESULT' --include='*.swift' --include='*.md' Sources/; echo "exit=$?"
+exit=1
+```
+
+세 패턴 모두 출력 없음, `exit=1`.
+
+### 7-5. §4-3 전체 스킴 테스트 3회 연속 (2차분 반영 후)
+
+동일 시뮬레이터(`60DA735B-87EC-4159-9BE3-EF981A127FAF`, 재부팅 없이 재사용)로 재실행.
+
+| 실행 | Cache | Controls | Metrics | NowPlaying | Core | 합계 | 결과 |
+|---|---:|---:|---:|---:|---:|---:|---|
+| 1회 | 72 | 322 | 49 | 31 | 269 | **743** | `** TEST SUCCEEDED **` (exit 0) |
+| 2회 | 72 | 322 | 49 | 31 | 269 | **743** | `** TEST SUCCEEDED **` (exit 0) |
+| 3회 | 72 | 322 | 49 | 31 | 269 | **743** | `** TEST SUCCEEDED **` (exit 0) |
+
+1회차 원본 로그 발췌:
+```
+✔ Test run with 72 tests in 8 suites passed after 0.081 seconds.
+✔ Test run with 322 tests in 39 suites passed after 0.518 seconds.
+✔ Test run with 49 tests in 10 suites passed after 0.050 seconds.
+✔ Test run with 31 tests in 4 suites passed after 0.014 seconds.
+✔ Test run with 269 tests in 41 suites passed after 0.298 seconds.
+** TEST SUCCEEDED **
+```
+2회차:
+```
+✔ Test run with 72 tests in 8 suites passed after 0.073 seconds.
+✔ Test run with 322 tests in 39 suites passed after 0.475 seconds.
+✔ Test run with 49 tests in 10 suites passed after 0.056 seconds.
+✔ Test run with 31 tests in 4 suites passed after 0.016 seconds.
+✔ Test run with 269 tests in 41 suites passed after 0.286 seconds.
+** TEST SUCCEEDED **
+```
+3회차:
+```
+✔ Test run with 72 tests in 8 suites passed after 0.069 seconds.
+✔ Test run with 322 tests in 39 suites passed after 0.485 seconds.
+✔ Test run with 49 tests in 10 suites passed after 0.055 seconds.
+✔ Test run with 31 tests in 4 suites passed after 0.016 seconds.
+✔ Test run with 269 tests in 41 suites passed after 0.257 seconds.
+** TEST SUCCEEDED **
+```
+
+743건, 3회 모두 그린 — 1차분과 동일하게 유지됨.
+
+### 7-6. 2차분에서 손대지 않은 것
+
+게이트가 "판정 완료, 정상"으로 지정한 두 곳은 그대로 두었다(확인만 함, 수정 없음):
+- `ABPlayerError.swift`의 `POLICY-api-stability.md` 참조 — `docs/`에 영구히 남는 공개 정책 문서.
+- `ABPlayerControlsView.swift`의 `CustomizingControls.md` 참조 — 같은 타깃에서 출하되는 DocC 문서 상호참조.
+
+두 파일 다 이번 확장 grep에도 걸리지 않았다(리뷰 ID 패턴이 아니라 정책/DocC 문서 파일명이므로).
+
+### 7-7. 커밋
+
+2차분은 별도 커밋으로 분리했다 — `docs: remove bare review-ID tags missed by the first hygiene pass` (4 files changed, 27 insertions(+), 28 deletions(-)). 1차분 커밋(`cf3bf36`)과 RESULT 최초 커밋(`96765d2`)은 그대로 두고 이어서 커밋했다.
