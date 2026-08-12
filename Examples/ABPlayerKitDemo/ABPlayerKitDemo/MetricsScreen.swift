@@ -17,8 +17,10 @@ struct MetricsScreen: View {
                         .foregroundStyle(.secondary)
 
                     LazyVGrid(columns: columns, spacing: 12) {
-                        MetricCard(title: "p50", value: milliseconds(model.statistics.p50))
-                        MetricCard(title: "p95", value: milliseconds(model.statistics.p95))
+                        MetricCard(title: "p50 (legacy)", value: milliseconds(model.statistics.p50))
+                        MetricCard(title: "p95 (legacy)", value: milliseconds(model.statistics.p95))
+                        MetricCard(title: "waited p50", value: milliseconds(model.statistics.waited.p50))
+                        MetricCard(title: "waited p95", value: milliseconds(model.statistics.waited.p95))
                         MetricCard(title: "Hit rate", value: percentage(model.statistics.hitRate))
                         MetricCard(title: "Abandon rate", value: percentage(model.statistics.abandonRate))
                     }
@@ -28,6 +30,30 @@ struct MetricsScreen: View {
                         LabeledContent("Immediate hits", value: model.statistics.hitCount.formatted())
                         LabeledContent("Abandoned", value: model.statistics.abandonedCount.formatted())
                         LabeledContent("Maximum", value: milliseconds(model.statistics.max))
+                    }
+
+                    Text("Rebuffer ratio is rebufferMilliseconds / (rebufferMilliseconds + watchedMilliseconds) — buffering before the first frame counts toward startup, not rebuffering, so the two never double-count the same wait.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        MetricCard(title: "Watch time", value: milliseconds(model.qoe.watchedMilliseconds))
+                        MetricCard(title: "Rebuffer ratio", value: optionalPercentage(model.qoe.rebufferRatio))
+                        MetricCard(title: "Rebuffer count", value: model.qoe.rebufferCount.formatted())
+                        MetricCard(title: "Completion rate", value: optionalPercentage(model.qoe.completionRate))
+                        MetricCard(title: "Terminal failures", value: model.terminalFailureCount.formatted())
+                        MetricCard(title: "Dropped frames", value: model.qoe.droppedVideoFrameCount.formatted())
+                        MetricCard(title: "Bitrate switches", value: model.qoe.bitrateSwitchCount.formatted())
+                        MetricCard(title: "Sessions", value: model.qoe.sessionCount.formatted())
+                    }
+
+                    GroupBox("Metrics log") {
+                        Text(model.metricsLogFileURL.path)
+                            .font(.footnote.monospaced())
+                            .foregroundStyle(.secondary)
+                        Button("Flush") {
+                            model.flushMetricsLog()
+                        }
                     }
 
                     GroupBox("Try it") {
@@ -44,6 +70,11 @@ struct MetricsScreen: View {
 
     private func milliseconds(_ value: Double) -> String {
         value.formatted(.number.precision(.fractionLength(0))) + " ms"
+    }
+
+    private func optionalPercentage(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return percentage(value)
     }
 
     private func percentage(_ value: Double) -> String {
