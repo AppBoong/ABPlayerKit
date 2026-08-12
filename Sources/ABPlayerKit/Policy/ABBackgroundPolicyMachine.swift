@@ -35,8 +35,21 @@ struct ABBackgroundPolicyMachine: Sendable {
         policy: ABBackgroundPolicy,
         grade: ABPlaybackGrade,
         wasPlayingBeforeBackground: Bool,
-        hasCapturedGrade: Bool
+        hasCapturedGrade: Bool,
+        isPictureInPictureActive: Bool = false
     ) -> [ABBackgroundAction] {
+        // Picture in Picture keeps rendering while backgrounded, which
+        // contradicts every policy's premise that nothing is visible —
+        // suppression is total, not per-policy, so this one guard covers
+        // every current and future case uniformly.
+        guard !isPictureInPictureActive else {
+            switch signal {
+            case .willResignActive, .didEnterBackground:
+                return []
+            case .willEnterForeground:
+                return [.markAudioSessionDirty, .clearCapture]
+            }
+        }
         switch signal {
         case .willResignActive:
             return willResignActiveActions(policy: policy)
@@ -56,7 +69,7 @@ struct ABBackgroundPolicyMachine: Sendable {
         switch policy {
         case .ignore, .demoteToInstance:
             return []
-        case .pause, .pauseAndDetachLayer:
+        case .pause, .pauseAndDetachLayer, .continueAudioOnly:
             return [.capturePlaying]
         }
     }
@@ -74,6 +87,8 @@ struct ABBackgroundPolicyMachine: Sendable {
             return (grade == .current ? [.pause] : []) + [.setLayerAttachment(false)]
         case .demoteToInstance:
             return [.demoteToInstance]
+        case .continueAudioOnly:
+            return [.setLayerAttachment(false)]
         }
     }
 
@@ -96,7 +111,7 @@ struct ABBackgroundPolicyMachine: Sendable {
                 actions.append(.resumePlay)
             }
             actions.append(.clearCapture)
-        case .pauseAndDetachLayer:
+        case .pauseAndDetachLayer, .continueAudioOnly:
             actions.append(.setLayerAttachment(true))
             if grade == .current && wasPlayingBeforeBackground {
                 actions.append(.resumePlay)

@@ -9,7 +9,7 @@ import Testing
 @Suite("ABBackgroundPolicyMachine reduces lifecycle signals to actions")
 struct ABBackgroundPolicyMachineTests {
     private let machine = ABBackgroundPolicyMachine()
-    private let policies: [ABBackgroundPolicy] = [.ignore, .pause, .pauseAndDetachLayer, .demoteToInstance]
+    private let policies: [ABBackgroundPolicy] = [.ignore, .pause, .pauseAndDetachLayer, .demoteToInstance, .continueAudioOnly]
     private let grades: [ABPlaybackGrade] = [.released, .instanceOnly, .preloaded, .current]
 
     @Test("willResignActive only captures isPlaying for .pause/.pauseAndDetachLayer")
@@ -23,7 +23,7 @@ struct ABBackgroundPolicyMachineTests {
                 hasCapturedGrade: false
             )
             switch policy {
-            case .pause, .pauseAndDetachLayer:
+            case .pause, .pauseAndDetachLayer, .continueAudioOnly:
                 #expect(actions == [.capturePlaying], "\(policy)")
             case .ignore, .demoteToInstance:
                 #expect(actions.isEmpty, "\(policy)")
@@ -53,6 +53,8 @@ struct ABBackgroundPolicyMachineTests {
                 #expect(actions == expected, "\(policy)/\(grade)")
             case .demoteToInstance:
                 #expect(actions == [.demoteToInstance], "\(policy)/\(grade)")
+            case .continueAudioOnly:
+                #expect(actions == [.setLayerAttachment(false)], "\(policy)/\(grade)")
             }
         }
     }
@@ -75,7 +77,7 @@ struct ABBackgroundPolicyMachineTests {
         (ABPlaybackGrade.current, true), (.current, false), (.preloaded, true), (.instanceOnly, false)
     ])
     func willEnterForegroundResumesConditionally(grade: ABPlaybackGrade, wasPlaying: Bool) {
-        for policy in [ABBackgroundPolicy.pause, .pauseAndDetachLayer] {
+        for policy in [ABBackgroundPolicy.pause, .pauseAndDetachLayer, .continueAudioOnly] {
             let actions = machine.actions(
                 for: .willEnterForeground,
                 policy: policy,
@@ -86,7 +88,7 @@ struct ABBackgroundPolicyMachineTests {
             let shouldResume = grade == .current && wasPlaying
             #expect(actions.contains(.resumePlay) == shouldResume, "\(policy)/\(grade)/\(wasPlaying)")
             #expect(actions.contains(.clearCapture), "\(policy)/\(grade)/\(wasPlaying)")
-            if policy == .pauseAndDetachLayer {
+            if policy == .pauseAndDetachLayer || policy == .continueAudioOnly {
                 #expect(actions.contains(.setLayerAttachment(true)), "\(policy)")
             }
         }
@@ -114,5 +116,58 @@ struct ABBackgroundPolicyMachineTests {
             hasCapturedGrade: true
         )
         #expect(actions == [.markAudioSessionDirty])
+    }
+
+    /// Full matrix A: every (policy, grade, signal) combination against
+    /// both Picture in Picture states. `isPictureInPictureActive == false`
+    /// must reduce to exactly the no-parameter baseline — the existing
+    /// four policies' behavior stays byte-identical; `== true` must
+    /// suppress every policy uniformly.
+    @Test("Picture in Picture active suppresses every policy's background/foreground side effects uniformly; inactive matches the pre-PiP baseline exactly")
+    func matrixAAcrossPoliciesGradesSignalsAndPictureInPictureState() {
+        let allSignals: [ABAppLifecycleSignal] = [.willResignActive, .didEnterBackground, .willEnterForeground]
+        let allGrades: [ABPlaybackGrade] = [.released, .instanceOnly, .preloaded, .current]
+
+        for policy in policies {
+            for grade in allGrades {
+                for signal in allSignals {
+                    for wasPlaying in [false, true] {
+                        for hasCapturedGrade in [false, true] {
+                            let baseline = machine.actions(
+                                for: signal,
+                                policy: policy,
+                                grade: grade,
+                                wasPlayingBeforeBackground: wasPlaying,
+                                hasCapturedGrade: hasCapturedGrade
+                            )
+                            let inactive = machine.actions(
+                                for: signal,
+                                policy: policy,
+                                grade: grade,
+                                wasPlayingBeforeBackground: wasPlaying,
+                                hasCapturedGrade: hasCapturedGrade,
+                                isPictureInPictureActive: false
+                            )
+                            #expect(inactive == baseline, "\(policy)/\(grade)/\(signal)")
+
+                            let active = machine.actions(
+                                for: signal,
+                                policy: policy,
+                                grade: grade,
+                                wasPlayingBeforeBackground: wasPlaying,
+                                hasCapturedGrade: hasCapturedGrade,
+                                isPictureInPictureActive: true
+                            )
+                            switch signal {
+                            case .willResignActive, .didEnterBackground:
+                                #expect(active.isEmpty, "\(policy)/\(grade)/\(signal)")
+                            case .willEnterForeground:
+                                #expect(active == [.markAudioSessionDirty, .clearCapture], "\(policy)/\(grade)/\(signal)")
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
