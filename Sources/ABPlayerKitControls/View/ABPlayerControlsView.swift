@@ -22,16 +22,36 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
 
     public private(set) var isControlsVisible: Bool
 
+    /// Alias for ``accessoryViews(in:)``/``setAccessoryViews(_:in:)`` at
+    /// ``ABControlsSlot/bottomTrailing`` — the slot this property named
+    /// before ``ABControlsSlot`` existed. Behavior is unchanged.
     public var accessoryViews: [UIView] {
-        get { accessoryStack.arrangedSubviews }
-        set {
-            for view in accessoryStack.arrangedSubviews {
-                accessoryStack.removeArrangedSubview(view)
-                view.removeFromSuperview()
-            }
-            for view in newValue {
-                accessoryStack.addArrangedSubview(view)
-            }
+        get { accessoryViews(in: .bottomTrailing) }
+        set { setAccessoryViews(newValue, in: .bottomTrailing) }
+    }
+
+    /// The views currently placed in `slot`, leading to trailing.
+    public func accessoryViews(in slot: ABControlsSlot) -> [UIView] {
+        stack(for: slot).arrangedSubviews
+    }
+
+    /// Replaces every view in `slot` with `views`, leading to trailing.
+    public func setAccessoryViews(_ views: [UIView], in slot: ABControlsSlot) {
+        let stack = stack(for: slot)
+        for view in stack.arrangedSubviews {
+            stack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        for view in views {
+            stack.addArrangedSubview(view)
+        }
+    }
+
+    private func stack(for slot: ABControlsSlot) -> UIStackView {
+        switch slot {
+        case .topTrailing: topStack
+        case .transportTrailing: transportTrailingStack
+        case .bottomTrailing: accessoryStack
         }
     }
 
@@ -41,7 +61,30 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     let rateButton = ABControlButton(type: .custom)
     let seekBar = ABSeekBar()
     let elapsedLabel = UILabel()
+    private let bufferingIndicatorView = ABBufferingIndicatorView()
+    private var isBufferingState = false
+    private let seekFeedbackView = ABSeekFeedbackView()
+    private var seekAnchor: CMTime?
+    private lazy var seekFeedbackCenterXConstraint = seekFeedbackView.centerXAnchor.constraint(
+        equalTo: controlsContentView.centerXAnchor
+    )
+    private lazy var transportTrailingLeadingConstraint = transportTrailingStack.leadingAnchor.constraint(
+        equalTo: buttonStack.trailingAnchor,
+        constant: style.buttonSpacing
+    )
+    /// Lets `.transportTrailing` content give way rather than force the
+    /// overlay wider than its margins — `buttonStack`'s centering (a
+    /// `.required` constraint) always wins any conflict.
+    private lazy var transportTrailingMaxTrailingConstraint: NSLayoutConstraint = {
+        let constraint = transportTrailingStack.trailingAnchor.constraint(
+            lessThanOrEqualTo: layoutMarginsGuide.trailingAnchor
+        )
+        constraint.priority = .defaultHigh
+        return constraint
+    }()
     private let accessoryStack = UIStackView()
+    private let topStack = UIStackView()
+    private let transportTrailingStack = UIStackView()
     private let buttonStack = UIStackView()
     private let bottomStack = UIStackView()
     private let rootStack = UIStackView()
@@ -51,8 +94,6 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     private var playerObservationToken: ABObservationToken?
     private var periodicIntervalLease: ABPeriodicIntervalLease?
     private weak var scrubbingPlayer: ABPlayer?
-    private var isPlayingState = false
-    private var currentPlaybackTime = ABPlaybackTime.zero
     private var visibilityMachine: ABControlsVisibilityMachine
     private var presenter = ABControlsPresenter()
     private var hideTask: Task<Void, Never>?
@@ -62,10 +103,17 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     /// The duration of the most recently triggered play/pause bounce, or `nil`
     /// if the last tap skipped it (Reduce Motion). Exposes the trigger path for tests.
     private(set) var lastPlayPauseBounceDuration: TimeInterval?
-    private lazy var backgroundTapRecognizer = UITapGestureRecognizer(
-        target: self,
-        action: #selector(backgroundTapped)
-    )
+    /// Replaced wholesale (not just reconfigured) whenever `doubleTapSeek`'s
+    /// enabled-ness flips — `require(toFail:)` has no "un-require" API, and a
+    /// stale edge pointed at a since-removed `doubleTapRecognizer` would wedge
+    /// this recognizer permanently (a detached recognizer never receives
+    /// touches, so it never transitions out of `.possible`, so anything
+    /// still requiring its failure never fires). See `updateDoubleTapWiring`.
+    private var backgroundTapRecognizer = UITapGestureRecognizer()
+    private var doubleTapRecognizer: UITapGestureRecognizer?
+    var performHapticFeedback: @MainActor (UIImpactFeedbackGenerator.FeedbackStyle) -> Void = {
+        UIImpactFeedbackGenerator(style: $0).impactOccurred()
+    }
 
     private var playWidthConstraint: NSLayoutConstraint?
     private var playHeightConstraint: NSLayoutConstraint?
@@ -81,8 +129,15 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     var displayedRateText: String? { rateButton.title(for: .normal) }
     var displayedElapsedText: String? { elapsedLabel.text }
     var controlsAreEnabled: Bool { playPauseButton.isEnabled }
-    var isShowingPauseIcon: Bool { isPlayingState }
+    var isShowingPauseIcon: Bool { presenter.showsPauseIcon }
+    var isBufferingIndicatorAnimating: Bool { bufferingIndicatorView.isAnimating }
     var hasScheduledAutoHide: Bool { hideTask != nil }
+    var isSeekFeedbackVisible: Bool { seekFeedbackView.isVisible }
+    var hasDoubleTapRecognizerInstalled: Bool {
+        doubleTapRecognizer != nil && gestureRecognizers?.contains(doubleTapRecognizer!) == true
+    }
+    var seekFeedbackText: String? { seekFeedbackView.text }
+    var lastSeekFeedbackAnimationDuration: TimeInterval? { seekFeedbackView.lastAnimationDuration }
     var controlsContentAlpha: CGFloat { controlsContentView.alpha }
     var controlsContentIsInteractive: Bool { controlsContentView.isUserInteractionEnabled }
     var backgroundContentAlpha: CGFloat { controlsBackgroundView.alpha }
@@ -179,6 +234,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
                 skipBackwardButton,
                 rateButton
             ]
+            priorityControls.append(contentsOf: transportTrailingStack.arrangedSubviews)
+            priorityControls.append(contentsOf: topStack.arrangedSubviews)
             priorityControls.append(contentsOf: accessoryStack.arrangedSubviews)
             priorityControls.append(seekBar)
             for control in priorityControls {
@@ -188,7 +245,21 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
                 }
             }
         }
-        return super.hitTest(point, with: event)
+        let hit = super.hitTest(point, with: event)
+        // Passthrough only gives up on `self` — any actual descendant
+        // (a control, an accessory, a consumer-added subview) that `super`
+        // already resolved always wins, so this can't affect the priority
+        // order established above.
+        if hit === self, isPassthroughActive { return nil }
+        return hit
+    }
+
+    private var isPassthroughActive: Bool {
+        switch configuration.touchPassthrough {
+        case .never: false
+        case .whenControlsHidden: !isControlsVisible
+        case .always: true
+        }
     }
 
     deinit {
@@ -248,6 +319,16 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         accessoryStack.alignment = .center
         accessoryStack.spacing = 8
 
+        topStack.axis = .horizontal
+        topStack.alignment = .center
+        topStack.spacing = 8
+        topStack.translatesAutoresizingMaskIntoConstraints = false
+
+        transportTrailingStack.axis = .horizontal
+        transportTrailingStack.alignment = .center
+        transportTrailingStack.spacing = 8
+        transportTrailingStack.translatesAutoresizingMaskIntoConstraints = false
+
         bottomStack.axis = .horizontal
         bottomStack.alignment = .center
         bottomStack.spacing = 8
@@ -267,9 +348,27 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         addSubview(controlsContentView)
         controlsContentView.addSubview(buttonStack)
         controlsContentView.addSubview(rootStack)
-        backgroundTapRecognizer.cancelsTouchesInView = false
-        backgroundTapRecognizer.delegate = self
-        addGestureRecognizer(backgroundTapRecognizer)
+        // Empty slot stacks participate in none of `rootStack`'s or
+        // `buttonStack`'s constraints, so an empty `.topTrailing`/
+        // `.transportTrailing` changes nothing about the overlay's geometry
+        // (`buttonStack` stays centered; `rootStack`'s literal spacing is
+        // untouched).
+        controlsContentView.addSubview(topStack)
+        controlsContentView.addSubview(transportTrailingStack)
+        // A sibling of `controlsContentView`, not a subview of it — buffering
+        // can happen while auto-hide has faded `controlsContentView` to
+        // `alpha == 0`, and the spinner is the only stall signal left once
+        // that happens (see `applyControlsVisibility`), so it must not fade
+        // with the rest of the overlay.
+        addSubview(bufferingIndicatorView)
+        // Same sibling reasoning as the spinner — the badge's main use case
+        // is a double-tap seek while controls are hidden, so it must stay
+        // visible while `controlsContentView` is faded out.
+        addSubview(seekFeedbackView)
+        // `backgroundTapRecognizer` itself is wired up (and, if `doubleTapSeek`
+        // starts enabled, paired with a `doubleTapRecognizer`) by
+        // `updateDoubleTapWiring`, called from `applyConfiguration(previous: nil)`
+        // right after this method returns — see that method's doc comment for why.
         NSLayoutConstraint.activate([
             controlsBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
             controlsBackgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -281,6 +380,15 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             controlsContentView.bottomAnchor.constraint(equalTo: bottomAnchor),
             buttonStack.centerXAnchor.constraint(equalTo: controlsContentView.centerXAnchor),
             buttonStack.centerYAnchor.constraint(equalTo: controlsContentView.centerYAnchor),
+            bufferingIndicatorView.centerXAnchor.constraint(equalTo: controlsContentView.centerXAnchor),
+            bufferingIndicatorView.centerYAnchor.constraint(equalTo: controlsContentView.centerYAnchor),
+            seekFeedbackCenterXConstraint,
+            seekFeedbackView.centerYAnchor.constraint(equalTo: controlsContentView.centerYAnchor),
+            topStack.topAnchor.constraint(equalTo: layoutMarginsGuide.topAnchor),
+            topStack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            transportTrailingLeadingConstraint,
+            transportTrailingStack.centerYAnchor.constraint(equalTo: buttonStack.centerYAnchor),
+            transportTrailingMaxTrailingConstraint,
             rootStack.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
             rootStack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
             rootStack.topAnchor.constraint(greaterThanOrEqualTo: layoutMarginsGuide.topAnchor),
@@ -308,6 +416,17 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             rateWidthConstraint,
             rateHeightConstraint
         ].compactMap { $0 })
+        applyStaticAccessibilityHints()
+    }
+
+    /// Hints, unlike labels, don't depend on playback state — set once
+    /// rather than re-derived on every icon/timeline update.
+    private func applyStaticAccessibilityHints() {
+        playPauseButton.accessibilityHint = ABControlsLocalization.string("controls.hint.playPause")
+        skipBackwardButton.accessibilityHint = ABControlsLocalization.string("controls.hint.skipBackward")
+        skipForwardButton.accessibilityHint = ABControlsLocalization.string("controls.hint.skipForward")
+        rateButton.accessibilityHint = ABControlsLocalization.string("controls.hint.rate")
+        seekBar.accessibilityHint = ABControlsLocalization.string("controls.hint.timeline")
     }
 
     private func wireActions() {
@@ -344,8 +463,10 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             guard let self, let player, self.player === player else { return }
             self.handlePlayerEvent(event)
         }
-        isPlayingState = player.isPlaying
-        _ = visibilityMachine.handle(.playbackStateChanged(isPlaying: isPlayingState))
+        // `playbackStateChanged` stays on the raw value (not the buffering
+        // OR) — this feed drives auto-hide scheduling, not the icon; see
+        // `handlePlayerEvent`'s identical `.timeControlStatusChanged` branch.
+        _ = visibilityMachine.handle(.playbackStateChanged(isPlaying: player.isPlaying))
         let initialVisibility: ABControlsVisibilityMachine.Visibility = configuration.initialVisibility == .visible
             ? .visible
             : .hidden
@@ -353,16 +474,21 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             visibilityMachine.handle(.attached(initial: initialVisibility)),
             animated: false
         )
-        currentPlaybackTime = player.playbackTime
-        updatePlaybackIcon()
-        updateRate(player.rate)
-        render(currentPlaybackTime)
         // `.attached`'s effect only covers enablement (see its doc comment) —
         // seed the rest of the presenter's own tracked state here so it isn't
         // stale (still at this struct's init defaults) the first time
-        // `togglePlayback`/`selectRate` read `presenter.isPlaying`/`.rate`
-        // before any further `ABPlayerEvent` has arrived to update them.
-        presenter.seed(isPlaying: player.isPlaying, rate: player.rate, currentPlaybackTime: currentPlaybackTime)
+        // `togglePlayback`/`selectRate`/`updatePlaybackIcon` read
+        // `presenter.isPlaying`/`.rate`/`.showsPauseIcon` before any further
+        // `ABPlayerEvent` has arrived to update them. Must run before the
+        // icon/timeline calls below, which now read straight from `presenter`.
+        presenter.seed(
+            isPlaying: player.isPlaying || player.isBuffering,
+            rate: player.rate,
+            currentPlaybackTime: player.playbackTime
+        )
+        updatePlaybackIcon()
+        updateRate(player.rate)
+        render(player.playbackTime)
         applyPresenterEffects(presenter.handle(.attached(grade: player.grade)))
     }
 
@@ -383,9 +509,15 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     ) {
         for effect in effects {
             switch effect {
-            case .setPlaybackIcon(let isPlaying):
-                isPlayingState = isPlaying
+            case .setPlaybackIcon:
+                // `presenter.isPlaying`/`.isBuffering` are already updated by
+                // the `presenter.handle(...)` call that produced this effect
+                // — `updatePlaybackIcon()` reads `presenter.showsPauseIcon`
+                // itself rather than needing this effect's own payload.
                 updatePlaybackIcon()
+            case .setBuffering(let buffering):
+                isBufferingState = buffering
+                updateBuffering(buffering)
             case .setRateTitle(let rate):
                 updateRate(rate)
             case .renderTimeline(let time):
@@ -413,6 +545,15 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             Task { await targetPlayer.skip(by: interval) }
         case .setRate(let rate):
             targetPlayer?.setRate(rate)
+        case .restartFromStart:
+            // Seek before play, always — landing at the end of the item
+            // pins rate at 0, so playing first can be immediately re-pinned
+            // to 0 by the tail of the seek.
+            guard let targetPlayer else { return }
+            Task { [weak targetPlayer] in
+                await targetPlayer?.seek(to: .zero, tolerance: .precise)
+                targetPlayer?.play()
+            }
         }
     }
 
@@ -421,6 +562,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         switch event {
         case .timeControlStatusChanged(let status):
             handleVisibility(.playbackStateChanged(isPlaying: status == .playing))
+        case .bufferingChanged(let buffering):
+            handleVisibility(.bufferingChanged(buffering))
         case .itemDetached, .sourceChanged:
             // The rest of this transition (`.resetTimeline`) already applied
             // above via the presenter — this needs a live `player.grade` read
@@ -432,7 +575,6 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             // contributes nothing for this event. See its doc comment.
             if let player {
                 render(player.playbackTime)
-                presenter.syncPlaybackTime(player.playbackTime)
                 setControlsEnabled(player.grade == .current)
             }
         case .playedToEnd:
@@ -441,16 +583,58 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             // Needs `player?.isScrubbing`/`player?.duration` — the presenter
             // contributes nothing for this event. See its doc comment.
             guard player?.isScrubbing != true else { return }
-            let snapshot = ABPlaybackTime(
+            render(ABPlaybackTime(
                 currentTime: time,
-                duration: currentPlaybackTime.duration ?? player?.duration,
-                bufferedUntil: currentPlaybackTime.bufferedUntil
-            )
-            render(snapshot)
-            presenter.syncPlaybackTime(snapshot)
+                duration: presenter.currentPlaybackTime.duration ?? player?.duration,
+                bufferedUntil: presenter.currentPlaybackTime.bufferedUntil
+            ))
+        case .seekTargetChanged(let target):
+            handleSeekTargetChanged(target)
+        case .durationAvailable(let duration):
+            // Unblocks the seek bar the moment a finite duration is known,
+            // rather than waiting on the next periodic tick.
+            render(ABPlaybackTime(
+                currentTime: presenter.currentPlaybackTime.currentTime,
+                duration: duration,
+                bufferedUntil: presenter.currentPlaybackTime.bufferedUntil
+            ))
         default:
             break
         }
+    }
+
+    /// The one path every cumulative-seek consumer (skip buttons, double-tap,
+    /// VoiceOver adjustment) shares — all of them go through the core's
+    /// `pendingSeekTime`, so this is the only place that reads it. Controls
+    /// never sums deltas itself: `seekAnchor` is a single snapshot of "where
+    /// this streak started," captured once on the `nil -> non-nil` edge and
+    /// discarded on the way back to `nil`.
+    private func handleSeekTargetChanged(_ target: CMTime?) {
+        guard player?.isScrubbing != true else { return }
+        guard let target else {
+            seekFeedbackView.dismiss(
+                animated: true,
+                reduceMotion: style.respectsReduceMotion && isReduceMotionEnabledProvider(),
+                duration: style.visibilityAnimationDuration
+            )
+            seekAnchor = nil
+            return
+        }
+        if seekAnchor == nil {
+            seekAnchor = presenter.currentPlaybackTime.currentTime
+        }
+        render(ABPlaybackTime(
+            currentTime: target,
+            duration: presenter.currentPlaybackTime.duration ?? player?.duration,
+            bufferedUntil: presenter.currentPlaybackTime.bufferedUntil
+        ))
+        let delta = CMTimeGetSeconds(target) - CMTimeGetSeconds(seekAnchor ?? target)
+        seekFeedbackView.show(
+            deltaSeconds: delta,
+            animated: true,
+            reduceMotion: style.respectsReduceMotion && isReduceMotionEnabledProvider(),
+            duration: style.visibilityAnimationDuration
+        )
     }
 
     private func applyStyle(previous: ABPlayerControlsStyle?) {
@@ -460,7 +644,10 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         directionalLayoutMargins = style.contentInsets
         rootStack.spacing = layout.rootStackSpacing
         buttonStack.spacing = style.buttonSpacing
+        transportTrailingLeadingConstraint.constant = style.buttonSpacing
         seekBar.style = style
+        bufferingIndicatorView.apply(style)
+        seekFeedbackView.apply(style)
         elapsedLabel.textColor = style.timeLabelColor
         if previous == nil
             || style.timeLabelFont != previous?.timeLabelFont
@@ -482,12 +669,13 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         updateSkipIcons()
         updateRate(player?.rate ?? 1, rebuildInteraction: false)
         guard let previous else { return }
-        if style.iconsDiffer(from: previous) {
+        let impact = style.changeImpact(comparedTo: previous)
+        if impact.contains(.iconRebuild) {
             for button in [playPauseButton, skipBackwardButton, skipForwardButton, rateButton] {
                 button.invalidateIntrinsicContentSize()
             }
         }
-        if replacedBackground || style.requiresControlsLayout(comparedTo: previous) {
+        if replacedBackground || impact.contains(.controlsLayout) {
             styleLayoutInvalidationCount += 1
             setNeedsLayout()
         }
@@ -500,6 +688,10 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         skipBackwardButton.isHidden = !configuration.showsSkipButtons
         skipForwardButton.isHidden = !configuration.showsSkipButtons
         updateSkipIcons()
+        // `rootStack`'s arranged subview collapses on its own once hidden;
+        // hit testing already returns `nil` for a hidden view, so no
+        // priorityControls branching is needed on top of this.
+        seekBar.isHidden = !configuration.showsSeekBar
         // Only rebuild the rate menu (a real, visible UIMenu recreation — can
         // close one a user has open mid-interaction) when something that
         // actually changes its *contents* did. `configuration != previous`
@@ -513,7 +705,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             || previous?.rateOptions != configuration.rateOptions
             || previous?.rateInteraction != configuration.rateInteraction
         updateRate(player?.rate ?? 1, rebuildInteraction: rateMenuContentsChanged)
-        render(currentPlaybackTime)
+        render(presenter.currentPlaybackTime)
         if previous?.periodicTimeInterval != configuration.periodicTimeInterval,
            let player,
            periodicIntervalLease != nil {
@@ -526,6 +718,10 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
                 staysVisibleWhilePaused: configuration.staysVisibleWhilePaused
             ))
         }
+        if previous?.showsBufferingIndicator != configuration.showsBufferingIndicator {
+            updateBuffering(isBufferingState)
+        }
+        updateDoubleTapWiring(previous: previous)
         backgroundTapRecognizer.isEnabled = configuration.handlesBackgroundTap
         // Re-derive play/pause's promotion-tap eligibility: promotesToCurrentOnPlay
         // itself may have just changed. Only when a player is actually attached —
@@ -546,10 +742,31 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func updatePlaybackIcon() {
-        playPauseButton.apply(icon: isPlayingState ? style.pauseIcon : style.playIcon, style: style)
+        let showsPauseIcon = presenter.showsPauseIcon
+        playPauseButton.apply(icon: showsPauseIcon ? style.pauseIcon : style.playIcon, style: style)
         playPauseButton.accessibilityLabel = ABControlsLocalization.string(
-            isPlayingState ? "controls.pause" : "controls.play"
+            showsPauseIcon ? "controls.pause" : "controls.play"
         )
+        // Last, matching `updateSkipIcons`' pattern — applied after `apply(icon:style:)`
+        // so a later buffering/icon refresh can't quietly re-show the button.
+        if !configuration.showsPlayPauseButton {
+            playPauseButton.isHidden = true
+        }
+    }
+
+    /// Suppresses the play/pause glyph and animates the spinner while
+    /// buffering — never touches `playPauseButton.isHidden`/`alpha`, so the
+    /// button stays hit-testable and enabled throughout (a stall must still
+    /// be pausable). `configuration.showsBufferingIndicator == false` keeps
+    /// both effects off entirely, including when it flips off mid-stall.
+    private func updateBuffering(_ buffering: Bool) {
+        let active = buffering && configuration.showsBufferingIndicator
+        playPauseButton.isGlyphSuppressed = active
+        if active {
+            bufferingIndicatorView.startAnimating()
+        } else {
+            bufferingIndicatorView.stopAnimating()
+        }
     }
 
     /// Skip intervals with a matching `gobackward.N`/`goforward.N` SF Symbol.
@@ -595,12 +812,39 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         return (.system(direction.baseSymbolName), integerInterval)
     }
 
+    /// The locale-aware, unwrapped numeric value for `rate` — `.automatic`
+    /// defers to ``ABRateFormatter``; `.custom` returns the consumer's
+    /// formatter output verbatim (it stands in as the whole label wherever
+    /// this is used, not just a value to wrap — see `rateLabelTitle(for:)`).
+    private func rateFormattedValue(for rate: Float) -> String {
+        switch configuration.rateLabelFormat {
+        case .automatic:
+            ABRateFormatter(locale: .autoupdatingCurrent).string(from: rate)
+        case .custom(let formatter):
+            formatter(rate)
+        }
+    }
+
+    /// The rate label text a control would show for `rate` — shared by the
+    /// button itself and every rate-menu item, so the two can never disagree
+    /// on how a rate is formatted. `style.rateLabelStyle`'s `.text` template
+    /// (e.g. `"%@×"`) only applies under `.automatic`; `.custom`'s result is
+    /// used as the complete label, matching its documented contract.
+    private func rateLabelTitle(for rate: Float) -> String {
+        let value = rateFormattedValue(for: rate)
+        guard case .text(_, let format) = style.rateLabelStyle,
+              case .automatic = configuration.rateLabelFormat else {
+            return value
+        }
+        return String(format: format, value)
+    }
+
     private func updateRate(_ rate: Float, rebuildInteraction: Bool = true) {
-        let value = String(format: "%g", rate)
+        let value = rateFormattedValue(for: rate)
         switch style.rateLabelStyle {
-        case .text(let font, let format):
+        case .text(let font, _):
             rateButton.setImage(nil, for: .normal)
-            rateButton.setTitle(String(format: format, value), for: .normal)
+            rateButton.setTitle(rateLabelTitle(for: rate), for: .normal)
             rateButton.titleLabel?.font = font
             rateButton.setTitleColor(style.tintColor, for: .normal)
             rateButton.isHidden = configuration.rateInteraction == .hidden || configuration.rateOptions.isEmpty
@@ -621,7 +865,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func render(_ time: ABPlaybackTime) {
-        currentPlaybackTime = time
+        presenter.syncPlaybackTime(time)
         seekBar.progress = time.progress ?? 0
         seekBar.bufferedProgress = time.bufferedProgress ?? 0
         seekBar.isSeekEnabled = time.duration != nil && controlsAreEnabled
@@ -638,7 +882,11 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     /// so this always reflects the current values rather than one captured at
     /// some earlier point.
     private var timeLabelFormatter: ABControlsTimeLabelFormatter {
-        ABControlsTimeLabelFormatter(timeFormat: configuration.timeFormat, timeLabelLayout: configuration.timeLabelLayout)
+        ABControlsTimeLabelFormatter(
+            timeFormat: configuration.timeFormat,
+            timeLabelLayout: configuration.timeLabelLayout,
+            timeLabelSeparator: configuration.timeLabelSeparator
+        )
     }
 
     private func updateTimeLabels(currentTime: CMTime, duration: CMTime?) {
@@ -649,7 +897,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func resetTimeline() {
-        currentPlaybackTime = .zero
+        presenter.syncPlaybackTime(.zero)
         seekBar.progress = 0
         seekBar.bufferedProgress = 0
         seekBar.isSeekEnabled = false
@@ -680,23 +928,27 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             control.tintColor = enabled ? style.tintColor : style.disabledTintColor
         }
         seekBar.isEnabled = enabled
-        seekBar.isSeekEnabled = enabled && currentPlaybackTime.duration != nil
+        seekBar.isSeekEnabled = enabled && presenter.currentPlaybackTime.duration != nil
     }
 
     private func togglePlayback() {
         guard let player else { return }
         applyPresenterEffects(
             presenter.handle(.playPauseTapped(
-                isPlaying: player.isPlaying,
+                // Buffering counts as "wants to play" too — the live-value
+                // branch (see ABControlsPresenter's doc comment) must also
+                // cover the `automaticallyWaitsToMinimizeStalling == false`
+                // stall path, where `timeControlStatus` drops to `.paused`
+                // even though the user's intent hasn't changed.
+                isPlaying: player.isPlaying || player.isBuffering,
                 allowsPromotionTap: canPromoteToCurrentOnPlayTap
             )),
             player: player
         )
-        isPlayingState = presenter.isPlaying
         updatePlaybackIcon()
         bouncePlayPauseButton()
         handleVisibility(.controlInteracted)
-        observerRegistry.broadcast(.playPauseTapped(isPlayingAfterTap: isPlayingState))
+        observerRegistry.broadcast(.playPauseTapped(isPlayingAfterTap: presenter.showsPauseIcon))
     }
 
     private static let playPauseBounceKey = "abplayerkit.playPauseBounce"
@@ -738,7 +990,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             rateButton.showsMenuAsPrimaryAction = true
             rateButton.menu = UIMenu(children: configuration.rateOptions.map { [weak self] option in
                 UIAction(
-                    title: "\(String(format: "%g", option))×",
+                    title: self?.rateLabelTitle(for: option) ?? "",
                     state: abs(option - currentRate) < 0.000_1 ? .on : .off
                 ) { [weak self] _ in
                     self?.selectRate(option)
@@ -781,9 +1033,9 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func scrubChanged(progress: Double) {
-        guard let duration = currentPlaybackTime.duration,
+        guard let duration = presenter.currentPlaybackTime.duration,
               let time = ABSeekBarGeometry.time(forProgress: progress, duration: duration) else { return }
-        updateTimeLabels(currentTime: time, duration: currentPlaybackTime.duration)
+        updateTimeLabels(currentTime: time, duration: duration)
         scrubbingPlayer?.scrub(to: time)
     }
 
@@ -792,7 +1044,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         scrubbingPlayer = nil
         let committedTime = ABSeekBarGeometry.time(
             forProgress: progress,
-            duration: currentPlaybackTime.duration
+            duration: presenter.currentPlaybackTime.duration
         )
         Task { [weak self, weak sessionPlayer] in
             await sessionPlayer?.endScrubbing()
@@ -813,8 +1065,25 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func adjustTimelineForAccessibility(direction: Int) {
+        // Captured *before* the presenter call below, which (unlike a skip
+        // button or double-tap) optimistically advances
+        // `presenter.currentPlaybackTime` synchronously as part of computing
+        // its own effects — by the time the corresponding `seekTargetChanged`
+        // arrives asynchronously, that value has already moved, so
+        // `handleSeekTargetChanged`'s own anchor capture would snapshot the
+        // post-adjustment position instead of the pre-streak one. Reading it
+        // here, first, is what keeps this path's anchor meaning the same
+        // thing skip/double-tap's does: "position before this streak began."
+        let previousTime = presenter.currentPlaybackTime.currentTime
         let effects = presenter.handle(.accessibilityAdjusted(direction: direction, skipInterval: configuration.skipInterval))
         guard case .renderTimeline(let newTime)? = effects.first else { return }
+        // Same "streak's first edge" rule as `handleSeekTargetChanged` — only
+        // claims the anchor if a streak isn't already in progress. A no-op
+        // adjustment (guard failure above) never reaches here, so it can't
+        // poison a later streak's anchor with a value that was never used.
+        if seekAnchor == nil {
+            seekAnchor = previousTime
+        }
         applyPresenterEffects(effects, player: player)
         handleVisibility(.controlInteracted)
         observerRegistry.broadcast(.seekCommitted(to: newTime.currentTime))
@@ -822,6 +1091,85 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
 
     @objc private func backgroundTapped() {
         handleVisibility(.tapped)
+    }
+
+    /// Rebuilds the double-tap/background-tap recognizer pair whenever
+    /// `doubleTapSeek`'s enabled-ness flips (including the very first call,
+    /// from `init`, where `previous == nil`). A no-op on every other
+    /// `applyConfiguration` pass — recreating gesture recognizers on every
+    /// unrelated configuration change would reset in-flight gesture state
+    /// for no reason.
+    private func updateDoubleTapWiring(previous: ABPlayerControlsConfiguration?) {
+        let wasEnabled = previous.map { $0.doubleTapSeek != .disabled } ?? false
+        let isEnabled = configuration.doubleTapSeek != .disabled
+        guard previous == nil || wasEnabled != isEnabled else { return }
+
+        if let doubleTapRecognizer {
+            removeGestureRecognizer(doubleTapRecognizer)
+        }
+        var newDoubleTap: UITapGestureRecognizer?
+        if isEnabled {
+            let recognizer = UITapGestureRecognizer(target: self, action: #selector(doubleTapped(_:)))
+            recognizer.numberOfTapsRequired = 2
+            addGestureRecognizer(recognizer)
+            newDoubleTap = recognizer
+        }
+        doubleTapRecognizer = newDoubleTap
+
+        removeGestureRecognizer(backgroundTapRecognizer)
+        let background = UITapGestureRecognizer(target: self, action: #selector(backgroundTapped))
+        background.cancelsTouchesInView = false
+        background.delegate = self
+        background.isEnabled = configuration.handlesBackgroundTap
+        addGestureRecognizer(background)
+        if let newDoubleTap {
+            background.require(toFail: newDoubleTap)
+        }
+        backgroundTapRecognizer = background
+    }
+
+    @objc private func doubleTapped(_ recognizer: UITapGestureRecognizer) {
+        handleDoubleTap(at: recognizer.location(in: self))
+    }
+
+    /// Separated from the `@objc` selector so it's callable with an explicit
+    /// point — `UIGestureRecognizer` has no public initializer that lets a
+    /// test drive `location(in:)` through real touch delivery.
+    /// Overrides RTL resolution for tests — forcing a real `UITraitCollection`
+    /// layout-direction override onto a detached, windowless view isn't
+    /// reliable. `nil` (the default) defers to `traitCollection.layoutDirection`,
+    /// exactly as production does.
+    var isRightToLeftLayoutOverride: Bool?
+
+    private var isRightToLeftLayout: Bool {
+        isRightToLeftLayoutOverride ?? (traitCollection.layoutDirection == .rightToLeft)
+    }
+
+    func handleDoubleTap(at point: CGPoint) {
+        guard !isVoiceOverRunningProvider() else { return }
+        guard case .edges(let edgeWidthFraction) = configuration.doubleTapSeek else { return }
+        guard player != nil else { return }
+        var zone = ABDoubleTapSeekZone.zone(
+            forX: point.x,
+            width: bounds.width,
+            edgeFraction: edgeWidthFraction
+        )
+        if isRightToLeftLayout {
+            zone = zone.flippedHorizontally
+        }
+        let interval: TimeInterval
+        switch zone {
+        case .backward: interval = -configuration.skipInterval
+        case .forward: interval = configuration.skipInterval
+        case .neutral: return
+        }
+        // Reuses the skip buttons' exact command path — same presenter
+        // input, same player call, same broadcast — so the badge/optimistic
+        // timeline this delta drives is one mechanism, not two.
+        skip(by: interval)
+        if configuration.providesHapticFeedback {
+            performHapticFeedback(.light)
+        }
     }
 
     func simulateBackgroundTap() {
@@ -917,41 +1265,5 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             current = node.superview
         }
         return true
-    }
-}
-
-private extension ABPlayerControlsStyle {
-    func iconsDiffer(from previous: Self) -> Bool {
-        playIcon != previous.playIcon
-            || pauseIcon != previous.pauseIcon
-            || skipBackwardIcon != previous.skipBackwardIcon
-            || skipForwardIcon != previous.skipForwardIcon
-            || iconPointSize != previous.iconPointSize
-            || iconWeight != previous.iconWeight
-            || iconRenderingMode != previous.iconRenderingMode
-            || rateLabelStyle != previous.rateLabelStyle
-    }
-
-    func requiresControlsLayout(comparedTo previous: Self) -> Bool {
-        playPauseButtonSize != previous.playPauseButtonSize
-            || skipButtonSize != previous.skipButtonSize
-            || buttonSpacing != previous.buttonSpacing
-            || timeLabelFont != previous.timeLabelFont
-            || usesFixedWidthTimeLabels != previous.usesFixedWidthTimeLabels
-            || trackHeight != previous.trackHeight
-            || trackHeightWhileScrubbing != previous.trackHeightWhileScrubbing
-            || trackCornerRadius != previous.trackCornerRadius
-            || seekBarHorizontalInset != previous.seekBarHorizontalInset
-            || thumbSize != previous.thumbSize
-            || thumbSizeWhileScrubbing != previous.thumbSizeWhileScrubbing
-            || thumbBorderWidth != previous.thumbBorderWidth
-            || thumbCornerRadius != previous.thumbCornerRadius
-            || thumbShadowRadius != previous.thumbShadowRadius
-            || thumbImage != previous.thumbImage
-            || isThumbHidden != previous.isThumbHidden
-            || rateButtonSize != previous.rateButtonSize
-            || contentInsets != previous.contentInsets
-            || containerCornerRadius != previous.containerCornerRadius
-            || seekBarBottomSpacing != previous.seekBarBottomSpacing
     }
 }

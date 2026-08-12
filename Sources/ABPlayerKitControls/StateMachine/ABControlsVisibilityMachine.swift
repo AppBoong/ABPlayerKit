@@ -13,6 +13,7 @@ struct ABControlsVisibilityMachine: Equatable {
         case scrubBegan
         case scrubEnded
         case playbackStateChanged(isPlaying: Bool)
+        case bufferingChanged(Bool)
         case autoHideFired
         case setVisible(Bool)
         case configurationChanged(autoHideDelay: TimeInterval?, staysVisibleWhilePaused: Bool)
@@ -29,6 +30,7 @@ struct ABControlsVisibilityMachine: Equatable {
 
     private(set) var visibility: Visibility = .hidden
     private(set) var isScrubbing = false
+    private(set) var isBuffering = false
     private(set) var isPlaying = false
     private(set) var autoHideDelay: TimeInterval? = 3
     private(set) var staysVisibleWhilePaused = true
@@ -75,9 +77,14 @@ struct ABControlsVisibilityMachine: Equatable {
             }
             return scheduleEffectsIfNeeded()
 
+        case .bufferingChanged(let buffering):
+            isBuffering = buffering
+            return buffering ? [.cancelAutoHide] : scheduleEffectsIfNeeded()
+
         case .autoHideFired:
             guard visibility == .visible,
                   !isScrubbing,
+                  !isBuffering,
                   isPlaying || !staysVisibleWhilePaused else { return [] }
             visibility = .hidden
             return [.hide, .notifyVisibility(false)]
@@ -98,6 +105,7 @@ struct ABControlsVisibilityMachine: Equatable {
 
         case .detached:
             isScrubbing = false
+            isBuffering = false
             return [.cancelAutoHide]
         }
     }
@@ -105,6 +113,7 @@ struct ABControlsVisibilityMachine: Equatable {
     private func scheduleEffectsIfNeeded() -> [Effect] {
         guard visibility == .visible,
               !isScrubbing,
+              !isBuffering,
               isPlaying || !staysVisibleWhilePaused,
               let autoHideDelay else { return [] }
         return [.scheduleAutoHide(after: autoHideDelay)]

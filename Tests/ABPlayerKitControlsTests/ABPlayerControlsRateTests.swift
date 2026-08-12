@@ -160,4 +160,63 @@ struct ABPlayerControlsRateTests {
 
         #expect(view.rateButton.isHidden)
     }
+
+    @Test("Given the default rateLabelFormat, the button title uses a locale-aware, .text-template-wrapped value")
+    func automaticRateLabelFormatWrapsTheTextTemplate() {
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        let view = ABPlayerControlsView()
+        view.player = player
+
+        view.selectRate(1.5)
+
+        #expect(view.displayedRateText == "1.5×")
+    }
+
+    @Test("Given a custom rateLabelFormat, its return value is used verbatim as the whole button title — the rateLabelStyle .text template does not wrap it")
+    func customRateLabelFormatBypassesTheTextTemplate() {
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.rateLabelFormat = .custom { rate in "\(rate)x-speed" }
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
+        let view = ABPlayerControlsView(configuration: configuration)
+        view.player = player
+
+        view.selectRate(1.5)
+
+        #expect(view.displayedRateText == "1.5x-speed")
+    }
+
+    @Test("Given a custom rateLabelFormat, the configuration never compares equal to a copy of itself — the same closure-identity limitation as TimeLabelFormat.custom")
+    func customRateLabelFormatConfigurationNeverComparesEqual() {
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.rateLabelFormat = .custom { "\($0)" }
+        let copy = configuration
+
+        #expect(configuration != copy)
+    }
+
+    @Test("Given repeated configuration reassignments with a custom rateLabelFormat, the rate menu is not rebuilt — rateLabelFormat is deliberately excluded from the rebuild gate")
+    func repeatedCustomRateLabelFormatUpdatesDoNotRebuildTheRateMenu() {
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.rateLabelFormat = .custom { "\($0)" }
+        let view = ABPlayerControlsView(configuration: configuration)
+        let firstMenu = view.rateButton.menu
+
+        for _ in 0..<5 {
+            view.configuration = configuration
+        }
+
+        #expect(view.rateButton.menu === firstMenu)
+    }
+
+    @Test("Every rate menu item's title matches the button's own title format for that same rate — the menu no longer hardcodes a bare \"×\" independent of rateLabelStyle")
+    func menuItemTitlesMatchTheButtonsOwnFormatPath() {
+        var configuration = ABPlayerControlsConfiguration()
+        configuration.rateOptions = [0.5, 1, 1.5, 2]
+        configuration.rateInteraction = .menu
+        let view = ABPlayerControlsView(configuration: configuration)
+
+        let titles = view.rateButton.menu?.children.compactMap { ($0 as? UIAction)?.title }
+
+        #expect(titles == ["0.5×", "1×", "1.5×", "2×"])
+    }
 }

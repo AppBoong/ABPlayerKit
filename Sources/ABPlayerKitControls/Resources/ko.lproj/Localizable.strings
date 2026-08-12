@@ -6,4 +6,10 @@
 "controls.timeline" = "재생 위치";
 "controls.timelineValue" = "%2$@ 중 %1$@";
 "controls.live" = "실시간";
+"controls.liveMarker" = "실시간";
 "controls.rateValue" = "%@배";
+"controls.hint.playPause" = "두 번 탭하면 재생 또는 일시 정지합니다.";
+"controls.hint.skipBackward" = "두 번 탭하면 뒤로 건너뜁니다.";
+"controls.hint.skipForward" = "두 번 탭하면 앞으로 건너뜁니다.";
+"controls.hint.rate" = "두 번 탭하면 재생 속도를 변경합니다.";
+"controls.hint.timeline" = "위아래로 스와이프하면 재생 위치를 조절합니다.";

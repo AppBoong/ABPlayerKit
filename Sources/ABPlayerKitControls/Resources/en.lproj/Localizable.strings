@@ -6,4 +6,10 @@
 "controls.timeline" = "Playback Position";
 "controls.timelineValue" = "%1$@ of %2$@";
 "controls.live" = "Live";
+"controls.liveMarker" = "LIVE";
 "controls.rateValue" = "%@ times";
+"controls.hint.playPause" = "Double tap to play or pause.";
+"controls.hint.skipBackward" = "Double tap to skip backward.";
+"controls.hint.skipForward" = "Double tap to skip forward.";
+"controls.hint.rate" = "Double tap to change the playback speed.";
+"controls.hint.timeline" = "Swipe up or down to adjust the playback position.";

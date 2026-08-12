@@ -59,10 +59,15 @@ struct ABControlsPresenter: Equatable {
         case promoteToCurrent
         case skip(by: TimeInterval)
         case setRate(Float)
+        /// Seeks to zero, then plays — a bare `play()` after `.playedToEnd`
+        /// does nothing, since the player's rate is pinned at 0 at the end
+        /// of the item.
+        case restartFromStart
     }
 
     enum Effect: Equatable {
         case setPlaybackIcon(isPlaying: Bool)
+        case setBuffering(Bool)
         case setRateTitle(rate: Float)
         case renderTimeline(ABPlaybackTime)
         case resetTimeline
@@ -71,8 +76,24 @@ struct ABControlsPresenter: Equatable {
     }
 
     private(set) var isPlaying = false
+    private(set) var isBuffering = false
+    /// Set by `.playedToEnd`, cleared by anything that means playback has
+    /// moved on — a landed seek, a new/detached item, a demotion away from
+    /// `.current`, or an actual resumed `.playing` status. A play tap while
+    /// this is still `true` needs `.restartFromStart` instead of a bare
+    /// `.play`, since a plain `play()` at the end of an item does nothing
+    /// (rate stays pinned at 0).
+    private(set) var hasPlayedToEnd = false
     private(set) var currentPlaybackTime = ABPlaybackTime.zero
     private(set) var rate: Float = 1
+
+    /// The axis both the icon and a play/pause tap's live-value branch use:
+    /// true whenever the user wants playback, whether or not it's actually
+    /// advancing right now. `isPlaying` alone misses the case where a stall
+    /// drops `timeControlStatus` to `.paused` (tuning with
+    /// `automaticallyWaitsToMinimizeStalling == false`) while the user's
+    /// intent to play hasn't changed.
+    var showsPauseIcon: Bool { isPlaying || isBuffering }
 
     /// Hydrates tracked state directly from a freshly-attached player,
     /// without going through `handle(_:)` — attaching a player is not itself
@@ -105,7 +126,17 @@ struct ABControlsPresenter: Equatable {
 
         case .detached:
             currentPlaybackTime = .zero
-            return [.resetTimeline]
+            hasPlayedToEnd = false
+            var effects: [Effect] = [.resetTimeline]
+            // A player can be detached mid-stall (`view.player = nil`) —
+            // observation stops right away, so no further `.bufferingChanged`
+            // will ever arrive to clear the spinner/glyph suppression this
+            // type already told the view to apply.
+            if isBuffering {
+                isBuffering = false
+                effects.append(.setBuffering(false))
+            }
+            return effects
 
         case .playerEvent(let event):
             return handlePlayerEvent(event)
@@ -136,7 +167,7 @@ struct ABControlsPresenter: Equatable {
             if allowsPromotionTap {
                 effects.append(.send(.promoteToCurrent))
             }
-            effects.append(.send(.play))
+            effects.append(.send(hasPlayedToEnd ? .restartFromStart : .play))
             return effects
 
         case .skipTapped(let interval):
@@ -173,7 +204,17 @@ struct ABControlsPresenter: Equatable {
 
         case .timeControlStatusChanged(let status):
             isPlaying = status == .playing
-            return [.setPlaybackIcon(isPlaying: isPlaying)]
+            if isPlaying { hasPlayedToEnd = false }
+            return [.setPlaybackIcon(isPlaying: showsPauseIcon)]
+
+        case .bufferingChanged(let buffering):
+            guard buffering != isBuffering else { return [] }
+            isBuffering = buffering
+            // The icon is re-derived on both sides of a stall — `.playedToEnd`
+            // and `.bufferingChanged(false)` have no ordering guarantee
+            // between them, so whichever lands second must still leave the
+            // icon correct.
+            return [.setBuffering(buffering), .setPlaybackIcon(isPlaying: showsPauseIcon)]
 
         case .rateChanged(let newRate):
             rate = newRate
@@ -183,6 +224,7 @@ struct ABControlsPresenter: Equatable {
             var effects: [Effect] = [.setEnabled(grade == .current, allowsPromotionTap: true)]
             if grade != .current {
                 currentPlaybackTime = .zero
+                hasPlayedToEnd = false
                 effects.append(.resetTimeline)
             }
             return effects
@@ -192,6 +234,7 @@ struct ABControlsPresenter: Equatable {
             // `player?.grade`) needs a live player read — the view applies
             // it directly, right after this effect. See this type's doc comment.
             currentPlaybackTime = .zero
+            hasPlayedToEnd = false
             return [.resetTimeline]
 
         case .itemStatusChanged(.readyToPlay):
@@ -207,11 +250,13 @@ struct ABControlsPresenter: Equatable {
 
         case .playedToEnd:
             isPlaying = false
+            hasPlayedToEnd = true
             return [.setPlaybackIcon(isPlaying: false)]
 
         case .seekCompleted:
             // Needs `player?.isScrubbing`/`player?.duration` — fully handled
             // by the view. See this type's doc comment.
+            hasPlayedToEnd = false
             return []
 
         default:

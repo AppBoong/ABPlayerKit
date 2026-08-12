@@ -81,7 +81,7 @@ struct ABControlsTimeLabelFormatterTests {
     func automaticElapsedAndTotalLiveDuration() {
         let formatter = ABControlsTimeLabelFormatter(timeFormat: .automatic, timeLabelLayout: .elapsedAndTotal)
 
-        #expect(formatter.label(elapsedSeconds: 65, durationSeconds: nil) == "01:05/\(ABTimeFormatter.liveMarker)")
+        #expect(formatter.label(elapsedSeconds: 65, durationSeconds: nil) == "01:05/\(ABControlsLocalization.string("controls.liveMarker"))")
     }
 
     @Test("Given .automatic with a nil (non-numeric) elapsed and a sub-hour duration reference, the short placeholder is used")
@@ -131,5 +131,36 @@ struct ABControlsTimeLabelFormatterTests {
         let formatter = ABControlsTimeLabelFormatter(timeFormat: .automatic, timeLabelLayout: .elapsedAndTotal)
 
         #expect(formatter.accessibilityValue(elapsedSeconds: nil, durationSeconds: 225) == ABControlsLocalization.string("controls.live"))
+    }
+
+    // MARK: - timeLabelSeparator
+
+    @Test("Given the default 2-argument initializer, timeLabelSeparator defaults to \"/\", byte-identical to the historical hardcoded value")
+    func timeLabelSeparatorDefaultsToSlash() {
+        let formatter = ABControlsTimeLabelFormatter(timeFormat: .fixedHours, timeLabelLayout: .elapsedAndTotal)
+
+        #expect(formatter.label(elapsedSeconds: 65, durationSeconds: 125) == "00:01:05/00:02:05")
+    }
+
+    @Test("Given an explicit timeLabelSeparator, it replaces \"/\" between the elapsed and secondary fields")
+    func explicitTimeLabelSeparatorReplacesSlash() {
+        let formatter = ABControlsTimeLabelFormatter(
+            timeFormat: .fixedHours,
+            timeLabelLayout: .elapsedAndTotal,
+            timeLabelSeparator: " — "
+        )
+
+        #expect(formatter.label(elapsedSeconds: 65, durationSeconds: 125) == "00:01:05 — 00:02:05")
+    }
+
+    @Test("Given .elapsedOnly, timeLabelSeparator is irrelevant — there's no secondary field to join")
+    func timeLabelSeparatorIsIrrelevantForElapsedOnly() {
+        let formatter = ABControlsTimeLabelFormatter(
+            timeFormat: .fixedHours,
+            timeLabelLayout: .elapsedOnly,
+            timeLabelSeparator: " — "
+        )
+
+        #expect(formatter.label(elapsedSeconds: 65, durationSeconds: 125) == "00:01:05")
     }
 }

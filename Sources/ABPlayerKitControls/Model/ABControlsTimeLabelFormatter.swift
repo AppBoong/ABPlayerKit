@@ -8,6 +8,20 @@ import Foundation
 struct ABControlsTimeLabelFormatter {
     let timeFormat: ABPlayerControlsConfiguration.TimeLabelFormat
     let timeLabelLayout: ABPlayerControlsConfiguration.TimeLabelLayout
+    /// Placed between the elapsed and secondary fields. Defaulted so every
+    /// existing call site (this type predates the option) keeps rendering
+    /// byte-identical output.
+    let timeLabelSeparator: String
+
+    init(
+        timeFormat: ABPlayerControlsConfiguration.TimeLabelFormat,
+        timeLabelLayout: ABPlayerControlsConfiguration.TimeLabelLayout,
+        timeLabelSeparator: String = "/"
+    ) {
+        self.timeFormat = timeFormat
+        self.timeLabelLayout = timeLabelLayout
+        self.timeLabelSeparator = timeLabelSeparator
+    }
 
     /// `elapsedSeconds`/`durationSeconds` are `nil` exactly when the
     /// corresponding `CMTime` isn't numeric (unknown elapsed time, or a live/
@@ -35,7 +49,7 @@ struct ABControlsTimeLabelFormatter {
         switch timeLabelLayout {
         case .elapsedAndTotal:
             secondary = durationSeconds.map { formattedTime($0, referenceDuration: durationSeconds) }
-                ?? ABTimeFormatter.liveMarker
+                ?? ABControlsLocalization.string("controls.liveMarker")
         case .elapsedAndRemaining:
             if let durationSeconds, let elapsedSeconds, elapsedSeconds.isFinite {
                 let remaining = max(0, durationSeconds - elapsedSeconds)
@@ -46,7 +60,7 @@ struct ABControlsTimeLabelFormatter {
         case .elapsedOnly:
             secondary = nil
         }
-        return secondary.map { "\(elapsed)/\($0)" } ?? elapsed
+        return secondary.map { "\(elapsed)\(timeLabelSeparator)\($0)" } ?? elapsed
     }
 
     /// Independent of `timeFormat`/`timeLabelLayout` — VoiceOver always hears
