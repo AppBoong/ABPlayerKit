@@ -1943,7 +1943,7 @@ struct ABCacheStoreTests {
     private func waitUntilHandleCount(
         _ store: ABCacheStore,
         equals expected: Int,
-        deadline: Duration = .seconds(2),
+        deadline: Duration = .seconds(5),
         sourceLocation: SourceLocation = #_sourceLocation
     ) async throws {
         let clock = ContinuousClock()
@@ -1956,7 +1956,9 @@ struct ABCacheStoreTests {
                 )
                 throw ABWaitUntilTimedOut()
             }
-            await Task.yield()
+            // Sleep rather than yield: the fill this waits on runs on the same
+            // cooperative pool, and a spin loop starves it where threads are few.
+            try await Task.sleep(for: .milliseconds(5))
         }
     }
 
