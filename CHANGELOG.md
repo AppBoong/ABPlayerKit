@@ -15,6 +15,10 @@ All notable changes to ABPlayerKit are documented in this file.
 - Added `ABClock.wallClockEpoch` (default `Date().timeIntervalSince1970`) — maps a session's monotonic timeline onto a wall-clock instant once, at session open, for joining against server-side logs.
 - `ABJSONLinesMetricsSink.flush()` is now `public`. Added `writeFailureCount`/`lastWriteErrorDescription` (a persistent write failure no longer fails silently) and file rotation via `init(fileURL:maxFileSizeBytes:maxRotatedFiles:)`.
 - `ABMetricsRecorder.init` gained `includesSourceURL: Bool` (default `true`) — set `false` to keep signed/tokenized source URLs out of session anchors and summaries.
+- Added `ABBackgroundPolicy.continueAudioOnly` — keeps playing in the background instead of pausing, by detaching `AVPlayerLayer.player` (the condition iOS requires for backgrounded audio to continue) and re-attaching on foreground return. Requires the host app's `UIBackgroundModes` to include `audio` and `ABPlayerConfiguration.audioSessionPolicy` to be something other than `.unmanaged`; without both, it falls back to `.pause`-like behavior (resumes on foreground return). See the README's new "Background Policy" section.
+- Added `ABPictureInPictureSession` and `ABPlayerView.pictureInPictureSession` — bind a session to a view to enable Picture in Picture for that view's backing layer, without exposing `AVPlayerLayer` itself. Added the matching `ABVideoPlayer.init(player:videoGravity:pictureInPicture:)` for SwiftUI's explicit-ownership path. While a session is active, every `ABBackgroundPolicy`'s automatic background/foreground side effects are suppressed for that player, so PiP keeps rendering instead of being paused/detached out from under itself. Picture in Picture is supported only on the explicit-ownership path — see the README's new "Picture in Picture" section for scope and platform prerequisites.
+- Added `ABPlayerConfiguration.allowsExternalPlayback` (default `true`), `.usesExternalPlaybackWhileExternalScreenIsActive` (default `false`), and `.externalPlaybackVideoGravity` (default `.resizeAspect`) — direct passthroughs to the matching `AVPlayer` AirPlay properties, all defaulting to `AVPlayer`'s own defaults. Added the matching read-only `ABPlayer.isExternalPlaybackActive`. See the README's new "AirPlay" section.
+- Added the `ABPlayerKitNowPlaying` target: an opt-in bridge from `ABPlayer` to `MPNowPlayingInfoCenter`/`MPRemoteCommandCenter`, entered through `ABNowPlayingCenter.shared.attach(_:metadata:configuration:artwork:)`. Ownership is exclusive and automatic — only a `.current` player is eligible, and the most recently eligible one owns the surface (last-eligible-wins), restoring whatever state existed before the first attach once the last participant relinquishes. Remote commands activate only when a corresponding action exists. See the README's new "Now Playing and Remote Commands" section and the target's own DocC catalog.
 
 ### Changed
 
@@ -47,6 +51,14 @@ A default implementation (`Date().timeIntervalSince1970`) is provided, so existi
 #### `ABMetricsRecorder.endSession(for:)`/`snapshot(for:)` were added
 
 `attach(to:)`'s returned token has no cancellation hook the recorder can observe, so cancelling it alone produces no final `.sessionSummary`. Call `endSession(for:)` before cancelling the token if you want one.
+
+#### `ABBackgroundPolicy` is now non-exhaustive
+
+`ABBackgroundPolicy` gained a new case (`continueAudioOnly`). Code that `switch`es over `ABBackgroundPolicy` must add a `default` branch to keep compiling.
+
+#### `ABPlaybackTarget` changes are not consumer-visible
+
+The internal `ABPlaybackTarget` protocol (used only as this library's own `AVFoundation` test seam) gained `isExternalPlaybackActive` and `applyExternalPlayback(_:)`. This protocol is `internal`, not part of the public API, so no consumer code is affected.
 
 ## [0.3.0] - 2026-08-05
 

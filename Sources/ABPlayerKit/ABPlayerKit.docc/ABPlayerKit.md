@@ -51,6 +51,12 @@ Treat ``ABPlayerEvent`` and ``ABPlayerError`` as non-exhaustive. Minor releases 
 - ``ABPlayerView``
 - ``ABVideoPlayer``
 
+### Picture in Picture
+
+- <doc:BackgroundAndPictureInPicture>
+- ``ABPictureInPictureSession``
+- ``ABPictureInPictureFailure``
+
 ### Building Custom UI
 
 - ``ABSeekBarGeometry``
