@@ -1,24 +1,35 @@
 @preconcurrency import AVFoundation
 
+/// Shared body for `ABAudioSession.activate(_:)`'s `@MainActor` facade and
+/// `ABAudioSessionAdapter.activate(_:)`'s deliberately non-isolated
+/// counterpart (see that type's doc comment for why it can't just forward
+/// to the facade) — one copy of the actual `AVAudioSession` calls instead
+/// of two byte-identical ones. `AVAudioSession`'s category/activation APIs
+/// are documented safe to call off the main thread, so a free `nonisolated`
+/// function is safe to call from either isolation context.
+nonisolated func abActivateAudioSession(_ policy: ABAudioSessionPolicy) throws {
+    let session = AVAudioSession.sharedInstance()
+    switch policy {
+    case .unmanaged:
+        return
+    case .playback(let mixWithOthers):
+        try session.setCategory(
+            .playback,
+            options: mixWithOthers ? [.mixWithOthers] : []
+        )
+        try session.setActive(true)
+    case .ambient:
+        try session.setCategory(.ambient)
+        try session.setActive(true)
+    }
+}
+
 /// Explicit-call-only facade over `AVAudioSession`. `ABPlayer` never calls
 /// this on the consumer's behalf — see `ABAudioSessionPolicy`.
 @MainActor
 public enum ABAudioSession {
     public static func activate(_ policy: ABAudioSessionPolicy) throws {
-        let session = AVAudioSession.sharedInstance()
-        switch policy {
-        case .unmanaged:
-            return
-        case .playback(let mixWithOthers):
-            try session.setCategory(
-                .playback,
-                options: mixWithOthers ? [.mixWithOthers] : []
-            )
-            try session.setActive(true)
-        case .ambient:
-            try session.setCategory(.ambient)
-            try session.setActive(true)
-        }
+        try abActivateAudioSession(policy)
     }
 
     public static func deactivate() throws {
@@ -72,19 +83,11 @@ final class ABAudioSessionAdapter: ABAudioSessionControlling {
     /// ``ABAudioSession/activate(_:)`` — this adapter must stay callable
     /// from any thread (see the protocol doc above), and the public facade
     /// keeps its own actor isolation for API-compatibility reasons
-    /// unrelated to this internal plumbing. Small duplication, same body.
+    /// unrelated to this internal plumbing. Shares its actual body with
+    /// the facade via `abActivateAudioSession(_:)` instead of duplicating
+    /// it.
     func activate(_ policy: ABAudioSessionPolicy) throws {
-        let session = AVAudioSession.sharedInstance()
-        switch policy {
-        case .unmanaged:
-            return
-        case .playback(let mixWithOthers):
-            try session.setCategory(.playback, options: mixWithOthers ? [.mixWithOthers] : [])
-            try session.setActive(true)
-        case .ambient:
-            try session.setCategory(.ambient)
-            try session.setActive(true)
-        }
+        try abActivateAudioSession(policy)
     }
 
     func restore(_ snapshot: ABAudioSessionCategorySnapshot, deactivate: Bool) throws {

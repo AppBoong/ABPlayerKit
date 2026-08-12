@@ -467,7 +467,14 @@ private extension ABPlayerEvent {
         case .audioInterruptionBegan: "Audio interruption began"
         case .audioInterruptionEnded(let resumed): "Audio interruption ended (resumed: \(resumed))"
         case .audioRouteChangedDeviceUnavailable: "Audio route changed: device unavailable"
-        @unknown default: "Playback event"
+        // `default`, not `@unknown default`: this app is built from source
+        // against this exact package version, so the compiler always knows
+        // every case — `@unknown default` only suppresses the missing-case
+        // warning for cases added in a *future* library version the app
+        // wasn't rebuilt against. Newer event cases fall through here with
+        // a generic label rather than being spelled out individually; a
+        // richer demo of any one of them is out of scope for this fix.
+        default: "Playback event"
         }
     }
 }

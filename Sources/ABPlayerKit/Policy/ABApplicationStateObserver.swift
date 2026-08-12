@@ -15,10 +15,20 @@ final class ABApplicationStateObserver {
 
     init(
         center: NotificationCenter = .default,
+        onWillResignActive: @escaping @MainActor @Sendable () -> Void = {},
         onBackground: @escaping @MainActor @Sendable () -> Void,
         onForeground: @escaping @MainActor @Sendable () -> Void
     ) {
         self.center = center
+        tokens.append(
+            center.addObserver(
+                forName: UIApplication.willResignActiveNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                Task { @MainActor in onWillResignActive() }
+            }
+        )
         tokens.append(
             center.addObserver(
                 forName: UIApplication.didEnterBackgroundNotification,

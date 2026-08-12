@@ -6,15 +6,20 @@ import Testing
 /// WP-A4b precondition (ROADMAP-round4.md): before converting
 /// `togglePlayback`/etc. to route through `ABControlsPresenter.Effect`, pin
 /// the exact interleaving a play/pause tap produces today. `player.promote(to:)`
-/// broadcasts `.gradeChanged` synchronously (`ABObserverRegistry.broadcast`
-/// iterates handlers directly, no dispatch hop — see
-/// `Sources/ABPlayerKit/Observation/ABObserverRegistry.swift`), which
-/// re-enters `ABPlayerControlsView.handlePlayerEvent` *before*
-/// `togglePlayback` calls `player.play()`. (`player.play()`/`pause()`
-/// themselves do *not* synchronously re-enter — the `timeControlStatus` KVO
-/// forwards through `Task { @MainActor in ... }` in `ABAVPlaybackTarget`,
-/// so that event always arrives on a later run-loop turn, never inside this
-/// same call stack.) This test must pass unchanged before and after WP-A4b.
+/// broadcasts `.gradeChanged` synchronously (the handler registry iterates
+/// observers directly, no dispatch hop), which re-enters
+/// `ABPlayerControlsView.handlePlayerEvent` *before* `togglePlayback` calls
+/// `player.play()`. This test must pass unchanged before and after WP-A4b.
+///
+/// Only pins the event *kinds* `promote(to:)` itself fans out
+/// (`.preloadCancelled`/`.tuningApplied`/`.gradeChanged`) — see
+/// `isPinnedReentrantEvent(_:)` below. `player.play()`/`pause()` can also
+/// synchronously broadcast their own observable-mirror events (e.g.
+/// `.bufferingChanged`, when the target's buffering signals actually
+/// change) since they refresh those mirrors inline before returning; this
+/// suite deliberately doesn't pin those, since the ordering they document
+/// here is about the promote-then-play interleaving, not an exhaustive
+/// enumeration of every event a tap can produce.
 @Suite("A play tap's reentrant event ordering is pinned before WP-A4b touches togglePlayback", .timeLimit(.minutes(3)))
 @MainActor
 struct ABControlsPlayPauseReentrancyCharacterizationTests {
@@ -42,6 +47,21 @@ struct ABControlsPlayPauseReentrancyCharacterizationTests {
         }
     }
 
+    /// The only player event kinds this suite pins the ordering of —
+    /// `promote(to:)`'s own fan-out. Any other event kind (additive by
+    /// construction — new `ABPlayerEvent` cases are always additions, never
+    /// replacements) is filtered out at the recording site below rather
+    /// than enumerated into the expected sequence, so this suite doesn't
+    /// need to change every time a new event is introduced elsewhere.
+    private static func isPinnedReentrantEvent(_ event: ABPlayerEvent) -> Bool {
+        switch event {
+        case .preloadCancelled, .tuningApplied, .gradeChanged:
+            return true
+        default:
+            return false
+        }
+    }
+
     @Test("Given a source at a lower grade with default promotion, a play tap promotes (reentering .gradeChanged before play() runs), then plays, then bounces/broadcasts")
     func playTapReentrantSequence() {
         let source = ABMediaSource(url: URL(string: "https://example.com/reentrancy.mp4")!)
@@ -51,7 +71,10 @@ struct ABControlsPlayPauseReentrancyCharacterizationTests {
         view.player = player
 
         var recorded: [RecordedEvent] = []
-        let playerToken = player.addObserver { event in recorded.append(.player(RecordedEvent.kind(of: event))) }
+        let playerToken = player.addObserver { event in
+            guard Self.isPinnedReentrantEvent(event) else { return }
+            recorded.append(.player(RecordedEvent.kind(of: event)))
+        }
         let controlsToken = view.addObserver { event in recorded.append(.controls(event)) }
         defer {
             playerToken.cancel()
@@ -71,7 +94,7 @@ struct ABControlsPlayPauseReentrancyCharacterizationTests {
         #expect(view.isShowingPauseIcon)
     }
 
-    @Test("Given an already-current, playing source, a pause tap produces no reentrant player event — only the controls broadcast — since pause()'s timeControlStatus KVO forwards asynchronously")
+    @Test("Given an already-current, playing source, a pause tap produces no pinned reentrant player event — only the controls broadcast — since pause()'s timeControlStatus KVO forwards asynchronously")
     func pauseTapProducesNoSynchronousReentrantPlayerEvent() {
         let source = ABMediaSource(url: URL(string: "https://example.com/reentrancy-pause.mp4")!)
         let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
@@ -82,7 +105,10 @@ struct ABControlsPlayPauseReentrancyCharacterizationTests {
         view.handlePlayerEvent(.timeControlStatusChanged(.playing))
 
         var recorded: [RecordedEvent] = []
-        let playerToken = player.addObserver { event in recorded.append(.player(RecordedEvent.kind(of: event))) }
+        let playerToken = player.addObserver { event in
+            guard Self.isPinnedReentrantEvent(event) else { return }
+            recorded.append(.player(RecordedEvent.kind(of: event)))
+        }
         let controlsToken = view.addObserver { event in recorded.append(.controls(event)) }
         defer {
             playerToken.cancel()

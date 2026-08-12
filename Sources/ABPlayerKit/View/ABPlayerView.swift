@@ -55,6 +55,8 @@ public final class ABPlayerView: UIView {
 
     public override func layoutSubviews() {
         super.layoutSubviews()
+        let scale = traitCollection.displayScale > 0 ? traitCollection.displayScale : 1
+        player?.reportDisplaySize(CGSize(width: bounds.width * scale, height: bounds.height * scale))
         applyAdaptiveGravityIfNeeded()
     }
 
@@ -76,6 +78,12 @@ public final class ABPlayerView: UIView {
             switch event {
             case .gradeChanged, .sourceChanged, .itemDetached:
                 self.rebindPlayerLayer()
+            case .presentationSizeChanged:
+                // Event-driven re-evaluation alongside the `layoutSubviews`
+                // trigger below — lets an aspect-ratio-driven gravity
+                // change react to the item's size becoming known without
+                // waiting for the next layout pass.
+                self.applyAdaptiveGravityIfNeeded()
             default:
                 break
             }

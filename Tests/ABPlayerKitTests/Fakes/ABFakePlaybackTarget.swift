@@ -35,6 +35,14 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
     var currentTime: CMTime = .zero
     var duration: CMTime?
     var bufferedUntil: CMTime?
+    /// Settable directly by tests exercising `ABBufferingEvaluator`
+    /// integration — `play()`/`pause()` also keep this in sync with
+    /// `isPlaying` for tests that don't care about buffering specifically.
+    var timeControlStatus: ABTimeControlStatus = .paused
+    var isPlaybackLikelyToKeepUp = false
+    var isPlaybackBufferEmpty = false
+    var isWaitingWithNoItem = false
+    var presentationSize: CGSize = .zero
     var seekLandingTime: CMTime?
     var waitsForSeekContinuation = false
     private var seekContinuations: [CheckedContinuation<Void, Never>] = []
@@ -70,6 +78,11 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
     func detachItem() {
         calls.append(.detachItem)
         hasAttachedItem = false
+        // Mirrors `ABAVPlaybackTarget.detachItem()` nulling `avPlayerItem`
+        // — needed so tests can assert `player.avPlayerItem == nil` from
+        // inside a `.itemDetached` observer, since the target detaches
+        // before that event broadcasts.
+        avPlayerItem = nil
     }
 
     @discardableResult
@@ -82,12 +95,14 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
         calls.append(.play)
         isPlaying = true
         appliedRate = desiredRate
+        timeControlStatus = .playing
     }
 
     func pause() {
         calls.append(.pause)
         isPlaying = false
         appliedRate = 0
+        timeControlStatus = .paused
     }
 
     func setRate(_ rate: Float) {

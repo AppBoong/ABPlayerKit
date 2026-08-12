@@ -366,7 +366,15 @@ struct ABPlayerControlsEventReflectionTests {
 
         view.handlePlayerEvent(.sourceChanged(nil))
         view.seekBar.onScrubEnded?(0.5)
-        try await waitUntil { !player.isScrubbing }
+        // Waits for the controls-level `.scrubbingChanged(false)` broadcast,
+        // not `player.isScrubbing` — `scrubEnded()`'s `Task` flips
+        // `player.isScrubbing` to `false` *inside* `endScrubbing()`, then
+        // keeps running (still on the same, unsuspended continuation) to
+        // call `handleVisibility(.scrubEnded)` (which schedules auto-hide)
+        // before it broadcasts this event. `player.isScrubbing` alone can
+        // therefore read `false` a beat before auto-hide has actually been
+        // scheduled; this event is the one causally guaranteed to follow it.
+        try await waitUntil { controlsEvents.contains(.scrubbingChanged(isScrubbing: false)) }
 
         #expect(controlsEvents.contains(.scrubbingChanged(isScrubbing: false)))
         #expect(!controlsEvents.contains { if case .seekCommitted = $0 { true } else { false } })
