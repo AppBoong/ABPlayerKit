@@ -199,11 +199,11 @@ public struct ABPlayerControls: UIViewRepresentable {
             // declares `6.0` — bumping the floor is a
             // bigger, separate decision than this one cleanup, so this hops
             // to the MainActor asynchronously instead. `MainActor.assumeIsolated`
-            // is not an option either — banned in this codebase for the same
-            // reason as `@unchecked Sendable`: `deinit` genuinely isn't
-            // statically known to already be on the MainActor here, so
-            // *assuming* it would be exactly the kind of unchecked escape
-            // hatch that ban exists to prevent.
+            // is not an option either — avoided here for the same reason
+            // `@unchecked Sendable` isn't used to silence a captured-actor-isolation
+            // diagnostic: `deinit` genuinely isn't statically known to already
+            // be on the MainActor here, so *assuming* it would be exactly the
+            // kind of unchecked escape hatch that convention exists to prevent.
             // The async detach still runs promptly (the next MainActor
             // turn) and is safe to run after this instance is already
             // gone — it only touches `accessoryBox`, captured by value.

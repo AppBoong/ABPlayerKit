@@ -255,10 +255,12 @@ actor ABCacheStore {
         /// closure, which — being `@Sendable` — can't capture this
         /// non-`Sendable` class instance itself without either an
         /// actor-isolation data-race diagnostic or `@unchecked Sendable`
-        /// (banned in this codebase: it would silence the compiler's
-        /// actor-isolation diagnostic instead of proving the capture safe,
-        /// the same reason `MainActor.assumeIsolated` is banned as a
-        /// compile-error workaround). A plain `UUID` is trivially
+        /// (not used here to silence this specific captured-actor-isolation
+        /// diagnostic — that would suppress the compiler's check instead of
+        /// proving the capture safe, the same reason `MainActor.assumeIsolated`
+        /// is avoided as a compile-error workaround; this codebase does use
+        /// `@unchecked Sendable` elsewhere for lock-protected types, a
+        /// different, provably-safe pattern). A plain `UUID` is trivially
         /// `Sendable` and serves the identity comparison just as well.
         let id = UUID()
         var task: Task<RemoteMetadata, Error>!
