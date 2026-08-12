@@ -6,15 +6,15 @@ public enum ABTimeFormatter {
     public static let liveMarker = "LIVE"
 
     /// Formats seconds as `M:SS`, or `H:MM:SS` once the hours field is needed
-    /// (0 → `"0:00"`, 3599 → `"59:59"`, 3600 → `"1:00:00"`). Design contract —
-    /// see `docs/DESIGN-v0.2-CONTROLS.md` §5.4 — and semver-stable as of v0.2.
+    /// (0 → `"0:00"`, 3599 → `"59:59"`, 3600 → `"1:00:00"`). Design contract,
+    /// semver-stable as of v0.2.
     /// Consumers that specifically want an always-`HH:MM:SS`, zero-padded
     /// clock display (e.g. `ABPlayerControlsConfiguration.TimeLabelFormat.fixedHours`)
     /// build that themselves; this default favors the minimal, locale-independent
     /// form a bare timestamp reads best in (matching common media-player
     /// convention), which also stays reasonable for downstream short-form UI
-    /// reuse (this type is public specifically so `ABShortsKit` can share it —
-    /// see §2.3) where a bare `HH:MM:SS` reads oddly for a 15-second clip.
+    /// reuse (this type is public specifically so `ABShortsKit` can share it)
+    /// where a bare `HH:MM:SS` reads oddly for a 15-second clip.
     public static func string(from seconds: TimeInterval) -> String {
         guard seconds.isFinite else { return "--:--" }
         let totalSeconds = Int(max(0, seconds).rounded(.down))

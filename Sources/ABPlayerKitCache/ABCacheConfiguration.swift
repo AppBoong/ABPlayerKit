@@ -9,17 +9,16 @@ public struct ABCacheConfiguration: Sendable, Equatable {
     /// catch up and serves the request via a direct network passthrough
     /// instead. Bounds worst-case time-to-first-byte for a distant seek
     /// against a non-faststart file to roughly one network round trip
-    /// instead of "however long the linear fill takes to reach that byte"
-    /// (round3 Phase4 WP11; sparse-range caching itself remains out of
-    /// scope — this is a latency fallback, not a cache strategy change).
+    /// instead of "however long the linear fill takes to reach that byte";
+    /// sparse-range caching itself remains out of scope — this is a
+    /// latency fallback, not a cache strategy change.
     ///
     /// Values `<= 0` mean *every* request passes through directly —
     /// `resolvedRange.lowerBound - currentPrefixEnd >= threshold` is then
     /// always true, including at offset 0 against an empty prefix. This is
     /// the inverse of what "0" might intuitively suggest ("always serve
     /// from cache"), so pass a positive value unless a fully
-    /// cache-disabled passthrough mode is actually what's wanted
-    /// (round4 review N10).
+    /// cache-disabled passthrough mode is actually what's wanted.
     public var passthroughGapThreshold: Int64
 
     public init(

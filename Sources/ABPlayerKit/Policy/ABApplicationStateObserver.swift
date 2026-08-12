@@ -2,8 +2,8 @@ import Foundation
 import UIKit
 
 /// Subscribes to app background/foreground transitions for a single
-/// `ABPlayer` instance. No global/static observers (DESIGN-ABPlayerKit.md
-/// §10, weakness #12) — each instance owns and tears down its own tokens.
+/// `ABPlayer` instance. No global/static observers — each instance owns
+/// and tears down its own tokens.
 @MainActor
 final class ABApplicationStateObserver {
     // `nonisolated(unsafe)`: NotificationCenter observer tokens are opaque,

@@ -38,14 +38,13 @@ public struct ABPlayerControls: UIViewRepresentable {
     /// initializers by attributes/access level alone) so
     /// `ABVideoPlayerWithControls`'s own legacy `accessoryViews:` bridge can
     /// reach it without tripping a "reference to deprecated declaration"
-    /// warning under `SWIFT_TREAT_WARNINGS_AS_ERRORS=YES` (see
-    /// ROADMAP-round4.md WP-B3's "CI 함정" note — that warning fires at any
-    /// *non-deprecated* call site, and `ABVideoPlayerWithControls.body`'s
-    /// `some View` computed property can't itself be marked deprecated
-    /// without also suppressing warnings for its unrelated, non-deprecated
-    /// accessories path).
+    /// warning under `SWIFT_TREAT_WARNINGS_AS_ERRORS=YES`: that warning
+    /// fires at any *non-deprecated* call site, and
+    /// `ABVideoPlayerWithControls.body`'s `some View` computed property
+    /// can't itself be marked deprecated without also suppressing warnings
+    /// for its unrelated, non-deprecated accessories path.
     ///
-    /// Deprecated too (round4 review mn-8), not just the public initializer
+    /// Deprecated too, not just the public initializer
     /// above — this is still the array-based, legacy shape, and leaving
     /// this one bare would let future *internal* code adopt it silently,
     /// with no nudge toward `accessories:`. `ABVideoPlayerWithControls`'s
@@ -69,8 +68,8 @@ public struct ABPlayerControls: UIViewRepresentable {
         self.onEvent = onEvent
     }
 
-    /// SwiftUI accessory overlay content, hosted via `ABAccessoryHostingBox`
-    /// (see `DESIGN-OPEN-QUESTIONS.md` Q6-A). `accessories` is the last
+    /// SwiftUI accessory overlay content, hosted via `ABAccessoryHostingBox`.
+    /// `accessories` is the last
     /// parameter so a trailing closure reads naturally; `onEvent` sits right
     /// before it specifically to avoid trailing-closure ambiguity between the
     /// two `(@MainActor (...) -> Void)`-shaped parameters.
@@ -131,8 +130,8 @@ public struct ABPlayerControls: UIViewRepresentable {
             }
             // No explicit attach() call here — `box.view` observes its own
             // `didMoveToWindow` and attaches itself the moment it actually
-            // lands in a window (see `ABAccessoryHostingBox`'s doc comment,
-            // round4 review MJ-2). `update(_:coordinator:)` running before
+            // lands in a window (see `ABAccessoryHostingBox`'s doc comment).
+            // `update(_:coordinator:)` running before
             // that happens (e.g. right after `makeUIView`, before this view
             // has any window) no longer matters.
         } else if view.accessoryViews != accessoryViews {
@@ -197,14 +196,14 @@ public struct ABPlayerControls: UIViewRepresentable {
             // synchronously would be a data-race risk the compiler correctly
             // rejects. `isolated deinit` (SE-0371) would fix this cleanly,
             // but it needs `swift-tools-version: 6.1`+ and this package
-            // declares `6.0` (round4 review mn-5) — bumping the floor is a
+            // declares `6.0` — bumping the floor is a
             // bigger, separate decision than this one cleanup, so this hops
             // to the MainActor asynchronously instead. `MainActor.assumeIsolated`
             // is not an option either — banned in this codebase for the same
-            // reason as `@unchecked Sendable` (see `DESIGN-OPEN-QUESTIONS.md`
-            // Q13): `deinit` genuinely isn't statically known to already be
-            // on the MainActor here, so *assuming* it would be exactly the
-            // kind of unchecked escape hatch that ban exists to prevent.
+            // reason as `@unchecked Sendable`: `deinit` genuinely isn't
+            // statically known to already be on the MainActor here, so
+            // *assuming* it would be exactly the kind of unchecked escape
+            // hatch that ban exists to prevent.
             // The async detach still runs promptly (the next MainActor
             // turn) and is safe to run after this instance is already
             // gone — it only touches `accessoryBox`, captured by value.

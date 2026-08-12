@@ -1,6 +1,6 @@
 /// The single source of truth for how much resource a player currently holds.
 /// Replaces the ad-hoc `Set<Int>` membership + `index == currentIndex` comparison
-/// pattern this library's reference implementation used (see DESIGN-ABPlayerKit.md §4.1).
+/// pattern this library's reference implementation used.
 public enum ABPlaybackGrade: Int, Sendable, CaseIterable, Comparable {
     /// No `AVPlayer` instance. All resources returned.
     case released = 0

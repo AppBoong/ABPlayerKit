@@ -53,7 +53,7 @@ struct ABPlaybackSessionAccumulator: Equatable {
     /// Transitions state and returns the v2 events this input produced, in
     /// order. Legacy events (`.ttff`/`.stall`/`.preloadStarted`/
     /// `.itemDetached`/`.tuning`) are never produced here — the recorder
-    /// emits those directly, at the same sites as v1 (see F-1w brief §9).
+    /// emits those directly, at the same sites as v1.
     mutating func ingest(
         _ input: ABSessionInput,
         playerID: ABPlayerID,

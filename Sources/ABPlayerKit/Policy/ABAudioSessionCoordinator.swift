@@ -6,9 +6,9 @@ import Foundation
 /// supports many concurrent ``ABPlayer`` instances — the feed use case this
 /// library exists for (`Model/ABPlaybackTuning.swift`'s "landing-cell"
 /// preload/current design). Modeling apply/restore as *per-instance* state
-/// let two players stomp each other's snapshot and deactivate a session a
-/// sibling player was still using (round3 Phase1+2 review C1/C2/M1/M2/M4).
-/// This coordinator instead tracks every participating player by token,
+/// would let two players stomp each other's snapshot and deactivate a
+/// session a sibling player was still using. This coordinator instead
+/// tracks every participating player by token,
 /// snapshotting only on the first arrival and restoring only once the last
 /// one leaves.
 ///

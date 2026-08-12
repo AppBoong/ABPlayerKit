@@ -1,6 +1,6 @@
 @preconcurrency import AVFoundation
 
-/// The single seam between core and the Cache target (Phase 3): swapping the
+/// The single seam between core and the Cache target: swapping the
 /// factory lets a cache intercept asset creation without the core knowing
 /// caching exists.
 public protocol ABAssetFactory: Sendable {

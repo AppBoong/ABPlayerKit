@@ -17,8 +17,7 @@ public struct ABVideoPlayerWithControls: View {
         /// property. A deprecated declaration calling another deprecated
         /// declaration doesn't warn, which is what lets the legacy branch
         /// build this from inside *this type's own* deprecated initializer
-        /// without tripping `SWIFT_TREAT_WARNINGS_AS_ERRORS=YES` (round4
-        /// review WP-B3's "CI 함정" note, mn-8).
+        /// without tripping `SWIFT_TREAT_WARNINGS_AS_ERRORS=YES`.
         case explicit(ABPlayer, controls: AnyView)
         /// The `.owned` path's player doesn't exist yet at initializer
         /// time, so it has nothing to build eagerly — its `ABPlayerControls`

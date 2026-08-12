@@ -39,8 +39,8 @@ public enum ABAudioSession {
 
 /// The pieces of `AVAudioSession` state ``ABPlayer`` saves before applying an
 /// opt-in ``ABAudioSessionPolicy`` so it can restore exactly what the host
-/// app had configured (Q4 in DESIGN-OPEN-QUESTIONS.md — restoration failures
-/// are surfaced as events, never thrown).
+/// app had configured — restoration failures are surfaced as events, never
+/// thrown.
 struct ABAudioSessionCategorySnapshot: Sendable, Equatable {
     let category: AVAudioSession.Category
     let mode: AVAudioSession.Mode
@@ -49,8 +49,8 @@ struct ABAudioSessionCategorySnapshot: Sendable, Equatable {
 
 /// Test seam between ``ABAudioSessionCoordinator`` and `AVAudioSession`.
 /// Deliberately **not** actor-isolated: ``ABPlayer/deinit`` is nonisolated
-/// and must be able to unwind an unreleased participant from any thread
-/// (round3 Phase1+2 review M4), so ``ABAudioSessionCoordinator`` serializes
+/// and must be able to unwind an unreleased participant from any thread,
+/// so ``ABAudioSessionCoordinator`` serializes
 /// every call through its own lock instead of relying on actor isolation.
 /// `AVAudioSession`'s category/activation APIs are documented safe to call
 /// off the main thread.
@@ -59,10 +59,10 @@ protocol ABAudioSessionControlling: AnyObject {
     func activate(_ policy: ABAudioSessionPolicy) throws
     /// Restores a previously captured snapshot. Only deactivates the
     /// session when `deactivate` is `true` — the caller passes `true` only
-    /// when it previously succeeded in activating the session itself
-    /// (round3 Phase1+2 review C2: unconditional deactivation can silence a
-    /// host app that was already playing before this policy applied, or a
-    /// sibling participant that is still relying on the session).
+    /// when it previously succeeded in activating the session itself:
+    /// unconditional deactivation can silence a host app that was already
+    /// playing before this policy applied, or a sibling participant that is
+    /// still relying on the session.
     func restore(_ snapshot: ABAudioSessionCategorySnapshot, deactivate: Bool) throws
 }
 

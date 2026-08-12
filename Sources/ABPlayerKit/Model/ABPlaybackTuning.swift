@@ -4,8 +4,7 @@ import Foundation
 
 /// The bundle of tuning knobs applied to an `AVPlayerItem`/`AVPlayer`. Both
 /// promotion and demotion apply this exact same type through the exact same
-/// code path, which is what makes the two symmetric by construction
-/// (DESIGN-ABPlayerKit.md §10, weakness #1).
+/// code path, which is what makes the two symmetric by construction.
 public struct ABPlaybackTuning: Sendable, Equatable {
     /// Bits per second. `0` means unlimited (matches `AVPlayerItem` convention).
     public var preferredPeakBitRate: Double
@@ -21,10 +20,9 @@ public struct ABPlaybackTuning: Sendable, Equatable {
     /// positional-adjacent call sites source-compatible.
     public var audioTimePitchAlgorithm: AVAudioTimePitchAlgorithm?
 
-    /// Defaults mirror `.displayCapped` (Q2 in DESIGN-OPEN-QUESTIONS.md's
-    /// confirmed `.current` default) so a bare `ABPlaybackTuning()` is a
-    /// sensible, semver-safe starting point for a new tuning value added in
-    /// a minor release.
+    /// Defaults mirror `.displayCapped`, the confirmed `.current` default,
+    /// so a bare `ABPlaybackTuning()` is a sensible, semver-safe starting
+    /// point for a new tuning value added in a minor release.
     public init(
         preferredPeakBitRate: Double = 0,
         preferredForwardBufferDuration: TimeInterval = 0,
@@ -63,8 +61,8 @@ public struct ABPlaybackTuning: Sendable, Equatable {
     public static let displaySizeSentinel = CGSize(width: -1, height: -1)
 
     /// Delegates to the bare `init()` rather than repeating its defaults —
-    /// the two are byte-identical (round3 Phase1+2 review m11), and this
-    /// keeps them from drifting apart if either changes independently.
+    /// the two are byte-identical, and this keeps them from drifting apart
+    /// if either changes independently.
     public static let displayCapped = ABPlaybackTuning()
 
     /// Alternative preset that caps the bandwidth ceiling via rendition
