@@ -11,14 +11,14 @@ struct ABBufferingEvaluatorTests {
         (hasItem: true, intendsToPlay: true, isWaitingWithNoItem: true),
     ])
     func guardConditionsShortCircuit(hasItem: Bool, intendsToPlay: Bool, isWaitingWithNoItem: Bool) {
-        let result = ABBufferingEvaluator.isBuffering(
+        let result = ABBufferingEvaluator.isBuffering(ABBufferingSignals(
             hasItem: hasItem,
             intendsToPlay: intendsToPlay,
             timeControlStatus: .waitingToPlay,
             isWaitingWithNoItem: isWaitingWithNoItem,
             isPlaybackLikelyToKeepUp: false,
             isPlaybackBufferEmpty: true
-        )
+        ))
         #expect(!result)
     }
 
@@ -26,27 +26,27 @@ struct ABBufferingEvaluatorTests {
         (keepUp: true, empty: false), (keepUp: false, empty: false), (keepUp: false, empty: true), (keepUp: true, empty: true)
     ])
     func playingIsNeverBuffering(keepUp: Bool, empty: Bool) {
-        let result = ABBufferingEvaluator.isBuffering(
+        let result = ABBufferingEvaluator.isBuffering(ABBufferingSignals(
             hasItem: true,
             intendsToPlay: true,
             timeControlStatus: .playing,
             isWaitingWithNoItem: false,
             isPlaybackLikelyToKeepUp: keepUp,
             isPlaybackBufferEmpty: empty
-        )
+        ))
         #expect(!result)
     }
 
     @Test(".waitingToPlay is always buffering when an item is held and intent is to play")
     func waitingToPlayIsAlwaysBuffering() {
-        let result = ABBufferingEvaluator.isBuffering(
+        let result = ABBufferingEvaluator.isBuffering(ABBufferingSignals(
             hasItem: true,
             intendsToPlay: true,
             timeControlStatus: .waitingToPlay,
             isWaitingWithNoItem: false,
             isPlaybackLikelyToKeepUp: true,
             isPlaybackBufferEmpty: false
-        )
+        ))
         #expect(result)
     }
 
@@ -57,14 +57,14 @@ struct ABBufferingEvaluatorTests {
         (keepUp: false, empty: true, expected: true),
     ])
     func pausedBuffersOnStallSignalsOnly(keepUp: Bool, empty: Bool, expected: Bool) {
-        let result = ABBufferingEvaluator.isBuffering(
+        let result = ABBufferingEvaluator.isBuffering(ABBufferingSignals(
             hasItem: true,
             intendsToPlay: true,
             timeControlStatus: .paused,
             isWaitingWithNoItem: false,
             isPlaybackLikelyToKeepUp: keepUp,
             isPlaybackBufferEmpty: empty
-        )
+        ))
         #expect(result == expected)
     }
 }

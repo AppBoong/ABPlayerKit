@@ -69,18 +69,40 @@ struct ABLoopRestartTests {
         #expect(!target.isPlaying)
     }
 
-    @Test(".playedToEnd broadcasts even for a looped item, exactly once")
-    func playedToEndBroadcastsOnceForLoopedItem() async throws {
+    @Test(".playedToEnd broadcasts exactly once per end-of-item, before the loop restart begins")
+    func playedToEndBroadcastsOnceBeforeLoopRestart() async throws {
         let (target, item) = try makeAttachedTarget()
         target.setLooping(true)
-        target.play()
+        // Deliberately never calls `target.play()`: once the manually
+        // posted notification below reaches the restart branch,
+        // `didPlayToEnd` itself calls `avPlayer?.play()` — real playback
+        // would then genuinely reach the end of `tiny.mp4` on its own and
+        // repost this same notification for real, for as long as looping
+        // stays enabled. This invariant is about `.playedToEnd` ordering
+        // and count for a single end-of-item, not about resumed playback
+        // (covered separately by `loopedEndOfItemResumesPlayback`), so
+        // real playback never needs to start at all.
 
         var events: [ABTargetEvent] = []
-        target.onEvent = { events.append($0) }
+        target.onEvent = { [weak target] event in
+            events.append(event)
+            // Bounds this test to exactly one end-of-item: `didPlayToEnd`
+            // checks `self.isLooping` synchronously right after this
+            // callback returns, with no `await` in between, so disabling
+            // looping here lands before that check and short-circuits the
+            // restart (including its own `play()` call) before it can run.
+            if event == .playedToEnd {
+                target?.setLooping(false)
+            }
+        }
         NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: item)
 
         try await waitUntil { events.contains(.playedToEnd) }
-        try await waitUntil { target.isPlaying }
+        // A bounded drain: if the restart branch ran anyway (the guard
+        // above failed to short-circuit it), a stray second broadcast
+        // would show up here instead of racing the assertion below.
+        for _ in 0..<10 { await Task.yield() }
+
         #expect(events.filter { $0 == .playedToEnd }.count == 1)
     }
 }

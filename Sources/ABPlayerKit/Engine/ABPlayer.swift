@@ -623,14 +623,14 @@ public final class ABPlayer {
             }
         }
 
-        let newIsBuffering = ABBufferingEvaluator.isBuffering(
+        let newIsBuffering = ABBufferingEvaluator.isBuffering(ABBufferingSignals(
             hasItem: avPlayerItem != nil,
             intendsToPlay: desiresPlayback,
             timeControlStatus: target.timeControlStatus,
             isWaitingWithNoItem: target.isWaitingWithNoItem,
             isPlaybackLikelyToKeepUp: target.isPlaybackLikelyToKeepUp,
             isPlaybackBufferEmpty: target.isPlaybackBufferEmpty
-        )
+        ))
         if newIsBuffering != isBuffering {
             isBuffering = newIsBuffering
             broadcast(.bufferingChanged(newIsBuffering))
