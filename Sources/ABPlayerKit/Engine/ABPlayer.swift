@@ -253,9 +253,9 @@ public final class ABPlayer {
     /// `audioSessionCoordinator.leave` is a no-op for a token that never
     /// applied a policy, and its own internals are lock-protected rather
     /// than actor-isolated, so it's safe to call unconditionally from this
-    /// nonisolated `deinit` — the fix for M4 ("WP1 and WP2 don't compose":
-    /// a consumer dropping this instance without calling `release()` used
-    /// to leave the audio session permanently in this player's category).
+    /// nonisolated `deinit`: without this call, a consumer dropping this
+    /// instance without calling `release()` would leave the audio session
+    /// permanently in this player's category.
     /// Any restore failure is dropped rather than surfaced — by the time
     /// `deinit` runs there is no observer left to receive a `.failed`
     /// event.
@@ -1040,7 +1040,7 @@ public final class ABPlayer {
         // iOS deactivates the audio session for the duration of the
         // interruption regardless of `interruptionPolicy` — the next
         // `play()` (from `handleInterruptionEnded`'s resume, or a manual
-        // one) must reactivate it rather than being skipped by N1's
+        // one) must reactivate it rather than being skipped by the
         // dirty-flag optimization above. This is a fact about *session
         // state*, not about whether to pause/resume playback, so it must
         // not be gated by the policy guard below. If the dirty flag were set
@@ -1110,8 +1110,8 @@ public final class ABPlayer {
     ///
     /// The coordinator itself snapshots the host's prior category/mode/
     /// options exactly once, before its *first* participant's apply, and
-    /// keeps that snapshot across a failed activate (M2) or additional
-    /// participants (C1).
+    /// keeps that snapshot across a failed activate or additional
+    /// participants.
     private func applyAudioSessionPolicyIfNeeded(force: Bool = true) {
         guard grade == .current else { return }
         let policy = configuration.audioSessionPolicy
@@ -1126,10 +1126,10 @@ public final class ABPlayer {
     }
 
     /// Leaves `audioSessionCoordinator`. Callers gate this at the policy
-    /// switching back to `.unmanaged` and at `release()`, per Q4. A no-op
+    /// switching back to `.unmanaged` and at `release()`. A no-op
     /// if this instance never participated, and only actually restores the
     /// host's snapshot once every other participating player has also left
-    /// (C1) — so this is safe to call unconditionally from either trigger.
+    /// — so this is safe to call unconditionally from either trigger.
     private func restoreAudioSessionPolicyIfNeeded() {
         if case .failure(let error)? = audioSessionCoordinator.leave(audioSessionToken) {
             surfaceAudioSessionFailure(error)

@@ -85,9 +85,8 @@ struct ABControlsLayout {
     /// offset from that (now-positioned) frame's own top down to where the
     /// font's cap-height glyphs actually start drawing.
     ///
-    /// Deliberately *not* a fixed-point or point-size-ratio calibration
-    /// (both were tried and rejected — see IMPL-v0.2-RESULT.md's
-    /// REVIEW2-FIXES-DONE entry for the numbers): a value tuned to land
+    /// Deliberately *not* a fixed-point or point-size-ratio calibration —
+    /// both were tried and rejected: a value tuned to land
     /// exactly on `seekBarBottomSpacing` at the 12pt default font
     /// systematically over- or under-corrected at a much larger accessibility
     /// font, in one case badly enough to collide the label into the track —

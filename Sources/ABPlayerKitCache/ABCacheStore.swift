@@ -88,10 +88,10 @@ private final class ABCacheProgressWaiter: @unchecked Sendable {
 /// **not** actor-isolated (mirrors `ABCacheReaderRegistry` just above): the
 /// `onCancel` side of `withTaskCancellationHandler` runs synchronously,
 /// outside actor isolation, and still needs to remove exactly the one
-/// waiter that was cancelled so it stops blocking LRU eviction (WP4 —
-/// previously a cancelled waiter stayed in this registry, and by extension
-/// `load(_:range:)` never returned, keeping `readerRegistry` retained for
-/// that key forever).
+/// waiter that was cancelled so it stops blocking LRU eviction: without
+/// this removal, a cancelled waiter would stay in this registry, and by
+/// extension `load(_:range:)` would never return, keeping `readerRegistry`
+/// retained for that key forever.
 private final class ABCacheProgressWaiterRegistry: @unchecked Sendable {
     private let lock = NSLock()
     private var waiters: [String: [UUID: ABCacheProgressWaiter]] = [:]
@@ -342,7 +342,7 @@ actor ABCacheStore {
         metadataCache.count
     }
 
-    /// Test-only introspection (WP7): a snapshot of the metadata LRU order,
+    /// Test-only introspection: a snapshot of the metadata LRU order,
     /// oldest (next to evict) first. Lets tests assert that re-touching a
     /// key (a second `metadata(for:)` call) moves it to the
     /// most-recently-used end instead of letting it evict on the next
@@ -351,7 +351,7 @@ actor ABCacheStore {
         metadataCacheOrder
     }
 
-    /// Test-only introspection (WP4 regression coverage): the set of keys
+    /// Test-only introspection: the set of keys
     /// `load(_:range:)` currently has an active reader for. A cancelled
     /// `waitForProgress` waiter that fails to unwind `load(_:range:)`
     /// promptly would leave its key in here forever, blocking that key from
@@ -500,7 +500,7 @@ actor ABCacheStore {
                     isEndOfResource: true
                 )
             }
-            // WP11: a request far ahead of the linear fill's current
+            // A request far ahead of the linear fill's current
             // prefix would otherwise wait for that fill to sequentially
             // crawl all the way there — unbounded for a distant seek
             // against a non-faststart file. Serve it directly instead of
@@ -558,7 +558,7 @@ actor ABCacheStore {
             }
         }
         // Coalesce concurrent cold-key requests onto a single in-flight
-        // HEAD (M5): the first caller creates the task and stores it before
+        // HEAD: the first caller creates the task and stores it before
         // its first suspension point, so every other caller that arrives
         // before it completes awaits the same `Task` instead of issuing its
         // own request.
@@ -1137,7 +1137,7 @@ actor ABCacheStore {
     /// (keyed by `id`) and removes it from `progressWaiters` immediately —
     /// synchronously, from a non-actor-isolated context — so the caller's
     /// following `Task.checkCancellation()` throws promptly instead of
-    /// leaving a dead entry that blocks LRU eviction (WP4).
+    /// leaving a dead entry that blocks LRU eviction.
     private func waitForProgress(key: String) async {
         let id = UUID()
         let waiter = ABCacheProgressWaiter()
