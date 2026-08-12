@@ -5,7 +5,8 @@ let package = Package(
     name: "ABPlayerKit",
     defaultLocalization: "en",
     platforms: [
-        .iOS(.v17)
+        .iOS(.v17),
+        .macOS(.v13)
     ],
     products: [
         .library(name: "ABPlayerKit", targets: ["ABPlayerKit"]),
@@ -31,22 +32,29 @@ let package = Package(
             name: "ABPlayerKitCache",
             dependencies: ["ABPlayerKit"]
         ),
+        // Test-only support code shared across the test targets below.
+        // Not referenced by any `products` entry, so it never ships as
+        // part of the library.
+        .target(
+            name: "ABTestSupport",
+            path: "Tests/ABTestSupport"
+        ),
         .testTarget(
             name: "ABPlayerKitTests",
-            dependencies: ["ABPlayerKit"],
+            dependencies: ["ABPlayerKit", "ABTestSupport"],
             resources: [.process("Resources")]
         ),
         .testTarget(
             name: "ABPlayerKitControlsTests",
-            dependencies: ["ABPlayerKitControls", "ABPlayerKit"]
+            dependencies: ["ABPlayerKitControls", "ABPlayerKit", "ABTestSupport"]
         ),
         .testTarget(
             name: "ABPlayerKitMetricsTests",
-            dependencies: ["ABPlayerKitMetrics", "ABPlayerKit"]
+            dependencies: ["ABPlayerKitMetrics", "ABPlayerKit", "ABTestSupport"]
         ),
         .testTarget(
             name: "ABPlayerKitCacheTests",
-            dependencies: ["ABPlayerKitCache", "ABPlayerKit"]
+            dependencies: ["ABPlayerKitCache", "ABPlayerKit", "ABTestSupport"]
         )
     ],
     swiftLanguageModes: [.v6]
