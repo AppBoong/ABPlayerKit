@@ -98,6 +98,47 @@ struct ABVideoPlayerWithControlsTests {
             #expect(hostingController.view.hitTest(center, with: nil) === control)
         }
     }
+
+    @Test("Given a url: mount, the mounted controls view and video view share the same owned player instance")
+    func urlMountSharesPlayerInstance() {
+        let rootView = ABVideoPlayerWithControls(url: URL(string: "https://example.com/shared-instance-test.mp4")!)
+            .frame(width: 320, height: 180)
+        let hostingController = UIHostingController(rootView: rootView)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+        window.rootViewController = hostingController
+        window.isHidden = false
+        defer { window.isHidden = true }
+        hostingController.view.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        hostingController.view.setNeedsLayout()
+        hostingController.view.layoutIfNeeded()
+
+        let controlsView = hostingController.view.firstDescendant(of: ABPlayerControlsView.self)
+        let videoView = hostingController.view.firstDescendant(of: ABPlayerView.self)
+
+        #expect(controlsView != nil)
+        #expect(videoView != nil)
+        #expect(videoView?.player != nil)
+        #expect(controlsView?.player === videoView?.player)
+    }
+
+    @Test("Given a url: mount with .playerControlsStyle(_:) applied around it, the modifier reaches the mounted controls (it crosses the composed body)")
+    func urlMountAppliesStyleModifier() {
+        let rootView = ABVideoPlayerWithControls(url: URL(string: "https://example.com/style-modifier-test.mp4")!)
+            .frame(width: 320, height: 180)
+            .playerControlsStyle(.minimal)
+        let hostingController = UIHostingController(rootView: rootView)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+        window.rootViewController = hostingController
+        window.isHidden = false
+        defer { window.isHidden = true }
+        hostingController.view.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        hostingController.view.setNeedsLayout()
+        hostingController.view.layoutIfNeeded()
+
+        let controlsView = hostingController.view.firstDescendant(of: ABPlayerControlsView.self)
+
+        #expect(controlsView?.style == .minimal)
+    }
 }
 
 private extension UIView {
