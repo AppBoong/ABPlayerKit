@@ -90,6 +90,60 @@ controls.configuration = configuration
 
 Set ``ABPlayerControlsConfiguration/periodicTimeInterval`` to tune UI update frequency. The default is 0.25 seconds. The controls suppress auto-hide while VoiceOver is running and honor Reduce Motion when ``ABPlayerControlsStyle/respectsReduceMotion`` is enabled.
 
+## Show Buffering and Seek Feedback
+
+While ``ABPlayerKit/ABPlayer/isBuffering`` is `true`, the play/pause button's glyph gets a spinner overlay — the button stays enabled and hit-testable throughout, since a stall can still be paused. Auto-hide is suppressed while buffering, without forcing controls visible.
+
+```swift
+configuration.showsBufferingIndicator = true // default
+style.bufferingIndicatorColor = .systemPink   // default nil, follows tintColor
+```
+
+A skip, double-tap, or VoiceOver-adjustment seek streak shows a cumulative badge (`"+20s"`/`"-10s"`) while it's outstanding, driven entirely by the core's `pendingSeekTime`/`seekTargetChanged` — Controls never accumulates the delta itself:
+
+```swift
+style.seekFeedbackTextColor = .white
+style.seekFeedbackBackgroundColor = .black.withAlphaComponent(0.45)
+style.seekFeedbackFont = .systemFont(ofSize: 15, weight: .semibold)
+```
+
+Tapping play after playback has reached the end seeks to zero before playing (replay-from-start) instead of a bare `play()`, which does nothing at the end of an item.
+
+## Hide Individual Controls
+
+``ABPlayerControlsConfiguration/showsPlayPauseButton`` and ``ABPlayerControlsConfiguration/showsSeekBar`` (both default `true`) hide either control the same way ``ABPlayerControlsConfiguration/showsSkipButtons`` already does. Hiding the seek bar collapses the row it occupies rather than leaving blank space.
+
+## Configure Touch Passthrough and Double-Tap Seek
+
+```swift
+configuration.touchPassthrough = .whenControlsHidden
+configuration.doubleTapSeek = .edges(edgeWidthFraction: 0.3)
+configuration.providesHapticFeedback = true
+```
+
+``ABControlsTouchPassthrough`` (default ``ABControlsTouchPassthrough/never``) governs touches that miss every control: `.never` keeps the overlay consuming them (identical to before this option existed), `.whenControlsHidden` passes them through only while controls are hidden, and `.always` passes them through regardless of visibility. This never overrides the existing hit-test priority order — it only applies once nothing else has already claimed the touch.
+
+``ABDoubleTapSeek`` (default ``ABDoubleTapSeek/disabled``) installs a double-tap gesture on the overlay's leading/trailing edge bands that seeks by ``ABPlayerControlsConfiguration/skipInterval``. It's disabled by default because installing it requires the background single-tap recognizer to wait out a possible second tap, which delays every single tap by the double-tap timeout — not just for consumers who opt in. ``ABPlayerControlsConfiguration/providesHapticFeedback`` (default `true`) fires a light haptic on an accepted double-tap seek; only double-tap seeking uses this.
+
+## Format the Rate Label and Time Separator
+
+```swift
+configuration.rateLabelFormat = .automatic
+configuration.timeLabelSeparator = "/"
+```
+
+``ABPlayerControlsConfiguration/RateLabelFormat/automatic`` formats the playback rate with a locale-aware `NumberFormatter` (`"1.5"` in `en`, `"1,5"` in `de`); `.custom { rate in ... }` supplies the entire label text, bypassing ``ABRateLabelStyle``'s `.text` template the same way ``ABPlayerControlsConfiguration/TimeLabelFormat/custom(_:)`` bypasses automatic elapsed/total joining. ``ABPlayerControlsConfiguration/timeLabelSeparator`` (default `"/"`) is the string placed between a time label's elapsed and secondary fields; it's ignored by `.custom` time formatting, which lays out its own complete label.
+
+## Place Accessory Views at Additional Slots
+
+Beyond the single legacy position, ``ABControlsSlot`` names three overlay positions for consumer views: ``ABControlsSlot/topTrailing``, ``ABControlsSlot/transportTrailing`` (anchored to the centered transport cluster's trailing edge, in its own stack), and ``ABControlsSlot/bottomTrailing`` (the same position as the legacy ``ABPlayerControlsView/accessoryViews``, which is now an alias for this slot).
+
+```swift
+controlsView.setAccessoryViews([captionsButton], in: .topTrailing)
+controlsView.setAccessoryViews([fullscreenButton], in: .transportTrailing)
+let current = controlsView.accessoryViews(in: .topTrailing)
+```
+
 ## Play From a Non-Current Player
 
 A player attached at `.preloaded` or `.instanceOnly` (the common pattern: promote to `.current` only once the user actually wants to watch) has every control disabled except play/pause — with ``ABPlayerControlsConfiguration/promotesToCurrentOnPlay`` at its default of `true`, tapping play/pause on a player that already has a source promotes it to `.current` and starts playback in one tap, instead of leaving the whole overlay inert until something outside the controls layer promotes it. Seek, skip, and the rate control stay disabled until the player is actually `.current`. Set the flag to `false` to require an explicit external promotion before play/pause responds at all (the pre-existing behavior).
