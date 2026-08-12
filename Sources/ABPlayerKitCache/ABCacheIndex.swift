@@ -1,5 +1,19 @@
 import Foundation
 
+/// Validator captured from the response that actually supplied the bytes
+/// currently on disk for an entry (not from a HEAD) — see
+/// `ABCacheStore.prepareFill`. Used to send `If-Range` on resume and
+/// `If-None-Match`/`If-Modified-Since` on session-start revalidation.
+struct ABCacheValidator: Codable, Sendable, Equatable {
+    var etag: String?
+    var lastModified: String?
+
+    /// RFC 9110 forbids weak comparison in range requests — a weak `ETag`
+    /// is stored (revalidation's `If-None-Match` may use it) but never sent
+    /// as `If-Range`.
+    var isStrongETag: Bool { etag.map { !$0.hasPrefix("W/") } ?? false }
+}
+
 struct ABCacheIndex: Codable, Sendable, Equatable {
     struct Entry: Codable, Sendable, Equatable {
         let key: String
@@ -9,6 +23,7 @@ struct ABCacheIndex: Codable, Sendable, Equatable {
         var contentType: String?
         var isComplete: Bool
         var lastAccessedAt: Date
+        var validator: ABCacheValidator?
 
         init(
             key: String,
@@ -17,7 +32,8 @@ struct ABCacheIndex: Codable, Sendable, Equatable {
             contentLength: Int64? = nil,
             contentType: String? = nil,
             isComplete: Bool = false,
-            lastAccessedAt: Date
+            lastAccessedAt: Date,
+            validator: ABCacheValidator? = nil
         ) {
             self.key = key
             self.fileName = fileName ?? "\(key).data"
@@ -26,6 +42,7 @@ struct ABCacheIndex: Codable, Sendable, Equatable {
             self.contentType = contentType
             self.isComplete = isComplete
             self.lastAccessedAt = lastAccessedAt
+            self.validator = validator
         }
     }
 

@@ -15,6 +15,17 @@ All notable changes to ABPlayerKit are documented in this file.
 - `ABPlayerControls`'s and `ABVideoPlayerWithControls`'s `style:`/`configuration:` initializer parameters are now `Optional` (default `nil`) instead of defaulting to `.default`/`.init()`, so the new Environment modifiers above can be distinguished from an explicit argument. Source-compatible: every existing call site that passes a value or omits the parameter keeps compiling and resolves to the exact same behavior, since an unset `Optional` and the old default resolve to the same fallback.
 - `ABVideoPlayer`'s `Coordinator` associated type changed from `Void` to a concrete (still-opaque, no public members) class backing the new `url:`/`source:` ownership. Only affects code that references `ABVideoPlayer.Coordinator` by name directly, which no consumer in this repository does.
 
+### Fixed
+
+- Progressive cache: resuming a partial download now validates the origin hasn't changed (`If-Range`/`ETag`/`Last-Modified`, with a defensive `Content-Range` offset/length check for origins with no validator) before appending to the cached prefix, instead of silently mixing bytes from two different versions of the resource.
+- `ABMediaCache.removeAll()`/`remove(_:)` no longer fail playback that's in progress for the deleted key — the current read completes over the network and the cache refills as playback continues.
+
+### Migration notes
+
+#### `removeAll()`/`remove(_:)` no longer interrupt in-progress playback
+
+Calling `removeAll()`/`remove(_:)` during active playback for the affected source no longer interrupts that playback; it continues over the network instead of failing. No code changes required.
+
 ## [0.3.0] - 2026-08-05
 
 ### Added

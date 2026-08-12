@@ -28,4 +28,6 @@ public func waitUntil(
     }
 }
 
-public struct ABWaitUntilTimedOut: Error {}
+public struct ABWaitUntilTimedOut: Error {
+    public init() {}
+}
