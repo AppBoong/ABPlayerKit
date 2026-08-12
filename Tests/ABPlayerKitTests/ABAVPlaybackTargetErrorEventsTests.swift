@@ -51,7 +51,7 @@ struct ABAVPlaybackTargetErrorEventsTests {
 
         try await waitUntil {
             events.contains { event in
-                if case .failed(.itemFailed(let description)) = event {
+                if case .failed(let failure) = event, case .itemFailed(let description) = failure.kind {
                     return description == "network connection lost"
                 }
                 return false
@@ -86,7 +86,7 @@ struct ABAVPlaybackTargetErrorEventsTests {
 
         try await waitUntil {
             events.contains { event in
-                if case .failed(.itemFailed(let description)) = event {
+                if case .failed(let failure) = event, case .itemFailed(let description) = failure.kind {
                     return description == expectedDescription
                 }
                 return false
@@ -122,13 +122,13 @@ struct ABAVPlaybackTargetErrorEventsTests {
 
         try await waitUntil {
             events.contains { event in
-                if case .failed(.itemFailed) = event { return true }
+                if case .failed(let failure) = event, case .itemFailed = failure.kind { return true }
                 return false
             }
         }
 
         #expect(!events.contains { event in
-            if case .failed(.itemErrorLogEntry) = event { return true }
+            if case .failed(let failure) = event, case .itemErrorLogEntry = failure.kind { return true }
             return false
         })
     }
@@ -172,7 +172,7 @@ struct ABAVPlaybackTargetErrorEventsTests {
 
         try await waitUntil {
             events.contains { event in
-                if case .failed(.itemFailed(let description)) = event {
+                if case .failed(let failure) = event, case .itemFailed(let description) = failure.kind {
                     return description.contains("canary")
                 }
                 return false
@@ -180,7 +180,7 @@ struct ABAVPlaybackTargetErrorEventsTests {
         }
 
         #expect(!events.contains { event in
-            if case .failed(.itemFailed(let description)) = event {
+            if case .failed(let failure) = event, case .itemFailed(let description) = failure.kind {
                 return description.contains("stale")
             }
             return false

@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+import CoreGraphics
 
 /// Signals the concrete target reports back to `ABPlayer`, independent of
 /// the commands `ABPlayer` issues *to* the target. Kept as a plain enum
@@ -9,7 +10,15 @@ enum ABTargetEvent: Sendable, Equatable {
     case playbackStalled
     case playedToEnd
     case timeControlStatusChanged(ABTimeControlStatus)
-    case failed(ABPlayerError)
+    /// Carries provenance alongside classification — internal seam, not
+    /// subject to the additive-only policy that scopes `ABPlayerEvent`.
+    case failed(ABPlayerFailure)
+    /// `isPlaybackLikelyToKeepUp`/`isPlaybackBufferEmpty` changed.
+    case bufferStateChanged
+    /// `AVPlayerItem.duration` KVO fired — `ABPlayer` decides whether the
+    /// new value is finite/broadcast-worthy.
+    case durationChanged
+    case presentationSizeChanged(CGSize)
 }
 
 enum ABPrerollResult: Sendable, Equatable {
@@ -39,6 +48,16 @@ protocol ABPlaybackTarget: AnyObject {
     var currentTime: CMTime { get }
     var duration: CMTime? { get }
     var bufferedUntil: CMTime? { get }
+    /// Raw buffering signals — `ABPlayer` feeds these into
+    /// `ABBufferingEvaluator` rather than deriving a buffering verdict here,
+    /// so the judgment stays a pure, AVFoundation-free function.
+    var isPlaybackLikelyToKeepUp: Bool { get }
+    var isPlaybackBufferEmpty: Bool { get }
+    var timeControlStatus: ABTimeControlStatus { get }
+    /// `AVPlayer.reasonForWaitingToPlay == .noItemToPlay` — suppresses a
+    /// buffering verdict that would otherwise fire while nothing is queued.
+    var isWaitingWithNoItem: Bool { get }
+    var presentationSize: CGSize { get }
 
     /// Fired for events the target observes on its own (item status,
     /// stalls, end-of-playback, time control status, failures).

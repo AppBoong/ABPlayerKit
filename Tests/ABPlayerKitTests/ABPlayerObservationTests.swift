@@ -3,6 +3,7 @@ import Foundation
 import Observation
 import Testing
 @testable import ABPlayerKit
+@preconcurrency import AVFoundation
 
 /// Coverage for round3 Phase4 WP9: `ABPlayer` is `@Observable`, so SwiftUI
 /// views reading `grade`/`isScrubbing`/`hasDisplayedFirstFrame`/`lastError`/
@@ -121,7 +122,7 @@ struct ABPlayerObservationTests {
         // updates `lastError` synchronously — no `waitUntil` needed, unlike
         // the audio-session/interruption paths elsewhere in this suite
         // that hop through real async notification delivery.
-        target.emit(.failed(.itemFailed(description: "boom")))
+        target.emit(.failed(.init(kind: .itemFailed(description: "boom"))))
 
         #expect(flag.hasFired)
     }
@@ -147,6 +148,104 @@ struct ABPlayerObservationTests {
         for _ in 0..<20 {
             await Task.yield()
         }
+        #expect(!flag.hasFired)
+    }
+
+    @Test("Changing isPlaying fires an Observation notification")
+    func isPlayingChangeFiresObservation() {
+        let (player, _) = makePlayer()
+        player.set(source: source, grade: .current)
+        let flag = ChangeFlag()
+
+        withObservationTracking {
+            _ = player.isPlaying
+        } onChange: {
+            flag.markFired()
+        }
+
+        // `play()` refreshes the `isPlaying` mirror synchronously.
+        player.play()
+
+        #expect(flag.hasFired)
+    }
+
+    @Test("Changing duration fires an Observation notification")
+    func durationChangeFiresObservation() {
+        let (player, target) = makePlayer()
+        player.set(source: source, grade: .current)
+        let flag = ChangeFlag()
+
+        withObservationTracking {
+            _ = player.duration
+        } onChange: {
+            flag.markFired()
+        }
+
+        target.duration = CMTime(seconds: 42, preferredTimescale: 600)
+        target.emit(.durationChanged)
+
+        #expect(flag.hasFired)
+    }
+
+    @Test("Changing isBuffering fires an Observation notification")
+    func isBufferingChangeFiresObservation() {
+        let (player, target) = makePlayer()
+        target.avPlayerItem = AVPlayerItem(url: URL(fileURLWithPath: "/private/tmp/abplayerkit-observation-buffering-fixture.mp4"))
+        player.set(source: source, grade: .current)
+        player.play()
+        let flag = ChangeFlag()
+
+        withObservationTracking {
+            _ = player.isBuffering
+        } onChange: {
+            flag.markFired()
+        }
+
+        target.timeControlStatus = .waitingToPlay
+        target.emit(.timeControlStatusChanged(.waitingToPlay))
+
+        #expect(flag.hasFired)
+    }
+
+    @Test("Changing pendingSeekTime fires an Observation notification")
+    func pendingSeekTimeChangeFiresObservation() async throws {
+        let (player, _) = makePlayer()
+        player.set(source: source, grade: .current)
+        let flag = ChangeFlag()
+
+        withObservationTracking {
+            _ = player.pendingSeekTime
+        } onChange: {
+            flag.markFired()
+        }
+
+        Task { await player.skip(by: 10) }
+
+        try await waitUntil { flag.hasFired }
+    }
+
+    @Test("Re-assigning isPlaying/isBuffering/duration to their current value does not fire Observation")
+    func identicalMirrorReassignmentDoesNotFireObservation() async throws {
+        let (player, target) = makePlayer()
+        player.set(source: source, grade: .current)
+        player.play()
+        let flag = ChangeFlag()
+
+        withObservationTracking {
+            _ = player.isPlaying
+            _ = player.duration
+            _ = player.isBuffering
+        } onChange: {
+            flag.markFired()
+        }
+
+        // Re-emits the exact same signal twice — `refreshPlaybackMirrors()`
+        // must compare-before-assign, or this would re-fire `withMutation`
+        // for an unchanged value on every KVO turn.
+        target.emit(.timeControlStatusChanged(.playing))
+        target.emit(.timeControlStatusChanged(.playing))
+
+        for _ in 0..<20 { await Task.yield() }
         #expect(!flag.hasFired)
     }
 }
