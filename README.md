@@ -78,25 +78,80 @@ For unreleased development, replace `from: "0.3.0"` with `branch: "main"`. Appli
 
 ## Quick Start
 
-Create one player and drive all source/grade changes through `set(source:grade:)`:
+Play a URL with the standard controls — this is the whole integration:
 
 ```swift
 import ABPlayerKit
+import ABPlayerKitControls
+import SwiftUI
 
-let source = ABMediaSource(
-    url: URL(string: "https://example.com/video.m3u8")!,
-    kind: .hls
-)
+struct VideoScreen: View {
+    var body: some View {
+        ABVideoPlayerWithControls(url: URL(string: "https://example.com/video.m3u8")!)
+            .aspectRatio(16 / 9, contentMode: .fit)
+    }
+}
+```
 
-let player = ABPlayer()
-player.set(source: source, grade: .preloaded)
+The view creates its own `ABPlayer`, starts playback, and releases every playback resource when SwiftUI discards the view. Media type is inferred from the URL (`.m3u8` → HLS, anything else → progressive).
 
-// When the media becomes visible:
-player.set(source: source, grade: .current)
-player.play()
+Without the controls overlay, use the core target alone:
 
-// When it leaves the preload window:
-player.set(source: source, grade: .instanceOnly)
+```swift
+import ABPlayerKit
+import SwiftUI
+
+ABVideoPlayer(url: url, videoGravity: .resizeAspect)
+```
+
+### Customizing
+
+Controls appearance and behavior are set with view modifiers, so one modifier can cover a whole screen of players:
+
+```swift
+var style = ABPlayerControlsStyle.default
+style.progressColor = .systemPink
+
+var controls = ABPlayerControlsConfiguration()
+controls.skipInterval = 15
+
+ABVideoPlayerWithControls(url: url)
+    .playerControlsStyle(style)
+    .playerControlsConfiguration(controls)
+```
+
+Player-level settings (mute, loop, audio session, rate) go through `ABPlayerConfiguration` at creation time:
+
+```swift
+var configuration = ABPlayerConfiguration()
+configuration.isMuted = true
+configuration.audioSessionPolicy = .playback(mixWithOthers: false)
+
+ABVideoPlayerWithControls(url: url, playerConfiguration: configuration)
+```
+
+> Playback keeps running while the view stays alive but off-screen. Screens that need visibility-driven pausing should own the player explicitly (below).
+
+### Owning the Player Yourself
+
+Own an `ABPlayer` when several views share it, when playback must outlive one view, or when you drive preloading across a feed:
+
+```swift
+struct VideoScreen: View {
+    @State private var player = ABPlayer()
+
+    var body: some View {
+        ABVideoPlayerWithControls(player: player, videoGravity: .resizeAspect) {}
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .task {
+                player.set(source: ABMediaSource(url: url), grade: .current)
+                player.play()
+            }
+            .onDisappear {
+                player.release()
+            }
+    }
+}
 ```
 
 ### UIKit with `ABPlayerView`
@@ -118,42 +173,46 @@ final class PlayerViewController: UIViewController {
         playerView.player = player
         view.addSubview(playerView)
 
-        let source = ABMediaSource(
-            url: URL(string: "https://example.com/video.mp4")!,
-            kind: .progressive
-        )
+        let source = ABMediaSource(url: URL(string: "https://example.com/video.mp4")!)
         player.set(source: source, grade: .current)
         player.play()
     }
 }
 ```
 
-### SwiftUI with `ABVideoPlayer`
+### Advanced — Grades and Preloading
+
+Create one player and drive all source/grade changes through `set(source:grade:)` when a screen needs to prepare media before it becomes visible — a feed cell a few rows away, for example:
 
 ```swift
 import ABPlayerKit
-import SwiftUI
 
-struct VideoScreen: View {
-    @State private var player = ABPlayer()
+let source = ABMediaSource(
+    url: URL(string: "https://example.com/video.m3u8")!,
+    kind: .hls
+)
 
-    var body: some View {
-        ABVideoPlayer(player: player, videoGravity: .resizeAspect)
-            .aspectRatio(16 / 9, contentMode: .fit)
-            .task {
-                let source = ABMediaSource(
-                    url: URL(string: "https://example.com/video.m3u8")!,
-                    kind: .hls
-                )
-                player.set(source: source, grade: .current)
-                player.play()
-            }
-            .onDisappear {
-                player.release()
-            }
-    }
-}
+let player = ABPlayer()
+player.set(source: source, grade: .preloaded)
+
+// When the media becomes visible:
+player.set(source: source, grade: .current)
+player.play()
+
+// When it leaves the preload window:
+player.set(source: source, grade: .instanceOnly)
 ```
+
+| Grade | Resources held | Intended use |
+|---|---|---|
+| `.released` | Nothing | Return all playback resources |
+| `.instanceOnly` | `AVPlayer`, no item | Keep identity while guaranteeing zero item network activity |
+| `.preloaded` | Player + item, preload tuning | Prepare nearby media without allowing `play()` |
+| `.current` | Player + item, current tuning | Visible media; playback controls are accepted |
+
+Every release path that holds an item routes through `detachItem`. Moving between `.preloaded` and `.current` reapplies the matching tuning role, so demotion is the exact inverse of promotion.
+
+`ABMediaSource`'s `kind:` is inferred from the URL's extension (`.m3u8` → `.hls`, anything else → `.progressive`) — pass it explicitly only for a signed/extensionless URL where that inference would guess wrong.
 
 ## Targets
 
@@ -168,14 +227,7 @@ struct VideoScreen: View {
 
 The core target owns the playback state machine, UIKit view, SwiftUI wrapper, tuning, background/audio policies, and token-based events.
 
-| Grade | Resources held | Intended use |
-|---|---|---|
-| `.released` | Nothing | Return all playback resources |
-| `.instanceOnly` | `AVPlayer`, no item | Keep identity while guaranteeing zero item network activity |
-| `.preloaded` | Player + item, preload tuning | Prepare nearby media without allowing `play()` |
-| `.current` | Player + item, current tuning | Visible media; playback controls are accepted |
-
-Every release path that holds an item routes through `detachItem`. Moving between `.preloaded` and `.current` reapplies the matching tuning role, so demotion is the exact inverse of promotion.
+Playback moves through four grades — see [Advanced — Grades and Preloading](#advanced--grades-and-preloading) above for the full table and a worked `.preloaded`/`.instanceOnly` example. Every release path that holds an item routes through `detachItem`; moving between `.preloaded` and `.current` reapplies the matching tuning role, so demotion is the exact inverse of promotion.
 
 Events support multiple independent consumers:
 

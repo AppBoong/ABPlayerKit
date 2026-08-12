@@ -82,4 +82,25 @@ struct ABPlayerControlsInitializerAmbiguityTests {
         _ = legacyDefaults
         _ = accessoriesDefaults
     }
+
+    @Test("Given the new url: initializers, the bare form, a trailing-closure accessories form, an explicit playerConfiguration:, and a modifier chain all compile and resolve without ambiguity")
+    func urlInitializerShapesCompile() {
+        let url = URL(string: "https://example.com/ambiguity-test.mp4")!
+
+        let basic = ABVideoPlayerWithControls(url: url)
+        let trailingClosure = ABVideoPlayerWithControls(url: url) {
+            Text("Accessory")
+        }
+        var configuration = ABPlayerConfiguration()
+        configuration.isMuted = true
+        let withPlayerConfiguration = ABVideoPlayerWithControls(url: url, playerConfiguration: configuration)
+        let withModifierChain = ABVideoPlayerWithControls(url: url)
+            .playerControlsStyle(.minimal)
+            .playerControlsConfiguration(ABPlayerControlsConfiguration())
+
+        _ = basic
+        _ = trailingClosure
+        _ = withPlayerConfiguration
+        _ = withModifierChain
+    }
 }

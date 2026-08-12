@@ -42,6 +42,15 @@ Controls hide after ``ABPlayerControlsConfiguration/autoHideDelay`` while playin
 - ``ABPlayerControls``
 - ``ABVideoPlayerWithControls``
 
+### SwiftUI Environment
+
+Set a style or configuration once on an ancestor view to cover every player-controls view in its subtree — an explicit `style:`/`configuration:` initializer argument still overrides it locally.
+
+- ``View/playerControlsStyle(_:)``
+- ``View/playerControlsConfiguration(_:)``
+- ``EnvironmentValues/playerControlsStyle``
+- ``EnvironmentValues/playerControlsConfiguration``
+
 ### Appearance
 
 - ``ABPlayerControlsStyle``

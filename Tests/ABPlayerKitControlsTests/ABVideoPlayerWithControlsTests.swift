@@ -98,6 +98,65 @@ struct ABVideoPlayerWithControlsTests {
             #expect(hostingController.view.hitTest(center, with: nil) === control)
         }
     }
+
+    @Test("Given a url: mount, the mounted controls view and video view share the same owned player instance")
+    func urlMountSharesPlayerInstance() {
+        // autoplay: false — this test is about ownership/identity, not
+        // playback. The URL is unreachable by design (no real network in
+        // CI), and `play()` retries indefinitely with no timeout, unlike
+        // the bounded preroll grade attachment alone triggers; leaving
+        // autoplay at its `true` default here would keep a real `AVPlayer`
+        // spinning against that unreachable host for the rest of the test
+        // run. `ABVideoPlayerOwnershipTests.autoplayControlsPlaybackStart`
+        // (core target, local `tiny.mp4` fixture, no network) already
+        // covers that `autoplay: true` actually starts playback.
+        let rootView = ABVideoPlayerWithControls(
+            url: URL(string: "https://example.com/shared-instance-test.mp4")!,
+            autoplay: false
+        )
+            .frame(width: 320, height: 180)
+        let hostingController = UIHostingController(rootView: rootView)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+        window.rootViewController = hostingController
+        window.isHidden = false
+        defer { window.isHidden = true }
+        hostingController.view.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        hostingController.view.setNeedsLayout()
+        hostingController.view.layoutIfNeeded()
+
+        let controlsView = hostingController.view.firstDescendant(of: ABPlayerControlsView.self)
+        let videoView = hostingController.view.firstDescendant(of: ABPlayerView.self)
+
+        #expect(controlsView != nil)
+        #expect(videoView != nil)
+        #expect(videoView?.player != nil)
+        #expect(controlsView?.player === videoView?.player)
+    }
+
+    @Test("Given a url: mount with .playerControlsStyle(_:) applied around it, the modifier reaches the mounted controls (it crosses the composed body)")
+    func urlMountAppliesStyleModifier() {
+        // autoplay: false — see the comment in urlMountSharesPlayerInstance
+        // above; this test is about Environment modifier propagation, not
+        // playback.
+        let rootView = ABVideoPlayerWithControls(
+            url: URL(string: "https://example.com/style-modifier-test.mp4")!,
+            autoplay: false
+        )
+            .frame(width: 320, height: 180)
+            .playerControlsStyle(.minimal)
+        let hostingController = UIHostingController(rootView: rootView)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+        window.rootViewController = hostingController
+        window.isHidden = false
+        defer { window.isHidden = true }
+        hostingController.view.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        hostingController.view.setNeedsLayout()
+        hostingController.view.layoutIfNeeded()
+
+        let controlsView = hostingController.view.firstDescendant(of: ABPlayerControlsView.self)
+
+        #expect(controlsView?.style == .minimal)
+    }
 }
 
 private extension UIView {

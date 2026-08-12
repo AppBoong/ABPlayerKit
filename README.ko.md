@@ -78,25 +78,80 @@ targets: [
 
 ## 빠른 시작
 
-플레이어 하나를 만들고 모든 소스/등급 변경을 `set(source:grade:)`로 처리합니다.
+URL 하나로 표준 컨트롤까지 재생합니다 — 이게 통합의 전부입니다.
 
 ```swift
 import ABPlayerKit
+import ABPlayerKitControls
+import SwiftUI
 
-let source = ABMediaSource(
-    url: URL(string: "https://example.com/video.m3u8")!,
-    kind: .hls
-)
+struct VideoScreen: View {
+    var body: some View {
+        ABVideoPlayerWithControls(url: URL(string: "https://example.com/video.m3u8")!)
+            .aspectRatio(16 / 9, contentMode: .fit)
+    }
+}
+```
 
-let player = ABPlayer()
-player.set(source: source, grade: .preloaded)
+이 뷰는 스스로 `ABPlayer`를 만들고, 재생을 시작하며, SwiftUI가 뷰를 폐기할 때 모든 재생 자원을 해제합니다. 미디어 종류는 URL에서 추론됩니다(`.m3u8` → HLS, 그 외 → progressive).
 
-// 미디어가 화면에 표시될 때
-player.set(source: source, grade: .current)
-player.play()
+컨트롤 오버레이 없이 코어 타겟만 쓰려면:
 
-// 프리로드 윈도우를 벗어날 때
-player.set(source: source, grade: .instanceOnly)
+```swift
+import ABPlayerKit
+import SwiftUI
+
+ABVideoPlayer(url: url, videoGravity: .resizeAspect)
+```
+
+### 커스터마이징
+
+컨트롤의 외형과 동작은 view modifier로 설정하므로, modifier 하나로 화면 전체의 플레이어를 한 번에 다룰 수 있습니다.
+
+```swift
+var style = ABPlayerControlsStyle.default
+style.progressColor = .systemPink
+
+var controls = ABPlayerControlsConfiguration()
+controls.skipInterval = 15
+
+ABVideoPlayerWithControls(url: url)
+    .playerControlsStyle(style)
+    .playerControlsConfiguration(controls)
+```
+
+플레이어 단 설정(음소거, 반복, 오디오 세션, 배속)은 생성 시점에 `ABPlayerConfiguration`으로 전달합니다.
+
+```swift
+var configuration = ABPlayerConfiguration()
+configuration.isMuted = true
+configuration.audioSessionPolicy = .playback(mixWithOthers: false)
+
+ABVideoPlayerWithControls(url: url, playerConfiguration: configuration)
+```
+
+> 뷰가 화면 밖으로 나가도 살아 있는 동안에는 재생이 계속됩니다. 화면 전환에 따라 일시정지가 필요한 화면은 아래처럼 플레이어를 직접 소유하세요.
+
+### 플레이어를 직접 소유하기
+
+여러 뷰가 플레이어를 공유하거나, 재생이 뷰 하나보다 오래 유지되어야 하거나, 피드 전반에 걸쳐 프리로드를 직접 제어해야 할 때는 `ABPlayer`를 직접 소유합니다.
+
+```swift
+struct VideoScreen: View {
+    @State private var player = ABPlayer()
+
+    var body: some View {
+        ABVideoPlayerWithControls(player: player, videoGravity: .resizeAspect) {}
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .task {
+                player.set(source: ABMediaSource(url: url), grade: .current)
+                player.play()
+            }
+            .onDisappear {
+                player.release()
+            }
+    }
+}
 ```
 
 ### UIKit과 `ABPlayerView`
@@ -118,42 +173,46 @@ final class PlayerViewController: UIViewController {
         playerView.player = player
         view.addSubview(playerView)
 
-        let source = ABMediaSource(
-            url: URL(string: "https://example.com/video.mp4")!,
-            kind: .progressive
-        )
+        let source = ABMediaSource(url: URL(string: "https://example.com/video.mp4")!)
         player.set(source: source, grade: .current)
         player.play()
     }
 }
 ```
 
-### SwiftUI와 `ABVideoPlayer`
+### 고급 — 등급과 프리로드
+
+화면이 아직 보이지 않는 미디어를 미리 준비해야 할 때(예: 몇 줄 아래 있는 피드 셀) 플레이어 하나를 만들고 모든 소스/등급 변경을 `set(source:grade:)`로 처리합니다.
 
 ```swift
 import ABPlayerKit
-import SwiftUI
 
-struct VideoScreen: View {
-    @State private var player = ABPlayer()
+let source = ABMediaSource(
+    url: URL(string: "https://example.com/video.m3u8")!,
+    kind: .hls
+)
 
-    var body: some View {
-        ABVideoPlayer(player: player, videoGravity: .resizeAspect)
-            .aspectRatio(16 / 9, contentMode: .fit)
-            .task {
-                let source = ABMediaSource(
-                    url: URL(string: "https://example.com/video.m3u8")!,
-                    kind: .hls
-                )
-                player.set(source: source, grade: .current)
-                player.play()
-            }
-            .onDisappear {
-                player.release()
-            }
-    }
-}
+let player = ABPlayer()
+player.set(source: source, grade: .preloaded)
+
+// 미디어가 화면에 표시될 때
+player.set(source: source, grade: .current)
+player.play()
+
+// 프리로드 윈도우를 벗어날 때
+player.set(source: source, grade: .instanceOnly)
 ```
+
+| 등급 | 보유 자원 | 용도 |
+|---|---|---|
+| `.released` | 없음 | 모든 재생 자원 반환 |
+| `.instanceOnly` | `AVPlayer`, 아이템 없음 | 플레이어 식별성은 유지하면서 아이템 네트워크 활동을 0으로 보장 |
+| `.preloaded` | 플레이어 + 아이템, 프리로드 튜닝 | `play()`를 허용하지 않고 인접 미디어 준비 |
+| `.current` | 플레이어 + 아이템, 현재 재생 튜닝 | 화면에 보이는 미디어이며 재생 제어 허용 |
+
+아이템을 보유한 모든 해제 경로는 `detachItem`을 거칩니다. `.preloaded`와 `.current` 사이를 이동할 때 대응하는 튜닝 역할을 다시 적용하므로 강등은 승격의 정확한 역연산입니다.
+
+`ABMediaSource`의 `kind:`는 URL의 확장자에서 추론됩니다(`.m3u8` → `.hls`, 그 외 → `.progressive`) — 이 추론이 틀릴 수 있는 서명된/확장자 없는 URL일 때만 명시적으로 지정하세요.
 
 ## 타겟
 
@@ -168,14 +227,7 @@ struct VideoScreen: View {
 
 코어 타겟은 재생 상태 머신, UIKit 뷰, SwiftUI 래퍼, 튜닝, 백그라운드/오디오 정책, 토큰 기반 이벤트를 소유합니다.
 
-| 등급 | 보유 자원 | 용도 |
-|---|---|---|
-| `.released` | 없음 | 모든 재생 자원 반환 |
-| `.instanceOnly` | `AVPlayer`, 아이템 없음 | 플레이어 식별성은 유지하면서 아이템 네트워크 활동을 0으로 보장 |
-| `.preloaded` | 플레이어 + 아이템, 프리로드 튜닝 | `play()`를 허용하지 않고 인접 미디어 준비 |
-| `.current` | 플레이어 + 아이템, 현재 재생 튜닝 | 화면에 보이는 미디어이며 재생 제어 허용 |
-
-아이템을 보유한 모든 해제 경로는 `detachItem`을 거칩니다. `.preloaded`와 `.current` 사이를 이동할 때 대응하는 튜닝 역할을 다시 적용하므로 강등은 승격의 정확한 역연산입니다.
+재생은 네 단계 등급을 거쳐 이동합니다 — 전체 표와 `.preloaded`/`.instanceOnly` 예제는 위의 [고급 — 등급과 프리로드](#고급--등급과-프리로드)를 참고하세요. 아이템을 보유한 모든 해제 경로는 `detachItem`을 거치며, `.preloaded`와 `.current` 사이를 이동할 때 대응하는 튜닝 역할을 다시 적용하므로 강등은 승격의 정확한 역연산입니다.
 
 이벤트에는 여러 소비자가 독립적으로 연결할 수 있습니다.
 
