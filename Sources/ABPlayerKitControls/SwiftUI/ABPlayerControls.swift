@@ -5,8 +5,13 @@ import SwiftUI
 @MainActor
 public struct ABPlayerControls: UIViewRepresentable {
     private let player: ABPlayer
-    private let style: ABPlayerControlsStyle
-    private let configuration: ABPlayerControlsConfiguration
+    /// `nil` means "unspecified" — resolved against
+    /// `EnvironmentValues.playerControlsStyle` and finally
+    /// `ABPlayerControlsStyle.default` in `resolveStyle(environment:)`.
+    private let style: ABPlayerControlsStyle?
+    /// `nil` means "unspecified" — resolved the same way as `style`, via
+    /// `resolveConfiguration(environment:)`.
+    private let configuration: ABPlayerControlsConfiguration?
     private let accessoryViews: [UIView]
     private let accessoriesContent: (() -> AnyView)?
     private let onEvent: (@MainActor (ABControlsEvent) -> Void)?
@@ -14,8 +19,8 @@ public struct ABPlayerControls: UIViewRepresentable {
     @available(*, deprecated, message: "Use the @ViewBuilder `accessories:` initializer instead. Scheduled for removal in 1.0.0.")
     public init(
         player: ABPlayer,
-        style: ABPlayerControlsStyle = .default,
-        configuration: ABPlayerControlsConfiguration = .init(),
+        style: ABPlayerControlsStyle? = nil,
+        configuration: ABPlayerControlsConfiguration? = nil,
         accessoryViews: [UIView] = [],
         onEvent: (@MainActor (ABControlsEvent) -> Void)? = nil
     ) {
@@ -51,8 +56,8 @@ public struct ABPlayerControls: UIViewRepresentable {
     @available(*, deprecated, message: "Internal bridge for the deprecated accessoryViews: initializer above — not part of the public API.")
     init(
         legacyPlayer player: ABPlayer,
-        style: ABPlayerControlsStyle,
-        configuration: ABPlayerControlsConfiguration,
+        style: ABPlayerControlsStyle?,
+        configuration: ABPlayerControlsConfiguration?,
         accessoryViews: [UIView],
         onEvent: (@MainActor (ABControlsEvent) -> Void)?
     ) {
@@ -76,8 +81,8 @@ public struct ABPlayerControls: UIViewRepresentable {
     /// benefit.
     public init<Accessories: View>(
         player: ABPlayer,
-        style: ABPlayerControlsStyle = .default,
-        configuration: ABPlayerControlsConfiguration = .init(),
+        style: ABPlayerControlsStyle? = nil,
+        configuration: ABPlayerControlsConfiguration? = nil,
         onEvent: (@MainActor (ABControlsEvent) -> Void)? = nil,
         @ViewBuilder accessories: @escaping () -> Accessories
     ) {
@@ -94,24 +99,29 @@ public struct ABPlayerControls: UIViewRepresentable {
     }
 
     public func makeUIView(context: Context) -> ABPlayerControlsView {
-        let view = ABPlayerControlsView(style: style, configuration: configuration)
-        update(view, coordinator: context.coordinator)
+        let view = ABPlayerControlsView(
+            style: resolveStyle(environment: context.environment),
+            configuration: resolveConfiguration(environment: context.environment)
+        )
+        update(view, coordinator: context.coordinator, environment: context.environment)
         return view
     }
 
     public func updateUIView(_ uiView: ABPlayerControlsView, context: Context) {
-        update(uiView, coordinator: context.coordinator)
+        update(uiView, coordinator: context.coordinator, environment: context.environment)
     }
 
-    func update(_ view: ABPlayerControlsView, coordinator: Coordinator) {
+    func update(_ view: ABPlayerControlsView, coordinator: Coordinator, environment: EnvironmentValues = EnvironmentValues()) {
+        let resolvedStyle = resolveStyle(environment: environment)
+        let resolvedConfiguration = resolveConfiguration(environment: environment)
         if view.player !== player {
             view.player = player
         }
-        if view.style != style {
-            view.style = style
+        if view.style != resolvedStyle {
+            view.style = resolvedStyle
         }
-        if view.configuration != configuration {
-            view.configuration = configuration
+        if view.configuration != resolvedConfiguration {
+            view.configuration = resolvedConfiguration
         }
         if let accessoriesContent {
             let box = coordinator.accessoryBox(makingIfNeeded: accessoriesContent)
@@ -130,6 +140,19 @@ public struct ABPlayerControls: UIViewRepresentable {
         }
         coordinator.onEvent = onEvent
         coordinator.observe(view)
+    }
+
+    /// An explicit `style:` initializer argument always wins over the
+    /// `.playerControlsStyle(_:)` environment value — a local, explicit
+    /// declaration is more specific than an ambient one, the same
+    /// convention SwiftUI itself follows (e.g. `.font` on a `Text` versus
+    /// an inherited font).
+    private func resolveStyle(environment: EnvironmentValues) -> ABPlayerControlsStyle {
+        style ?? environment.playerControlsStyle ?? .default
+    }
+
+    private func resolveConfiguration(environment: EnvironmentValues) -> ABPlayerControlsConfiguration {
+        configuration ?? environment.playerControlsConfiguration ?? .init()
     }
 
     @MainActor

@@ -50,6 +50,28 @@ controls.style = style
 
 When skip icons are `nil`, the controls derive supported SF Symbols from ``ABPlayerControlsConfiguration/skipInterval``. An explicit icon always wins. ``ABPlayerControlsConfiguration/skipInterval`` accepts 5-second steps between 5 and 60; other values are rounded to the nearest step and clamped into that range. Steps with a native `gobackward.N`/`goforward.N` glyph (5, 10, 15, 30, 45, 60) use it directly; other steps (e.g. 20, 25) badge the number over a generic arrow so the rendered icon always matches the configured interval.
 
+## Apply a Style Across Several Players
+
+``View/playerControlsStyle(_:)`` and ``View/playerControlsConfiguration(_:)`` set a style/configuration on every ``ABPlayerControls``/``ABVideoPlayerWithControls`` in that view's subtree, so one modifier can cover a whole screen of players instead of repeating a `style:`/`configuration:` argument at every call site.
+
+```swift
+VStack {
+    ABVideoPlayerWithControls(url: firstURL)
+    ABVideoPlayerWithControls(url: secondURL)
+}
+.playerControlsStyle(.minimal)
+```
+
+An explicit `style:`/`configuration:` initializer argument always wins over the modifier for that one view (the `url:`/`source:` initializers don't take `style:`/`configuration:` — see [Add Application Controls](#Add-Application-Controls) below for the `player:`-owning initializers that do), so a single player can still opt out of the shared appearance:
+
+```swift
+VStack {
+    ABVideoPlayerWithControls(player: featuredPlayer, style: .tinted) {} // this player only
+    ABVideoPlayerWithControls(url: secondURL)
+}
+.playerControlsStyle(.minimal) // every other player in the stack
+```
+
 ## Configure Interactions
 
 ```swift
