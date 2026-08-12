@@ -350,6 +350,10 @@ struct ABPlayerControlsEventReflectionTests {
         player.set(source: source, grade: .current)
         var configuration = ABPlayerControlsConfiguration()
         configuration.staysVisibleWhilePaused = false
+        // Far longer than this test can take, so the armed timer cannot fire
+        // (and clear itself) before the assertion reads it. The default 3s
+        // does fire on a loaded runner, where this test has taken 25s.
+        configuration.autoHideDelay = 600
         let view = ABPlayerControlsView(configuration: configuration)
         view.player = player
         view.handlePlayerEvent(.periodicTime(ABPlaybackTime(
