@@ -9,6 +9,12 @@ All notable changes to ABPlayerKit are documented in this file.
 - Added `ABVideoPlayer.init(url:videoGravity:autoplay:configuration:)` and `init(source:videoGravity:autoplay:configuration:)` — the view creates and owns an `ABPlayer` for its SwiftUI identity's lifetime, releasing it when that identity is discarded (never on `onDisappear`, since that signals "not visible," not "gone for good"). `autoplay` defaults to `true`.
 - Added the matching `ABVideoPlayerWithControls.init(url:videoGravity:autoplay:playerConfiguration:)` / `init(source:videoGravity:autoplay:playerConfiguration:)`, each with an `accessories:`-taking overload — same ownership, plus the standard controls overlay. This is the new one-line Quick Start path.
 - Added `.playerControlsStyle(_:)` and `.playerControlsConfiguration(_:)` view modifiers, backed by new `EnvironmentValues.playerControlsStyle`/`playerControlsConfiguration` — set once on an ancestor view to cover every `ABPlayerControls`/`ABVideoPlayerWithControls` in its subtree. An explicit `style:`/`configuration:` initializer argument always wins over the modifier for that one view.
+- `ABPlayerKitMetrics` now tracks whole playback sessions, not just TTFF: `ABMetricsRecorder.endSession(for:)` and `snapshot(for:)`, and four new `ABMetricEvent` cases — `.sessionStarted`, `.buffering`, `.failure`, `.sessionSummary` — covering rebuffer intervals (with buffering-before-first-frame kept out of the rebuffer ratio), watch time, completion ratio, and failure classification. New public types: `ABSessionAnchor`, `ABBufferingInterval`, `ABFailureRecord`, `ABSessionSummary`, `ABQoESummary`, `ABLatencyDistribution`.
+- Added `ABPlaybackStatistics.waited` — a latency distribution over `.waited` samples only, alongside the legacy `p50`/`p95`/`max`, which keep folding `.hit` in as `0` ms.
+- Added `ABAccessSnapshot` fields folded from the *entire* access log instead of only its last entry: `totalBytesTransferred`, `totalStallCount`, `droppedVideoFrameCount`, `bitrateSwitchCount`, `segmentsDownloadedCount` (always `0` — see Migration notes), `mediaRequestCount`, `durationWatchedSeconds`, `observedBitrateAverage`, `initialStartupTimeSeconds`, `entryCount`.
+- Added `ABClock.wallClockEpoch` (default `Date().timeIntervalSince1970`) — maps a session's monotonic timeline onto a wall-clock instant once, at session open, for joining against server-side logs.
+- `ABJSONLinesMetricsSink.flush()` is now `public`. Added `writeFailureCount`/`lastWriteErrorDescription` (a persistent write failure no longer fails silently) and file rotation via `init(fileURL:maxFileSizeBytes:maxRotatedFiles:)`.
+- `ABMetricsRecorder.init` gained `includesSourceURL: Bool` (default `true`) — set `false` to keep signed/tokenized source URLs out of session anchors and summaries.
 
 ### Changed
 
@@ -25,6 +31,22 @@ All notable changes to ABPlayerKit are documented in this file.
 #### `removeAll()`/`remove(_:)` no longer interrupt in-progress playback
 
 Calling `removeAll()`/`remove(_:)` during active playback for the affected source no longer interrupts that playback; it continues over the network instead of failing. No code changes required.
+
+#### `ABMetricEvent` gained 4 cases
+
+`.sessionStarted`, `.buffering`, `.failure`, and `.sessionSummary` were added. A `switch` over `ABMetricEvent` outside this package needs a `default` branch to stay source-compatible — the same non-exhaustive convention already documented on `ABPlayerEvent`.
+
+#### `ABAccessSnapshot`/`ABPlaybackStatistics` gained fields; existing field values are unchanged
+
+`ABPlaybackStatistics.p50`/`p95`/`max` remain the legacy distribution (`.hit` folded in as `0` ms) — new code should read `waited` instead, which excludes `.hit`. `ABAccessSnapshot`'s existing 5 fields keep their v1 values (the last access-log entry); the new fields are folded across every entry. `segmentsDownloadedCount` always reads `0` on this platform: the underlying `AVPlayerItemAccessLogEvent.numberOfSegmentsDownloaded` has been API-unavailable in Swift since iOS 7, superseded by `numberOfMediaRequests`. It's kept in the schema for forward compatibility.
+
+#### `ABClock` gained a `wallClockEpoch` requirement
+
+A default implementation (`Date().timeIntervalSince1970`) is provided, so existing conforming types compile unmodified. Override it in a test fake for a deterministic value.
+
+#### `ABMetricsRecorder.endSession(for:)`/`snapshot(for:)` were added
+
+`attach(to:)`'s returned token has no cancellation hook the recorder can observe, so cancelling it alone produces no final `.sessionSummary`. Call `endSession(for:)` before cancelling the token if you want one.
 
 ## [0.3.0] - 2026-08-05
 

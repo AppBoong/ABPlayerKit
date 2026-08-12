@@ -4,9 +4,16 @@ public struct ABPlaybackStatistics: Sendable, Equatable {
     public let sampleCount: Int
     public let hitCount: Int
     public let abandonedCount: Int
+    /// Legacy distribution over every successful sample, `.hit` folded in as
+    /// `0` ms. New code should read ``waited`` instead — a feed with a lot
+    /// of preload hits collapses this distribution's lower percentiles
+    /// toward zero.
     public let p50: Double
     public let p95: Double
     public let max: Double
+    /// The `.waited` samples only, `.hit` excluded — the distribution that
+    /// actually reflects how long a viewer waited when they did wait.
+    public let waited: ABLatencyDistribution
 
     public init(
         sampleCount: Int,
@@ -14,7 +21,8 @@ public struct ABPlaybackStatistics: Sendable, Equatable {
         abandonedCount: Int,
         p50: Double,
         p95: Double,
-        max: Double
+        max: Double,
+        waited: ABLatencyDistribution = .empty
     ) {
         self.sampleCount = sampleCount
         self.hitCount = hitCount
@@ -22,6 +30,7 @@ public struct ABPlaybackStatistics: Sendable, Equatable {
         self.p50 = p50
         self.p95 = p95
         self.max = max
+        self.waited = waited
     }
 
     public var hitRate: Double {
@@ -38,6 +47,7 @@ public struct ABPlaybackStatistics: Sendable, Equatable {
         var hitCount = 0
         var abandonedCount = 0
         var successfulDurations: [Double] = []
+        var waitedDurations: [Double] = []
 
         for sample in samples {
             switch sample.outcome {
@@ -46,25 +56,21 @@ public struct ABPlaybackStatistics: Sendable, Equatable {
                 successfulDurations.append(0)
             case .waited(let milliseconds):
                 successfulDurations.append(milliseconds)
+                waitedDurations.append(milliseconds)
             case .abandoned:
                 abandonedCount += 1
             }
         }
 
-        successfulDurations.sort()
+        let legacy = ABLatencyDistribution.build(from: successfulDurations)
         return ABPlaybackStatistics(
             sampleCount: samples.count,
             hitCount: hitCount,
             abandonedCount: abandonedCount,
-            p50: percentile(0.50, values: successfulDurations),
-            p95: percentile(0.95, values: successfulDurations),
-            max: successfulDurations.last ?? 0
+            p50: legacy.p50,
+            p95: legacy.p95,
+            max: legacy.max,
+            waited: ABLatencyDistribution.build(from: waitedDurations)
         )
-    }
-
-    private static func percentile(_ percentile: Double, values: [Double]) -> Double {
-        guard !values.isEmpty else { return 0 }
-        let rank = Swift.max(1, Int(ceil(percentile * Double(values.count))))
-        return values[rank - 1]
     }
 }

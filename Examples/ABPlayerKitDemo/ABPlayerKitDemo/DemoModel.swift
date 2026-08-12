@@ -110,6 +110,24 @@ private final class HLSPrefetchLifetime: @unchecked Sendable {
     }
 }
 
+/// Forwards every record to each of its sinks — lets the demo write to the
+/// in-memory sink (drives the UI) and the JSONL sink (drives the on-disk
+/// log) from a single `ABMetricsRecorder` instead of double-tracking
+/// session state with two recorders.
+private final class ABMetricsFanoutSink: ABMetricsSink, Sendable {
+    private let sinks: [any ABMetricsSink]
+
+    init(_ sinks: [any ABMetricsSink]) {
+        self.sinks = sinks
+    }
+
+    func record(_ event: ABMetricEvent) {
+        for sink in sinks {
+            sink.record(event)
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class DemoModel {
@@ -128,6 +146,7 @@ final class DemoModel {
 
     private let clock = ABMonotonicClock()
     private let metricsSink: ABInMemoryMetricsSink
+    private let jsonlMetricsSink: ABJSONLinesMetricsSink
     private let metricsRecorder: ABMetricsRecorder
     private let mediaCache: ABMediaCache?
     private let hlsPrefetcher: ABHLSPrefetcher
@@ -145,16 +164,30 @@ final class DemoModel {
     var isLooping = false
     var isPlaying = false
     var statistics = ABPlaybackStatistics.aggregate([])
+    var sessionSummaries: [ABSessionSummary] = []
+    var liveSession: ABSessionSummary?
+    var qoe = ABQoESummary.aggregate([])
     var latestEvent = "Waiting for playback events"
     var cacheSize: Int64 = 0
     var cacheEnabled = false
     var prefetchState = HLSPrefetchState.idle
     var cacheError: String?
 
+    /// Where the demo's JSONL metrics log lives — shown in the Metrics tab
+    /// next to a manual flush button.
+    let metricsLogFileURL: URL
+
     init() {
         let player = ABPlayer()
         let metricsSink = ABInMemoryMetricsSink()
-        let metricsRecorder = ABMetricsRecorder(sink: metricsSink)
+        let metricsLogFileURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("metrics.jsonl")
+        let jsonlMetricsSink = ABJSONLinesMetricsSink(
+            fileURL: metricsLogFileURL,
+            maxFileSizeBytes: 1_000_000,
+            maxRotatedFiles: 3
+        )
+        let metricsRecorder = ABMetricsRecorder(sink: ABMetricsFanoutSink([metricsSink, jsonlMetricsSink]))
         let hlsPrefetcher = ABHLSPrefetcher()
         let defaultAssetFactory = ABDefaultAssetFactory()
         let mediaCache: ABMediaCache?
@@ -170,6 +203,8 @@ final class DemoModel {
 
         self.player = player
         self.metricsSink = metricsSink
+        self.jsonlMetricsSink = jsonlMetricsSink
+        self.metricsLogFileURL = metricsLogFileURL
         self.metricsRecorder = metricsRecorder
         self.mediaCache = mediaCache
         self.hlsPrefetcher = hlsPrefetcher
@@ -200,6 +235,13 @@ final class DemoModel {
 
     var cacheIsAvailable: Bool {
         mediaCache != nil
+    }
+
+    /// Sum of `terminalFailureCount` across every closed session — a raw
+    /// event count, distinct from `qoe.failedSessionCount` (sessions that
+    /// had at least one).
+    var terminalFailureCount: Int {
+        sessionSummaries.reduce(0) { $0 + $1.terminalFailureCount }
     }
 
     func selectMedia(_ media: DemoMedia) {
@@ -435,11 +477,24 @@ final class DemoModel {
     }
 
     private func refreshStatistics() {
-        let samples = metricsSink.events.compactMap { event -> ABMetricSample? in
+        let events = metricsSink.events
+        let samples = events.compactMap { event -> ABMetricSample? in
             guard case .ttff(let sample) = event else { return nil }
             return sample
         }
         statistics = ABPlaybackStatistics.aggregate(samples)
+        sessionSummaries = events.compactMap { event -> ABSessionSummary? in
+            guard case .sessionSummary(let summary) = event else { return nil }
+            return summary
+        }
+        qoe = ABQoESummary.aggregate(events)
+        liveSession = metricsRecorder.snapshot(for: player)
+    }
+
+    /// Blocks until every metrics record enqueued so far is written to
+    /// ``metricsLogFileURL``.
+    func flushMetricsLog() {
+        jsonlMetricsSink.flush()
     }
 }
 
