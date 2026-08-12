@@ -162,6 +162,12 @@ jobs:
         run: bash .github/scripts/prepare-simulator.sh
 
       - name: Run core and cache tests under ThreadSanitizer
+        env:
+          # Forwarded into the test runner with the TEST_RUNNER_ prefix
+          # stripped. Sanitizer instrumentation on a 3-core runner makes the
+          # real work slower, not stuck; without this the wait helper reports
+          # timeouts that read like deadlocks.
+          TEST_RUNNER_ABPLAYERKIT_WAIT_SCALE: "6"
         run: >-
           xcodebuild
           -scheme ABPlayerKit-Package
