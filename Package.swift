@@ -12,7 +12,8 @@ let package = Package(
         .library(name: "ABPlayerKit", targets: ["ABPlayerKit"]),
         .library(name: "ABPlayerKitControls", targets: ["ABPlayerKitControls"]),
         .library(name: "ABPlayerKitMetrics", targets: ["ABPlayerKitMetrics"]),
-        .library(name: "ABPlayerKitCache", targets: ["ABPlayerKitCache"])
+        .library(name: "ABPlayerKitCache", targets: ["ABPlayerKitCache"]),
+        .library(name: "ABPlayerKitNowPlaying", targets: ["ABPlayerKitNowPlaying"])
     ],
     targets: [
         // The shared ABPlayerKit-Package scheme runs every test target below.
@@ -30,6 +31,10 @@ let package = Package(
         ),
         .target(
             name: "ABPlayerKitCache",
+            dependencies: ["ABPlayerKit"]
+        ),
+        .target(
+            name: "ABPlayerKitNowPlaying",
             dependencies: ["ABPlayerKit"]
         ),
         // Test-only support code shared across the test targets below.
@@ -55,6 +60,10 @@ let package = Package(
         .testTarget(
             name: "ABPlayerKitCacheTests",
             dependencies: ["ABPlayerKitCache", "ABPlayerKit", "ABTestSupport"]
+        ),
+        .testTarget(
+            name: "ABPlayerKitNowPlayingTests",
+            dependencies: ["ABPlayerKitNowPlaying", "ABPlayerKit", "ABTestSupport"]
         )
     ],
     swiftLanguageModes: [.v6]
