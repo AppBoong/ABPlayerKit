@@ -52,6 +52,41 @@ enum DemoTuningPreset: String, CaseIterable, Identifiable {
     }
 }
 
+/// Picker-friendly wrapper over `ABBackgroundPolicy` (not itself
+/// `CaseIterable`/`Identifiable`) — mirrors `DemoTuningPreset` immediately
+/// above. Only the two policies most relevant to a real-device background
+/// audio check are exposed: the default and the new `.continueAudioOnly`.
+enum DemoBackgroundPolicy: String, CaseIterable, Identifiable {
+    case pause
+    case continueAudioOnly
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .pause: "Pause (default)"
+        case .continueAudioOnly: "Continue audio only"
+        }
+    }
+
+    var policy: ABBackgroundPolicy {
+        switch self {
+        case .pause: .pause
+        case .continueAudioOnly: .continueAudioOnly
+        }
+    }
+
+    /// `ABBackgroundPolicy` is documented non-exhaustive, so this needs a
+    /// `default` branch to stay source-compatible with a future case this
+    /// demo doesn't expose a picker option for.
+    init(_ policy: ABBackgroundPolicy) {
+        switch policy {
+        case .continueAudioOnly: self = .continueAudioOnly
+        default: self = .pause
+        }
+    }
+}
+
 enum HLSPrefetchState: Equatable {
     case idle
     case downloading
@@ -161,6 +196,7 @@ final class DemoModel {
 
     var selectedMedia = DemoMedia.hls
     var selectedTuning = DemoTuningPreset.displayCapped
+    var selectedBackgroundPolicy = DemoBackgroundPolicy.pause
     var isMuted = false
     var isLooping = false
     var isPlaying = false
@@ -214,6 +250,7 @@ final class DemoModel {
         self.defaultAssetFactory = defaultAssetFactory
         self.cacheAssetFactory = mediaCache?.makeAssetFactory(hlsPrefetcher: hlsPrefetcher)
         self.cacheError = cacheError
+        self.selectedBackgroundPolicy = DemoBackgroundPolicy(player.configuration.backgroundPolicy)
 
         metricsToken = metricsRecorder.attach(to: player)
         eventToken = player.addObserver { [weak self] event in
@@ -315,6 +352,29 @@ final class DemoModel {
         else { return }
         configuration.preloadTuning = preloadTuning
         configuration.currentTuning = preset.tuning
+        player.configuration = configuration
+    }
+
+    /// Applies `preset.policy` to `player.configuration.backgroundPolicy`,
+    /// following the same "read `player.configuration`, mutate a local
+    /// copy, write it back" pattern as `setLooping`/`setTuning` above.
+    ///
+    /// `.continueAudioOnly` needs three things at once to actually keep
+    /// playing in the background: `UIBackgroundModes` including `audio`
+    /// (declared once, in the Xcode project itself — this method can't set
+    /// that), `audioSessionPolicy != .unmanaged`, and this assignment. The
+    /// demo never sets `audioSessionPolicy` elsewhere, so it defaults to
+    /// `.unmanaged` — selecting `.continueAudioOnly` here also switches the
+    /// session to a managed policy if it's still unmanaged, so the picker
+    /// visibly does something on device instead of silently no-op'ing.
+    func setBackgroundPolicy(_ preset: DemoBackgroundPolicy) {
+        guard preset != selectedBackgroundPolicy else { return }
+        selectedBackgroundPolicy = preset
+        var configuration = player.configuration
+        configuration.backgroundPolicy = preset.policy
+        if preset == .continueAudioOnly, configuration.audioSessionPolicy == .unmanaged {
+            configuration.audioSessionPolicy = .playback(mixWithOthers: false)
+        }
         player.configuration = configuration
     }
 

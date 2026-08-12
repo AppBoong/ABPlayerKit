@@ -123,6 +123,18 @@ struct PlaybackScreen: View {
                             Text("Preloaded always uses .conservativePreload. This picker changes only currentTuning, making promotion and demotion apply distinct roles.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
+
+                            Divider()
+                                .padding(.vertical, 4)
+
+                            Picker("Background policy", selection: backgroundPolicyBinding) {
+                                ForEach(DemoBackgroundPolicy.allCases) { preset in
+                                    Text(preset.title).tag(preset)
+                                }
+                            }
+                            Text("Continue audio only needs a managed audio session and UIBackgroundModes = audio (already declared for this demo target) to keep playing once the app leaves the foreground. Selecting it also switches the audio session to managed if it wasn't already — background it on a real device to verify.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
                         }
                     }
 
@@ -178,6 +190,13 @@ struct PlaybackScreen: View {
         Binding(
             get: { model.selectedTuning },
             set: { tuning in model.setTuning(tuning) }
+        )
+    }
+
+    private var backgroundPolicyBinding: Binding<DemoBackgroundPolicy> {
+        Binding(
+            get: { model.selectedBackgroundPolicy },
+            set: { preset in model.setBackgroundPolicy(preset) }
         )
     }
 

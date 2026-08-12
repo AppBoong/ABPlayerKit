@@ -412,7 +412,37 @@ style.pauseIcon = .system("pause.circle.fill")
 controlsView.style = style
 ```
 
-Behavior lives in `ABPlayerControlsConfiguration`: the default periodic UI update interval is 0.25 seconds, skip icons synchronize with supported intervals, and rate selection supports menu, cycle, and hidden modes. VoiceOver suppresses auto-hide; Reduce Motion removes fades.
+Behavior lives in `ABPlayerControlsConfiguration`: the default periodic UI update interval is 0.25 seconds, skip icons synchronize with supported intervals, and rate selection supports menu, cycle, and hidden modes. VoiceOver suppresses auto-hide; Reduce Motion removes fades. Tapping play after playback has reached the end seeks to zero before playing (replay-from-start), instead of a bare `play()` that would do nothing at the end of an item.
+
+Individual controls can be hidden without touching layout code — `showsPlayPauseButton`/`showsSeekBar` (both default `true`) work the same way the existing `showsSkipButtons` does; hiding the seek bar collapses the row it occupies.
+
+While `ABPlayer.isBuffering` is true, the play/pause button's glyph gets a spinner overlay — the button itself stays enabled and hit-testable throughout, since a stall can still be paused. Controlled by `showsBufferingIndicator` (default `true`) and `ABPlayerControlsStyle.bufferingIndicatorColor` (default `nil`, follows `tintColor`); auto-hide is suppressed while buffering, without forcing controls visible.
+
+```swift
+var configuration = ABPlayerControlsConfiguration()
+configuration.showsBufferingIndicator = true
+configuration.touchPassthrough = .whenControlsHidden
+configuration.doubleTapSeek = .edges(edgeWidthFraction: 0.3)
+configuration.providesHapticFeedback = true
+configuration.rateLabelFormat = .automatic
+configuration.timeLabelSeparator = "/"
+
+controlsView.configuration = configuration
+```
+
+- **`touchPassthrough`** (`ABControlsTouchPassthrough`, default `.never`): whether touches that miss every control pass through to whatever sits behind the overlay — `.never` (current behavior), `.whenControlsHidden`, or `.always`. Never overrides the existing hit-test priority order; this only applies once nothing else has already claimed the touch.
+- **`doubleTapSeek`** (`ABDoubleTapSeek`, default `.disabled`): double-tapping the overlay's leading/trailing edge bands seeks by `skipInterval`. `.edges(edgeWidthFraction:)` sets each band's width as a fraction of the overlay's width (clamped `0.1...0.5`). Disabled by default so the background single-tap recognizer never has to wait out a double-tap timeout for consumers who don't opt in. `providesHapticFeedback` (default `true`) fires a light haptic on an accepted double-tap seek.
+- **`rateLabelFormat`** (`ABPlayerControlsConfiguration.RateLabelFormat`, default `.automatic`): `.automatic` formats the playback rate with a locale-aware `NumberFormatter` (`"1.5"` in `en`, `"1,5"` in `de`); `.custom { rate in ... }` supplies the entire label text.
+- **`timeLabelSeparator`** (default `"/"`): the string between a time label's elapsed and secondary fields.
+
+A skip/double-tap/VoiceOver-adjustment seek streak shows a cumulative feedback badge (`"+20s"`/`"-10s"`) while it's outstanding, driven entirely by the core's `pendingSeekTime`/`seekTargetChanged` — Controls never accumulates the delta itself. Style it with `ABPlayerControlsStyle.seekFeedbackTextColor`/`.seekFeedbackBackgroundColor`/`.seekFeedbackFont`.
+
+Beyond the single `accessoryViews` position, `ABControlsSlot` (`.topTrailing`, `.transportTrailing`, `.bottomTrailing`) lets consumer views land at additional overlay positions via `ABPlayerControlsView.accessoryViews(in:)`/`setAccessoryViews(_:in:)`. The existing `accessoryViews` property is an alias for `.bottomTrailing`, with identical behavior:
+
+```swift
+controlsView.setAccessoryViews([captionsButton], in: .topTrailing)
+controlsView.setAccessoryViews([fullscreenButton], in: .transportTrailing)
+```
 
 The controls remain a separate product because many feeds and background players provide their own gestures or no UI at all. Those consumers link only the small core, while standard-player screens opt into UIKit controls and their SwiftUI wrapper with one additional import.
 
@@ -467,6 +497,34 @@ final class PlaybackSession {
 Store `PlaybackSession` as a property of the screen or coordinator for the entire measurement. The sink, recorder, and observation tokens must all outlive the asynchronous first-frame event.
 
 An abandoned TTFF sample remains in the denominator of `hitRate` and `abandonRate`; it is never silently discarded from the measurement.
+
+#### QoE Sessions
+
+The same `attach(to:)` also tracks whole playback sessions, not just TTFF — keyed by `(playerID, sessionStartedAt)`, since there's no separate session identifier. A session opens on `ABPlayerEvent.itemAttached(source:)` and closes on `ABPlayerEvent.itemDetached(reason:)`, emitting `ABMetricEvent.sessionStarted(_:)` and `.sessionSummary(_:)` respectively:
+
+```swift
+recorder.attach(to: player).store(in: &tokens)
+
+// Before cancelling the token, if a final summary is needed:
+recorder.endSession(for: player)
+
+// Or read a live, still-open summary at any point:
+let inProgress = recorder.snapshot(for: player)
+```
+
+- `attach(to:)`'s returned token has no cancellation hook the recorder can observe, so cancelling it alone produces no final `.sessionSummary` — call `ABMetricsRecorder.endSession(for:)` first if you want one.
+- `ABMetricsRecorder.snapshot(for:)` returns a live, unsunk `ABSessionSummary` for a session that's still open.
+- `ABSessionSummary.rebufferRatio` is `rebufferMilliseconds / (rebufferMilliseconds + watchedMilliseconds)`, `nil` when both are `0`. Buffering before the first frame counts toward `startupBufferMilliseconds`, not `rebufferMilliseconds` — TTFF already measures that wait, so counting it as a rebuffer too would double-count the same stall.
+- `ABSessionSummary.completionRatio`'s precision improves when `ABPlayerConfiguration.periodicTimeInterval` is set; `watchedMilliseconds` stays accurate regardless, since it's derived from `ABPlayerEvent.timeControlStatusChanged(_:)` transitions, not periodic position samples.
+- `ABSessionAnchor.sourceURL`/`ABSessionSummary.sourceURL` carry the media URL for joining against server-side logs. A source using a signed or tokenized URL should either pass `includesSourceURL: false` to `ABMetricsRecorder.init(sink:clock:includesSourceURL:)` or mask the field in a custom `ABMetricsSink` — this package bakes in no masking policy of its own.
+
+New public types back these sessions: `ABSessionAnchor` (session identity), `ABBufferingInterval`/`ABFailureRecord` (raw per-session records), `ABSessionSummary` (one session's rollup), `ABQoESummary` (aggregate across sessions), and `ABLatencyDistribution` (a p50/p95/max/waited distribution — `ABPlaybackStatistics.waited` is the same shape over `.waited` TTFF samples only, alongside the legacy `p50`/`p95`/`max`, which keep folding `.hit` in as `0` ms).
+
+`ABMetricEvent` is non-exhaustive, the same convention as `ABPlayerEvent`: a `switch` outside this package should include a `default` branch, since minor releases may add cases (`.sessionStarted`, `.buffering`, `.failure`, and `.sessionSummary` were the four most recently added).
+
+`ABAccessSnapshot` also folds fields across the *entire* access log, not only its last entry — `totalBytesTransferred`, `totalStallCount`, `droppedVideoFrameCount`, `bitrateSwitchCount`, `mediaRequestCount`, `durationWatchedSeconds`, `observedBitrateAverage`, `initialStartupTimeSeconds`, `entryCount`, plus `segmentsDownloadedCount` (always `0` — `AVPlayerItemAccessLogEvent.numberOfSegmentsDownloaded` has been API-unavailable in Swift since iOS 7; kept in the schema for forward compatibility). `ABClock.wallClockEpoch` (default `Date().timeIntervalSince1970`) maps a session's monotonic timeline onto a wall-clock instant once, at session open, for joining against server-side logs.
+
+`ABJSONLinesMetricsSink.flush()` is `public`. Pass `init(fileURL:maxFileSizeBytes:maxRotatedFiles:)` to rotate the file once it crosses `maxFileSizeBytes`, keeping `maxRotatedFiles` rotated copies (`.1`, `.2`, …). A persistent write failure no longer fails silently — check `writeFailureCount`/`lastWriteErrorDescription`.
 
 ### `ABPlayerKitCache` — Progressive Cache and HLS Prefetch
 
