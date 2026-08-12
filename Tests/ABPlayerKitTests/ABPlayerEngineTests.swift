@@ -15,16 +15,34 @@ private final class WeakReference<Object: AnyObject> {
 
 @Suite("ABDefaultAssetFactory uses public AVFoundation API", .timeLimit(.minutes(3)))
 struct ABDefaultAssetFactoryTests {
-    @Test("Custom headers remain stored on the source while core asset creation preserves the URL")
-    func headersAreDeferredToCacheTarget() {
+    @Test("Custom headers are threaded into the AVURLAsset initializer's options and remain stored on the source")
+    func headersAreAppliedToTheAsset() {
         let source = ABMediaSource(
             url: URL(string: "https://example.com/video.mp4")!,
             httpHeaders: ["Authorization": "Bearer token"]
         )
 
+        // `AVURLAsset` exposes no public accessor for the options an asset
+        // was constructed with, so this can't assert on the header
+        // directly reaching the asset — it instead pins the two things
+        // that *are* publicly observable: the header survives on `source`
+        // unchanged, and asset construction with a non-empty
+        // `httpHeaders` dictionary doesn't alter the resulting URL or
+        // crash, which is what the `AVURLAssetHTTPHeaderFieldsKey` code
+        // path exercises.
         let asset = ABDefaultAssetFactory().makeAsset(for: source)
 
         #expect(source.httpHeaders == ["Authorization": "Bearer token"])
+        #expect(asset.url == source.url)
+    }
+
+    @Test("No headers uses the plain URL initializer")
+    func noHeadersUsesPlainInitializer() {
+        let source = ABMediaSource(url: URL(string: "https://example.com/video.mp4")!)
+
+        let asset = ABDefaultAssetFactory().makeAsset(for: source)
+
+        #expect(source.httpHeaders.isEmpty)
         #expect(asset.url == source.url)
     }
 }
@@ -462,23 +480,24 @@ struct ABPlayerHandleTargetEventTests {
         defer { token.cancel() }
 
         let error = ABPlayerError.itemFailed(description: "boom")
-        target.emit(.failed(error))
+        target.emit(.failed(.init(kind: error)))
 
         #expect(player.lastError == error)
         #expect(events.contains(.failed(error)))
     }
 
-    @Test(".failed(.itemErrorLogEntry) updates lastError and broadcasts .failed — lets a consumer tell a diagnostic signal apart from a terminal failure while still-loading")
-    func itemErrorLogEntryUpdatesLastErrorAndBroadcasts() {
+    @Test(".failed(.itemErrorLogEntry) updates lastDiagnostic (not lastError) and broadcasts .failed — lets a consumer tell a diagnostic signal apart from a terminal failure while still-loading")
+    func itemErrorLogEntryUpdatesLastDiagnosticAndBroadcasts() {
         let (player, target) = makePlayer()
         var events: [ABPlayerEvent] = []
         let token = player.addObserver { events.append($0) }
         defer { token.cancel() }
 
         let error = ABPlayerError.itemErrorLogEntry(description: "HTTP 403 (Forbidden)")
-        target.emit(.failed(error))
+        target.emit(.failed(.init(kind: error)))
 
-        #expect(player.lastError == error)
+        #expect(player.lastError == nil)
+        #expect(player.lastDiagnostic?.kind == error)
         #expect(events.contains(.failed(error)))
     }
 
@@ -556,7 +575,7 @@ struct ABObservationTokenLifecycleTests {
 
     @Test("Cancelling a layer observer removes it synchronously")
     func layerObserverCancellationIsSynchronous() async {
-        let registry = ABLayerAttachmentObserverRegistry()
+        let registry = ABHandlerRegistry<Bool>()
         var receivedCount = 0
         let token = registry.add { _ in receivedCount += 1 }
 
@@ -617,8 +636,8 @@ struct ABObservationTokenLifecycleTests {
     func deinitOffMainDoesNotTrap() async {
         await Task.detached {
             var token: ABObservationToken? = await MainActor.run {
-                let registry = ABObserverRegistry()
-                return registry.add { _, _ in }
+                let registry = ABHandlerRegistry<ABPlayerEvent>()
+                return registry.add { _ in }
             }
             #expect(token != nil)
             token = nil

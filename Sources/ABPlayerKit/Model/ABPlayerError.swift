@@ -32,3 +32,50 @@ public enum ABPlayerError: Error, Sendable, Equatable {
     /// on this type's own doc comment above.
     case itemErrorLogEntry(description: String)
 }
+
+extension ABPlayerError {
+    /// Every case is a terminal failure except `.itemErrorLogEntry`, which
+    /// is a non-terminal diagnostic — a stream that's still loading or
+    /// still playing routinely surfaces one of these and recovers on its
+    /// own. Drives the ``ABPlayer/lastFailure``/``ABPlayer/lastDiagnostic``
+    /// routing split.
+    public var isTerminal: Bool {
+        switch self {
+        case .itemErrorLogEntry:
+            return false
+        case .itemFailed, .prerollTimedOut, .prerollFailed, .invalidGradeForSource,
+             .cacheUnavailable, .audioSessionOperationFailed:
+            return true
+        }
+    }
+}
+
+/// A failure's originating subsystem, reduced from `NSError`'s
+/// `(domain, code)` to `Sendable`/`Equatable` primitives so it can travel on
+/// a public payload.
+public struct ABErrorOrigin: Sendable, Equatable, Hashable {
+    public let domain: String
+    public let code: Int
+
+    public init(domain: String, code: Int) {
+        self.domain = domain
+        self.code = code
+    }
+}
+
+/// Carries a failure's classification (``ABPlayerError``) together with its
+/// originating subsystem, when known. ``ABPlayerError`` stays exactly the
+/// classification scheme it always was — this type adds provenance
+/// alongside it rather than into it, since adding an associated value to an
+/// existing case would be a breaking change (see `POLICY-api-stability.md`
+/// "Adding associated values").
+public struct ABPlayerFailure: Sendable, Equatable {
+    public let kind: ABPlayerError
+    public let origin: ABErrorOrigin?
+    public var isTerminal: Bool { kind.isTerminal }
+
+    public init(kind: ABPlayerError, origin: ABErrorOrigin? = nil) {
+        self.kind = kind
+        self.origin = origin
+    }
+}
