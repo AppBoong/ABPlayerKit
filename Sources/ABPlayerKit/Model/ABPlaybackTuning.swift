@@ -1,3 +1,4 @@
+@preconcurrency import AVFoundation
 import CoreGraphics
 import Foundation
 
@@ -13,6 +14,12 @@ public struct ABPlaybackTuning: Sendable, Equatable {
     /// `.zero` means no cap.
     public var preferredMaximumResolution: CGSize
     public var automaticallyWaitsToMinimizeStalling: Bool
+    /// `nil` leaves `AVFoundation`'s own default algorithm unchanged.
+    /// Exposes `AVPlayerItem.audioTimePitchAlgorithm` so a consumer using
+    /// non-1.0 playback rates can opt into (or out of) time-pitch
+    /// correction. Added at the end of the parameter list to keep existing
+    /// positional-adjacent call sites source-compatible.
+    public var audioTimePitchAlgorithm: AVAudioTimePitchAlgorithm?
 
     /// Defaults mirror `.displayCapped` (Q2 in DESIGN-OPEN-QUESTIONS.md's
     /// confirmed `.current` default) so a bare `ABPlaybackTuning()` is a
@@ -22,12 +29,14 @@ public struct ABPlaybackTuning: Sendable, Equatable {
         preferredPeakBitRate: Double = 0,
         preferredForwardBufferDuration: TimeInterval = 0,
         preferredMaximumResolution: CGSize = displaySizeSentinel,
-        automaticallyWaitsToMinimizeStalling: Bool = true
+        automaticallyWaitsToMinimizeStalling: Bool = true,
+        audioTimePitchAlgorithm: AVAudioTimePitchAlgorithm? = nil
     ) {
         self.preferredPeakBitRate = preferredPeakBitRate
         self.preferredForwardBufferDuration = preferredForwardBufferDuration
         self.preferredMaximumResolution = preferredMaximumResolution
         self.automaticallyWaitsToMinimizeStalling = automaticallyWaitsToMinimizeStalling
+        self.audioTimePitchAlgorithm = audioTimePitchAlgorithm
     }
 
     /// No cap at all — the landing-cell default.

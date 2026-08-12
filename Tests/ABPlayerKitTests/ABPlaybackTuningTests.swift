@@ -1,3 +1,4 @@
+@preconcurrency import AVFoundation
 import CoreGraphics
 import Foundation
 import Testing
@@ -54,5 +55,24 @@ struct ABPlaybackTuningRoundTripTests {
     func nonSentinelUnaffected() {
         let resolved = ABPlaybackTuning.conservativePreload.resolved(displaySize: CGSize(width: 1080, height: 1920))
         #expect(resolved == .conservativePreload)
+    }
+
+    @Test("audioTimePitchAlgorithm defaults to nil and every built-in preset leaves AVFoundation's default unchanged")
+    func audioTimePitchAlgorithmDefaultsToNil() {
+        #expect(ABPlaybackTuning().audioTimePitchAlgorithm == nil)
+        #expect(ABPlaybackTuning.displayCapped.audioTimePitchAlgorithm == nil)
+        #expect(ABPlaybackTuning.unrestricted.audioTimePitchAlgorithm == nil)
+        #expect(ABPlaybackTuning.conservativePreload.audioTimePitchAlgorithm == nil)
+        #expect(ABPlaybackTuning.resolutionCapped.audioTimePitchAlgorithm == nil)
+    }
+
+    @Test("audioTimePitchAlgorithm is settable and preserved through resolution")
+    func audioTimePitchAlgorithmSettableAndPreserved() {
+        var tuning = ABPlaybackTuning.displayCapped
+        tuning.audioTimePitchAlgorithm = .spectral
+
+        let resolved = tuning.resolved(displaySize: CGSize(width: 1080, height: 1920))
+
+        #expect(resolved.audioTimePitchAlgorithm == .spectral)
     }
 }
