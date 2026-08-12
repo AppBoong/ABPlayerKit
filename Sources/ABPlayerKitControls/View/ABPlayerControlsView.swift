@@ -885,7 +885,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             hideTask = nil
             return
         }
-        hideTask = Task { [weak self] in
+        hideTask = Task(priority: .userInitiated) { [weak self] in
             do {
                 try await Task.sleep(for: .seconds(max(0, delay)))
             } catch {
