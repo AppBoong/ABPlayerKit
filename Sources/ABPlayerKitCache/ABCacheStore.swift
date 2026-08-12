@@ -482,7 +482,7 @@ actor ABCacheStore {
         var hasObservedFillProgress = false
 
         while true {
-            if (!mustObserveFillProgressBeforeServing || hasObservedFillProgress),
+            if !mustObserveFillProgressBeforeServing || hasObservedFillProgress,
                let entry = index.entries[key], entry.size > resolvedRange.lowerBound {
                 index.touch(key: key, at: Date())
                 markIndexDirty()

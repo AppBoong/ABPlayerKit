@@ -1106,8 +1106,7 @@ struct ABCacheStoreTests {
         let source = mediaSource("if-range-strong.mp4")
         try seedWithValidator(
             source: source,
-            data: Data("abc".utf8),
-            contentLength: 6,
+            prefix: SeededPrefix(data: Data("abc".utf8), contentLength: 6),
             validator: ABCacheValidator(etag: "\"v1\"", lastModified: nil),
             lastAccessedAt: Date(timeIntervalSince1970: 1),
             directory: directory
@@ -1145,8 +1144,7 @@ struct ABCacheStoreTests {
         let source = mediaSource("if-range-weak.mp4")
         try seedWithValidator(
             source: source,
-            data: Data("abc".utf8),
-            contentLength: 6,
+            prefix: SeededPrefix(data: Data("abc".utf8), contentLength: 6),
             validator: ABCacheValidator(etag: "W/\"v1\"", lastModified: nil),
             lastAccessedAt: Date(timeIntervalSince1970: 1),
             directory: directory
@@ -1181,8 +1179,7 @@ struct ABCacheStoreTests {
         let source = mediaSource("if-range-mismatch.mp4")
         try seedWithValidator(
             source: source,
-            data: Data("old".utf8),
-            contentLength: 7,
+            prefix: SeededPrefix(data: Data("old".utf8), contentLength: 7),
             validator: ABCacheValidator(etag: "\"v1\"", lastModified: nil),
             lastAccessedAt: Date(timeIntervalSince1970: 1),
             directory: directory
@@ -1295,8 +1292,7 @@ struct ABCacheStoreTests {
         let source = mediaSource("revalidate-304.mp4")
         try seedWithValidator(
             source: source,
-            data: Data("abcdef".utf8),
-            contentLength: 6,
+            prefix: SeededPrefix(data: Data("abcdef".utf8), contentLength: 6),
             validator: ABCacheValidator(etag: "\"v1\"", lastModified: nil),
             lastAccessedAt: Date(timeIntervalSince1970: 1),
             directory: directory
@@ -1324,8 +1320,7 @@ struct ABCacheStoreTests {
         let source = mediaSource("revalidate-changed.mp4")
         try seedWithValidator(
             source: source,
-            data: Data("abcdef".utf8),
-            contentLength: 6,
+            prefix: SeededPrefix(data: Data("abcdef".utf8), contentLength: 6),
             validator: ABCacheValidator(etag: "\"v1\"", lastModified: nil),
             lastAccessedAt: Date(timeIntervalSince1970: 1),
             directory: directory
@@ -1368,8 +1363,7 @@ struct ABCacheStoreTests {
         let source = mediaSource("revalidate-network-error.mp4")
         try seedWithValidator(
             source: source,
-            data: Data("abcdef".utf8),
-            contentLength: 6,
+            prefix: SeededPrefix(data: Data("abcdef".utf8), contentLength: 6),
             validator: ABCacheValidator(etag: "\"v1\"", lastModified: nil),
             lastAccessedAt: Date(timeIntervalSince1970: 1),
             directory: directory
@@ -1395,8 +1389,7 @@ struct ABCacheStoreTests {
         let source = mediaSource("revalidate-concurrent.mp4")
         try seedWithValidator(
             source: source,
-            data: Data("abcdefgh".utf8),
-            contentLength: 8,
+            prefix: SeededPrefix(data: Data("abcdefgh".utf8), contentLength: 8),
             validator: ABCacheValidator(etag: "\"v1\"", lastModified: nil),
             lastAccessedAt: Date(timeIntervalSince1970: 1),
             directory: directory
@@ -1907,14 +1900,21 @@ struct ABCacheStoreTests {
     /// also stamps a `validator` on the seeded entry — kept
     /// separate rather than adding an optional parameter to the shared
     /// multi-entry `seed` helper above, since no existing caller needs one.
+    /// Prefix bytes plus the total length the origin reports for them.
+    private struct SeededPrefix {
+        var data: Data
+        var contentLength: Int64
+    }
+
     private func seedWithValidator(
         source: ABMediaSource,
-        data: Data,
-        contentLength: Int64,
+        prefix: SeededPrefix,
         validator: ABCacheValidator?,
         lastAccessedAt: Date,
         directory: URL
     ) throws {
+        let data = prefix.data
+        let contentLength = prefix.contentLength
         let dataDirectory = directory.appendingPathComponent("Progressive", isDirectory: true)
         try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true)
         let key = ABCacheKey.derive(from: source)
