@@ -68,6 +68,12 @@ public final class ABPlayer {
     /// The desired playback rate, retained while playback is paused.
     public var rate: Float { configuration.playbackRate }
     public var currentTime: CMTime { target.currentTime }
+    /// Whether external playback (AirPlay) is currently active. Not
+    /// `@Observable`-tracked — a target is re-read on every access, so
+    /// SwiftUI does not automatically re-render on change. KVO `avPlayer`
+    /// directly, or use `AVRoutePickerView`'s own state, for a reactive
+    /// signal.
+    public var isExternalPlaybackActive: Bool { target.isExternalPlaybackActive }
     /// A recompute-from-target mirror of `target.duration` — not
     /// normalized (a live/indefinite item still reads `kCMTimeIndefinite`
     /// here). Normalization stays ``ABPlaybackTime``'s job; only
@@ -123,6 +129,12 @@ public final class ABPlayer {
     private var reportedFirstFrameItem: ObjectIdentifier?
     @ObservationIgnored
     private(set) var isLayerAttachmentEnabled = true
+    /// Set by a bound `ABPictureInPictureSession` when Picture in Picture
+    /// starts/stops. While `true`, `ABBackgroundPolicyMachine` suppresses
+    /// every background policy's automatic side effects — PiP renders from
+    /// the same layer a policy would otherwise pause or detach.
+    @ObservationIgnored
+    private(set) var isPictureInPictureActive = false
     @ObservationIgnored
     private var isNormalizingPlaybackRate = false
     @ObservationIgnored
@@ -543,6 +555,27 @@ public final class ABPlayer {
         layerAttachmentObserverRegistry.add(handler)
     }
 
+    // MARK: - Internal (used by ABPictureInPictureSession)
+
+    /// Notified by a bound `ABPictureInPictureSession` when Picture in
+    /// Picture starts or stops. Starting repairs a layer left detached or
+    /// playback left paused by a background policy that ran before PiP's
+    /// own activation KVO landed — the platform does not guarantee which of
+    /// the two lands first. No repair is attempted below `.current`:
+    /// without an item there's nothing PiP could have started against.
+    func setPictureInPictureActive(_ active: Bool) {
+        guard isPictureInPictureActive != active else { return }
+        isPictureInPictureActive = active
+        guard active, grade == .current else { return }
+        if !isLayerAttachmentEnabled {
+            setLayerAttachmentEnabled(true)
+        }
+        if wasPlayingBeforeBackground, !isPlaying {
+            play()
+        }
+        wasPlayingBeforeBackground = false
+    }
+
     // MARK: - Internal (used by ABPlayerView for first-frame reporting)
 
     /// Called by `ABPlayerView` once `ABFirstFrameDetector.shouldReport`
@@ -656,6 +689,7 @@ public final class ABPlayer {
             switch action {
             case .createPlayer:
                 target.makePlayer()
+                target.applyExternalPlayback(externalPlaybackSettings)
 
             case .cancelPreload:
                 cancelPreload()
@@ -735,6 +769,14 @@ public final class ABPlayer {
         role == .preload ? configuration.preloadTuning : configuration.currentTuning
     }
 
+    private var externalPlaybackSettings: ABExternalPlaybackSettings {
+        ABExternalPlaybackSettings(
+            allowsExternalPlayback: configuration.allowsExternalPlayback,
+            usesExternalPlaybackWhileExternalScreenIsActive: configuration.usesExternalPlaybackWhileExternalScreenIsActive,
+            externalPlaybackVideoGravity: configuration.externalPlaybackVideoGravity
+        )
+    }
+
     /// The tuning actually handed to `target` — `displaySizeSentinel`
     /// resolved against `displaySize` (`ABPlayerView`'s reported pixel
     /// size, or `.zero`/no cap while no view is attached). `.tuningApplied`
@@ -795,8 +837,8 @@ public final class ABPlayer {
             isNormalizingPlaybackRate = false
         }
         if previousConfiguration.backgroundPolicy != configuration.backgroundPolicy {
-            if previousConfiguration.backgroundPolicy == .pauseAndDetachLayer,
-               configuration.backgroundPolicy != .pauseAndDetachLayer {
+            if previousConfiguration.backgroundPolicy.detachesLayerInBackground,
+               !configuration.backgroundPolicy.detachesLayerInBackground {
                 setLayerAttachmentEnabled(true)
             }
             reconcileBackgroundObserver()
@@ -807,6 +849,11 @@ public final class ABPlayer {
         }
         if previousConfiguration.isLooping != configuration.isLooping {
             target.setLooping(configuration.isLooping)
+        }
+        if previousConfiguration.allowsExternalPlayback != configuration.allowsExternalPlayback
+            || previousConfiguration.usesExternalPlaybackWhileExternalScreenIsActive != configuration.usesExternalPlaybackWhileExternalScreenIsActive
+            || previousConfiguration.externalPlaybackVideoGravity != configuration.externalPlaybackVideoGravity {
+            target.applyExternalPlayback(externalPlaybackSettings)
         }
         if ABPlaybackRate.clamped(previousConfiguration.playbackRate) != configuration.playbackRate {
             target.setRate(configuration.playbackRate)
@@ -886,7 +933,8 @@ public final class ABPlayer {
             policy: configuration.backgroundPolicy,
             grade: grade,
             wasPlayingBeforeBackground: wasPlayingBeforeBackground,
-            hasCapturedGrade: gradeBeforeBackground != nil
+            hasCapturedGrade: gradeBeforeBackground != nil,
+            isPictureInPictureActive: isPictureInPictureActive
         ))
     }
 
@@ -896,7 +944,8 @@ public final class ABPlayer {
             policy: configuration.backgroundPolicy,
             grade: grade,
             wasPlayingBeforeBackground: wasPlayingBeforeBackground,
-            hasCapturedGrade: gradeBeforeBackground != nil
+            hasCapturedGrade: gradeBeforeBackground != nil,
+            isPictureInPictureActive: isPictureInPictureActive
         ))
     }
 
@@ -906,7 +955,8 @@ public final class ABPlayer {
             policy: configuration.backgroundPolicy,
             grade: grade,
             wasPlayingBeforeBackground: wasPlayingBeforeBackground,
-            hasCapturedGrade: gradeBeforeBackground != nil
+            hasCapturedGrade: gradeBeforeBackground != nil,
+            isPictureInPictureActive: isPictureInPictureActive
         ))
     }
 

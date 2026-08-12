@@ -14,10 +14,26 @@ public struct ABVideoPlayer: UIViewRepresentable {
 
     private let ownership: Ownership
     private let videoGravity: AVLayerVideoGravity
+    private let pictureInPicture: ABPictureInPictureSession?
 
     public init(player: ABPlayer, videoGravity: AVLayerVideoGravity = .resizeAspectFill) {
         self.ownership = .explicit(player)
         self.videoGravity = videoGravity
+        self.pictureInPicture = nil
+    }
+
+    /// Picture in Picture is supported only on this explicit-ownership
+    /// path — the `url:`/`source:` convenience initializers release their
+    /// owned player on SwiftUI identity teardown, which would silently cut
+    /// PiP short.
+    public init(
+        player: ABPlayer,
+        videoGravity: AVLayerVideoGravity = .resizeAspectFill,
+        pictureInPicture: ABPictureInPictureSession
+    ) {
+        self.ownership = .explicit(player)
+        self.videoGravity = videoGravity
+        self.pictureInPicture = pictureInPicture
     }
 
     /// Creates and owns its own `ABPlayer` for the lifetime of this view's
@@ -50,6 +66,7 @@ public struct ABVideoPlayer: UIViewRepresentable {
     ) {
         self.ownership = .owned(source, autoplay: autoplay, configuration)
         self.videoGravity = videoGravity
+        self.pictureInPicture = nil
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -67,6 +84,7 @@ public struct ABVideoPlayer: UIViewRepresentable {
             view.player = player
         }
         view.videoGravity = videoGravity
+        view.pictureInPictureSession = pictureInPicture
         return view
     }
 
@@ -80,10 +98,14 @@ public struct ABVideoPlayer: UIViewRepresentable {
             context.coordinator.apply(source: source, autoplay: autoplay)
         }
         uiView.videoGravity = videoGravity
+        if uiView.pictureInPictureSession !== pictureInPicture {
+            uiView.pictureInPictureSession = pictureInPicture
+        }
     }
 
     public static func dismantleUIView(_ uiView: ABPlayerView, coordinator: Coordinator) {
         coordinator.releaseIfOwned()
+        uiView.pictureInPictureSession = nil
     }
 
     /// Implementation detail. No public members — `UIViewRepresentable`

@@ -24,6 +24,18 @@ public final class ABPlayerView: UIView {
     private var playerObservationToken: ABObservationToken?
     private var layerAttachmentToken: ABObservationToken?
 
+    /// Binding a session creates an `AVPictureInPictureController` for this
+    /// view's backing layer once. `nil` unbinds — deferred until the
+    /// session's `isActive` returns to `false` if it's currently active
+    /// (the session itself keeps this view alive in the meantime).
+    public var pictureInPictureSession: ABPictureInPictureSession? {
+        didSet {
+            guard pictureInPictureSession !== oldValue else { return }
+            oldValue?.unbind(from: self)
+            pictureInPictureSession?.bind(to: self, layer: playerLayer)
+        }
+    }
+
     /// Setting this applies the change inside a `CATransaction` with
     /// implicit animations disabled, so a gravity change never animates.
     public var videoGravity: AVLayerVideoGravity {
