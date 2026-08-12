@@ -4,6 +4,17 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added `ABVideoPlayer.init(url:videoGravity:autoplay:configuration:)` and `init(source:videoGravity:autoplay:configuration:)` — the view creates and owns an `ABPlayer` for its SwiftUI identity's lifetime, releasing it when that identity is discarded (never on `onDisappear`, since that signals "not visible," not "gone for good"). `autoplay` defaults to `true`.
+- Added the matching `ABVideoPlayerWithControls.init(url:videoGravity:autoplay:playerConfiguration:)` / `init(source:videoGravity:autoplay:playerConfiguration:)`, each with an `accessories:`-taking overload — same ownership, plus the standard controls overlay. This is the new one-line Quick Start path.
+- Added `.playerControlsStyle(_:)` and `.playerControlsConfiguration(_:)` view modifiers, backed by new `EnvironmentValues.playerControlsStyle`/`playerControlsConfiguration` — set once on an ancestor view to cover every `ABPlayerControls`/`ABVideoPlayerWithControls` in its subtree. An explicit `style:`/`configuration:` initializer argument always wins over the modifier for that one view.
+
+### Changed
+
+- `ABPlayerControls`'s and `ABVideoPlayerWithControls`'s `style:`/`configuration:` initializer parameters are now `Optional` (default `nil`) instead of defaulting to `.default`/`.init()`, so the new Environment modifiers above can be distinguished from an explicit argument. Source-compatible: every existing call site that passes a value or omits the parameter keeps compiling and resolves to the exact same behavior, since an unset `Optional` and the old default resolve to the same fallback.
+- `ABVideoPlayer`'s `Coordinator` associated type changed from `Void` to a concrete (still-opaque, no public members) class backing the new `url:`/`source:` ownership. Only affects code that references `ABVideoPlayer.Coordinator` by name directly, which no consumer in this repository does.
+
 ## [0.3.0] - 2026-08-05
 
 ### Added
