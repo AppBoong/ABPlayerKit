@@ -1483,8 +1483,23 @@ struct ABCacheStoreTests {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = mediaSource("handle-lifecycle-removeall.mp4")
+        // Metadata is seeded directly (an empty, incomplete entry) rather
+        // than resolved via a HEAD round trip, so the only asynchronous
+        // work standing between `store.load` and `prepareFill` opening its
+        // handle is the fill's own task — not also the metadata-coalescing
+        // task `resolvedMetadata` would otherwise spin up for a cold key.
+        // What's under test (removeAll closing a handle opened by an
+        // in-flight fill) doesn't depend on how that fill's metadata was
+        // obtained.
+        try seed(
+            source: source,
+            data: Data(),
+            contentLength: 8,
+            lastAccessedAt: Date(timeIntervalSince1970: 1),
+            directory: directory
+        )
         let fetcher = ABControlledHTTPFetcher(
-            dataReplies: [metadataReply(length: 8)],
+            dataReplies: [],
             initialStreamEvents: [[
                 .response(.init(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4"))
             ]]
@@ -1950,8 +1965,14 @@ struct ABCacheStoreTests {
         let start = clock.now
         while await store.fillHandleCount() != expected {
             if clock.now - start >= deadline {
+                // Reports the reader-registry state alongside the timeout so
+                // a recurrence on CI distinguishes "the fill task never got
+                // scheduled at all" (readers empty too) from "it started but
+                // stalled somewhere past that" (readers non-empty) without
+                // needing another round trip to re-diagnose.
+                let readerCount = store.activeReaderKeys().count
                 Issue.record(
-                    "fillHandleCount() did not reach \(expected) in time",
+                    "fillHandleCount() did not reach \(expected) in time (activeReaderKeys=\(readerCount))",
                     sourceLocation: sourceLocation
                 )
                 throw ABWaitUntilTimedOut()

@@ -270,9 +270,16 @@ struct ABLoadingRequestServicerTests {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = mediaSource("purge-during-service.mp4")
+        // Metadata is seeded directly (an empty, incomplete entry) rather
+        // than resolved via a HEAD round trip, so `store.metadata(for:)`
+        // hits its index fast path instead of spinning up a separate
+        // metadata-coalescing task. What's under test (a purge mid-service
+        // finishing the request without an error) doesn't depend on how
+        // metadata was obtained — only on the fill being genuinely
+        // in-flight when `removeAll` runs.
+        try seedMetadataOnly(source: source, contentLength: 8, directory: directory)
         let fetcher = ABServicerFakeFetcher(
             dataReplies: [
-                (Data(), ABHTTPResponse(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4")),
                 (Data("network!".utf8), ABHTTPResponse(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4"))
             ],
             streamReplies: [[.response(.init(statusCode: 200, expectedContentLength: 8, mimeType: "video/mp4"))]],
@@ -319,6 +326,29 @@ struct ABLoadingRequestServicerTests {
             lastAccessedAt: Date()
         )
         try data.write(to: dataDirectory.appendingPathComponent(entry.fileName))
+        let index = ABCacheIndex(entries: [key: entry])
+        try JSONEncoder().encode(index).write(
+            to: directory.appendingPathComponent("progressive-index.json")
+        )
+    }
+
+    /// Seeds only metadata (an empty, incomplete entry) — `resolvedMetadata`
+    /// serves `contentLength`/`contentType` straight from the index without
+    /// resolving a HEAD, but `isComplete: false` still lets a fill start
+    /// normally.
+    private func seedMetadataOnly(source: ABMediaSource, contentLength: Int64, directory: URL) throws {
+        let dataDirectory = directory.appendingPathComponent("Progressive", isDirectory: true)
+        try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true)
+        let key = ABCacheKey.derive(from: source)
+        let entry = ABCacheIndex.Entry(
+            key: key,
+            size: 0,
+            contentLength: contentLength,
+            contentType: "public.mpeg-4",
+            isComplete: false,
+            lastAccessedAt: Date()
+        )
+        try Data().write(to: dataDirectory.appendingPathComponent(entry.fileName))
         let index = ABCacheIndex(entries: [key: entry])
         try JSONEncoder().encode(index).write(
             to: directory.appendingPathComponent("progressive-index.json")
