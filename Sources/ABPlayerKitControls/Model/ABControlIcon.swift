@@ -1,7 +1,7 @@
 import UIKit
 
 /// An icon rendered by a playback control button.
-public enum ABControlIcon: Equatable {
+public enum ABControlIcon: Sendable, Equatable {
     /// An SF Symbol name. Missing symbols are omitted safely.
     case system(String)
     /// A consumer-provided image.
