@@ -1,8 +1,5 @@
 @preconcurrency import AVFoundation
 import Foundation
-#if canImport(UIKit)
-import UIKit
-#endif
 
 /// The real `AVFoundation`-backed `ABPlaybackTarget`. `ABPlayer` talks to
 /// this exclusively through the protocol; `ABFakePlaybackTarget` (test-only)
@@ -49,6 +46,27 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             }
         }
         return nil
+    }
+
+    var isPlaybackLikelyToKeepUp: Bool {
+        avPlayerItem?.isPlaybackLikelyToKeepUp ?? false
+    }
+
+    var isPlaybackBufferEmpty: Bool {
+        avPlayerItem?.isPlaybackBufferEmpty ?? false
+    }
+
+    var timeControlStatus: ABTimeControlStatus {
+        guard let avPlayer else { return .paused }
+        return Self.mapTimeControlStatus(avPlayer.timeControlStatus)
+    }
+
+    var isWaitingWithNoItem: Bool {
+        avPlayer?.reasonForWaitingToPlay == .noItemToPlay
+    }
+
+    var presentationSize: CGSize {
+        avPlayerItem?.presentationSize ?? .zero
     }
 
     func makePlayer() {
@@ -99,8 +117,12 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         return true
     }
 
+    /// Uses `AVPlayer.play()` rather than setting `rate` directly — a
+    /// system-driven resume (e.g. after an interruption ends) then also
+    /// honors whatever rate was last configured, since `setRate(_:)`
+    /// mirrors `desiredRate` into `avPlayer.defaultRate`.
     func play() {
-        avPlayer?.rate = desiredRate
+        avPlayer?.play()
     }
 
     func pause() {
@@ -110,6 +132,10 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
     func setRate(_ rate: Float) {
         let wasPlaying = isPlaying
         desiredRate = rate
+        // Mirrored so a system-driven `play()` (not routed through this
+        // type's own `play()`, e.g. an OS-level resume) still honors the
+        // configured rate instead of resetting to 1.0.
+        avPlayer?.defaultRate = rate
         if wasPlaying {
             avPlayer?.rate = rate
         }
@@ -119,8 +145,14 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         avPlayer?.isMuted = muted
     }
 
+    /// `actionAtItemEnd` defaults to `.pause`, so looping needs `.none` or
+    /// playback stays stopped at zero after `didPlayToEnd`'s restart seek —
+    /// applies unconditionally to whatever `avPlayer` currently holds, and
+    /// `interpret(_:source:detachReason:)` re-calls this on every attach so
+    /// the flag survives item swaps.
     func setLooping(_ isLooping: Bool) {
         self.isLooping = isLooping
+        avPlayer?.actionAtItemEnd = isLooping ? .none : .pause
     }
 
     func preroll(rate: Float, timeout: TimeInterval) async -> ABPrerollResult {
@@ -183,30 +215,41 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         periodicObserver.removeIfNeeded()
     }
 
+    /// `tuning` arrives already resolved — `ABPlayer.resolvedTuning(for:)`
+    /// replaces `ABPlaybackTuning.displaySizeSentinel` with the size
+    /// `ABPlayerView` reports (or `.zero`/no cap, with no view attached)
+    /// before this is ever called. This target has no display/screen
+    /// concept of its own to resolve against — a feed cell's correct cap
+    /// is the cell's own size, not the device screen's.
     private func apply(_ tuning: ABPlaybackTuning, to item: AVPlayerItem) {
-        let resolved = tuning.resolved(displaySize: currentScreenNativeSize())
-        item.preferredPeakBitRate = resolved.preferredPeakBitRate
-        item.preferredForwardBufferDuration = resolved.preferredForwardBufferDuration
-        item.preferredMaximumResolution = resolved.preferredMaximumResolution
-        avPlayer?.automaticallyWaitsToMinimizeStalling = resolved.automaticallyWaitsToMinimizeStalling
+        item.preferredPeakBitRate = tuning.preferredPeakBitRate
+        item.preferredForwardBufferDuration = tuning.preferredForwardBufferDuration
+        item.preferredMaximumResolution = tuning.preferredMaximumResolution
+        avPlayer?.automaticallyWaitsToMinimizeStalling = tuning.automaticallyWaitsToMinimizeStalling
+        if let audioTimePitchAlgorithm = tuning.audioTimePitchAlgorithm {
+            item.audioTimePitchAlgorithm = audioTimePitchAlgorithm
+        }
     }
 
     // `nonisolated`: called synchronously from the non-isolated
     // notification callback below — see the Sendability note there.
-    nonisolated private static func describe(errorLogEvent event: AVPlayerItemErrorLogEvent) -> String {
+    nonisolated private static func describe(
+        errorLogEvent event: AVPlayerItemErrorLogEvent
+    ) -> (description: String, origin: ABErrorOrigin) {
         var description = "\(event.errorDomain) (\(event.errorStatusCode))"
         if let comment = event.errorComment, !comment.isEmpty {
             description += ": \(comment)"
         }
-        return description
+        return (description, ABErrorOrigin(domain: event.errorDomain, code: event.errorStatusCode))
     }
 
-    private func currentScreenNativeSize() -> CGSize {
-        #if canImport(UIKit)
-        return UIScreen.main.nativeBounds.size
-        #else
-        return .zero
-        #endif
+    nonisolated private static func mapTimeControlStatus(_ status: AVPlayer.TimeControlStatus) -> ABTimeControlStatus {
+        switch status {
+        case .paused: return .paused
+        case .waitingToPlayAtSpecifiedRate: return .waitingToPlay
+        case .playing: return .playing
+        @unknown default: return .paused
+        }
     }
 
     /// Internal (not `private`) so `@testable import ABPlayerKit` can drive
@@ -309,7 +352,16 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
                     return
                 }
 
-                let statusObservation = item.observe(\.status, options: [.new]) { item, _ in
+                // `[.initial, .new]`, not just `[.new]`: `.new` alone can
+                // miss a status transition that lands between the early
+                // `.readyToPlay`/`.failed` checks above and this
+                // registration (a TOCTOU window) — the item would then sit
+                // at its already-resolved status forever with no further
+                // KVO callback to observe. `.initial` delivers the
+                // then-current status synchronously on registration, after
+                // `state.install(continuation)` above has already run, so
+                // an immediate resolve here is safe.
+                let statusObservation = item.observe(\.status, options: [.initial, .new]) { item, _ in
                     switch item.status {
                     case .readyToPlay: state.resolve(.ready)
                     case .failed: state.resolve(.failed)
@@ -346,7 +398,11 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             Task { @MainActor in
                 self?.onEvent?(.itemStatusChanged(status))
                 if case .failed = item.status, let error = item.error {
-                    self?.onEvent?(.failed(.itemFailed(description: error.localizedDescription)))
+                    let nsError = error as NSError
+                    self?.onEvent?(.failed(ABPlayerFailure(
+                        kind: .itemFailed(description: nsError.localizedDescription),
+                        origin: ABErrorOrigin(domain: nsError.domain, code: nsError.code)
+                    )))
                 }
             }
         }
@@ -357,12 +413,18 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self, weak item] _ in
             Task { @MainActor in
-                if self?.isLooping == true {
-                    Task { await self?.seekToStart() }
-                }
                 self?.onEvent?(.playedToEnd)
+                // Restarting is target-internal — no `.seekCompleted` here,
+                // since this isn't a seek `ABPlayer` itself issued. Guarded
+                // by the same stale-item check every other hop in this
+                // method uses, since the restart seek's `await` can outlive
+                // a detach/re-attach that happens in between.
+                guard let self, let item, self.isLooping, self.avPlayerItem === item else { return }
+                await self.seekToStart()
+                guard self.avPlayerItem === item else { return }
+                self.avPlayer?.play()
             }
         }
         observations.add { center.removeObserver(endToken) }
@@ -404,13 +466,14 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             object: item,
             queue: .main
         ) { [weak self, weak item] notification in
-            let underlyingDescription = (notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError)?.localizedDescription
-            let description = underlyingDescription
-                ?? item?.error?.localizedDescription
+            let underlyingError = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError
+            let resolvedError = underlyingError ?? item?.error.map { $0 as NSError }
+            let description = resolvedError?.localizedDescription
                 ?? "Playback failed before reaching the end of the item"
+            let origin = resolvedError.map { ABErrorOrigin(domain: $0.domain, code: $0.code) }
             Task { @MainActor in
                 guard let self, let item, self.avPlayerItem === item else { return }
-                self.onEvent?(.failed(.itemFailed(description: description)))
+                self.onEvent?(.failed(ABPlayerFailure(kind: .itemFailed(description: description), origin: origin)))
             }
         }
         observations.add { center.removeObserver(failedToEndToken) }
@@ -421,29 +484,64 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             queue: .main
         ) { [weak self, weak item] _ in
             guard let event = item?.errorLog()?.events.last else { return }
-            let description = Self.describe(errorLogEvent: event)
+            let (description, origin) = Self.describe(errorLogEvent: event)
             Task { @MainActor in
                 guard let self, let item, self.avPlayerItem === item else { return }
-                self.onEvent?(.failed(.itemErrorLogEntry(description: description)))
+                self.onEvent?(.failed(ABPlayerFailure(kind: .itemErrorLogEntry(description: description), origin: origin)))
             }
         }
         observations.add { center.removeObserver(newErrorLogEntryToken) }
 
         if let avPlayer {
             let timeControlObservation = avPlayer.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
-                let status: ABTimeControlStatus
-                switch player.timeControlStatus {
-                case .paused: status = .paused
-                case .waitingToPlayAtSpecifiedRate: status = .waitingToPlay
-                case .playing: status = .playing
-                @unknown default: status = .paused
-                }
+                let status = Self.mapTimeControlStatus(player.timeControlStatus)
                 Task { @MainActor in
                     self?.onEvent?(.timeControlStatusChanged(status))
                 }
             }
             observations.add { timeControlObservation.invalidate() }
+
+            // Buffering-suppression signal only — never the sole basis for
+            // a buffering verdict. Feeds `isWaitingWithNoItem`, re-evaluated
+            // via `.bufferStateChanged` like the other raw buffering
+            // signals below.
+            let reasonForWaitingObservation = avPlayer.observe(\.reasonForWaitingToPlay, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor in
+                    self?.onEvent?(.bufferStateChanged)
+                }
+            }
+            observations.add { reasonForWaitingObservation.invalidate() }
         }
+
+        let keepUpObservation = item.observe(\.isPlaybackLikelyToKeepUp, options: [.initial, .new]) { [weak self] _, _ in
+            Task { @MainActor in
+                self?.onEvent?(.bufferStateChanged)
+            }
+        }
+        observations.add { keepUpObservation.invalidate() }
+
+        let bufferEmptyObservation = item.observe(\.isPlaybackBufferEmpty, options: [.initial, .new]) { [weak self] _, _ in
+            Task { @MainActor in
+                self?.onEvent?(.bufferStateChanged)
+            }
+        }
+        observations.add { bufferEmptyObservation.invalidate() }
+
+        let durationObservation = item.observe(\.duration, options: [.initial, .new]) { [weak self] _, _ in
+            Task { @MainActor in
+                self?.onEvent?(.durationChanged)
+            }
+        }
+        observations.add { durationObservation.invalidate() }
+
+        let presentationSizeObservation = item.observe(\.presentationSize, options: [.initial, .new]) { [weak self, weak item] _, _ in
+            let size = item?.presentationSize ?? .zero
+            Task { @MainActor in
+                guard let self, let item, self.avPlayerItem === item else { return }
+                self.onEvent?(.presentationSizeChanged(size))
+            }
+        }
+        observations.add { presentationSizeObservation.invalidate() }
     }
 }
 

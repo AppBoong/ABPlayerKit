@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+import CoreGraphics
 import Foundation
 import Observation
 
@@ -11,7 +12,7 @@ import Observation
 /// `grade`/`isScrubbing`/`hasDisplayedFirstFrame`/`lastError`/`source`/
 /// `configuration` directly re-render on change, with no observer bridge
 /// required. The token-based `addObserver`/`ABPlayerEvent` system
-/// (Observation/ABObserverRegistry.swift) is unaffected and stays the
+/// (Observation/ABHandlerRegistry.swift) is unaffected and stays the
 /// primary mechanism for anything that isn't a simple property read —
 /// discrete lifecycle events, UIKit consumers, and anything needing the
 /// *reason* a value changed (Q3 in DESIGN-OPEN-QUESTIONS.md: the two
@@ -27,9 +28,28 @@ public final class ABPlayer {
 
     public private(set) var grade: ABPlaybackGrade = .released
     public private(set) var source: ABMediaSource?
-    public private(set) var lastError: ABPlayerError?
+    /// The most recent terminal failure, or `nil` once it's been reset by a
+    /// new attach/source change/detach/release. Non-terminal diagnostics
+    /// (`.itemErrorLogEntry`) never appear here — see ``lastDiagnostic``.
+    public private(set) var lastFailure: ABPlayerFailure?
+    /// The most recent non-terminal diagnostic (`.itemErrorLogEntry`) — a
+    /// still-loading or still-playing stream routinely surfaces one of
+    /// these on its own. Kept on a separate channel from ``lastFailure`` so
+    /// a healthy diagnostic never masquerades as a terminal failure.
+    public private(set) var lastDiagnostic: ABPlayerFailure?
+    /// A computed projection of ``lastFailure``'s classification, kept for
+    /// source compatibility. Still `@Observable`-tracked, since it reads a
+    /// tracked stored property.
+    public var lastError: ABPlayerError? { lastFailure?.kind }
     public private(set) var hasDisplayedFirstFrame = false
     public private(set) var isScrubbing = false
+    /// The requested destination while a non-scrubbing seek (`seek(to:)`,
+    /// `skip(by:)`, or an out-of-session `scrub(to:)`) is outstanding, or
+    /// `nil` once it settles. Lets `skip(by:)` accumulate consecutive taps
+    /// against the requested destination instead of the live (still
+    /// mid-flight) `currentTime`. Not updated during an active scrubbing
+    /// session.
+    public private(set) var pendingSeekTime: CMTime?
 
     /// Escape hatch — kept public for study purposes and consumer
     /// fallback (DESIGN-ABPlayerKit.md §1). Grade-related state must still
@@ -37,11 +57,30 @@ public final class ABPlayer {
     public var avPlayer: AVPlayer? { target.avPlayer }
     public var avPlayerItem: AVPlayerItem? { target.avPlayerItem }
 
-    public var isPlaying: Bool { target.isPlaying }
+    /// A recompute-from-target mirror, not an independent state machine —
+    /// always reflects `target.isPlaying` re-read at whichever trigger
+    /// point last fired (`refreshPlaybackMirrors()`), so its meaning can
+    /// never drift from the target's own definition (`rate != 0 &&
+    /// timeControlStatus != .paused`). Synchronous immediately after
+    /// `play()`/`pause()` — a Controls-layer invariant this package
+    /// guarantees.
+    public private(set) var isPlaying = false
     /// The desired playback rate, retained while playback is paused.
     public var rate: Float { configuration.playbackRate }
     public var currentTime: CMTime { target.currentTime }
-    public var duration: CMTime? { target.duration }
+    /// A recompute-from-target mirror of `target.duration` — not
+    /// normalized (a live/indefinite item still reads `kCMTimeIndefinite`
+    /// here). Normalization stays ``ABPlaybackTime``'s job; only
+    /// ``ABPlayerEvent/durationAvailable(_:)`` fires from a normalized,
+    /// finite value.
+    public private(set) var duration: CMTime?
+    /// A recompute-from-target mirror judged by `ABBufferingEvaluator` from
+    /// raw target signals (`isPlaybackLikelyToKeepUp`/
+    /// `isPlaybackBufferEmpty`/`timeControlStatus`) — never inferred from
+    /// `timeControlStatus == .waitingToPlay` alone, which conflates
+    /// rate-evaluation wait with an actual rebuffer and misses the
+    /// `automaticallyWaitsToMinimizeStalling == false` stall path.
+    public private(set) var isBuffering = false
     /// A synchronous snapshot for initial rendering and state restoration.
     public var playbackTime: ABPlaybackTime {
         ABPlaybackTime(
@@ -54,8 +93,9 @@ public final class ABPlayer {
     private let target: any ABPlaybackTarget
     private let notificationCenter: NotificationCenter
     private let planner = ABGradePlanner()
-    private let observerRegistry = ABObserverRegistry()
-    private let layerAttachmentObserverRegistry = ABLayerAttachmentObserverRegistry()
+    private let backgroundPolicyMachine = ABBackgroundPolicyMachine()
+    private let observerRegistry = ABHandlerRegistry<ABPlayerEvent>()
+    private let layerAttachmentObserverRegistry = ABHandlerRegistry<Bool>()
     // Every `var` below is implementation-detail bookkeeping, not
     // SwiftUI-facing state — `@ObservationIgnored` so `@Observable`'s macro
     // expansion leaves them as plain stored properties. This matters beyond
@@ -68,6 +108,11 @@ public final class ABPlayer {
     // WP9.2).
     @ObservationIgnored
     private var lastAppliedTuningRole: ABTuningRole = .preload
+    /// Reported by `ABPlayerView.layoutSubviews()`; `.zero` while no view
+    /// is attached (or before its first layout pass) — resolves
+    /// `displaySizeSentinel` to "no cap" rather than a device screen size.
+    @ObservationIgnored
+    private var displaySize: CGSize = .zero
     /// `nonisolated(unsafe)` so `deinit` (nonisolated even on this
     /// `@MainActor` class) can cancel outstanding work when a consumer drops
     /// this instance without calling `release()`. Safe because no other
@@ -88,6 +133,27 @@ public final class ABPlayer {
     private var seekGeneration = 0
     @ObservationIgnored
     private var lastScrubTime: CMTime?
+
+    /// "Does the user want playback running" — independent of `rate`,
+    /// which a stall can force to `0` while intent is still to play (see
+    /// `ABBufferingEvaluator`'s `.paused` branch). `true` from `play()`,
+    /// `false` from `pause()`/`.playedToEnd`/leaving `.current`/a
+    /// background-policy or interruption pause.
+    @ObservationIgnored
+    private var desiresPlayback = false
+    /// Tracks an unresolved `.playbackStalled` so `.stallEnded` broadcasts
+    /// at most once per stall, and only when one is actually outstanding.
+    @ObservationIgnored
+    private var isStallOutstanding = false
+    /// The last finite duration `.durationAvailable` broadcast for the
+    /// currently-attached item — reset on detach so a same-valued duration
+    /// on the next item broadcasts again.
+    @ObservationIgnored
+    private var lastBroadcastFiniteDuration: CMTime?
+    /// The last non-zero `presentationSize` `.presentationSizeChanged`
+    /// broadcast — reset on detach for the same reason as above.
+    @ObservationIgnored
+    private var lastBroadcastPresentationSize: CGSize?
 
     @ObservationIgnored
     private var appStateObserver: ABApplicationStateObserver?
@@ -216,6 +282,17 @@ public final class ABPlayer {
 
         guard previousGrade != resolvedGrade || sourceChanged else { return }
 
+        // A source change (even one that doesn't touch a currently-held
+        // item, e.g. `.instanceOnly -> .instanceOnly`) and every release
+        // invalidate whatever failure/diagnostic belonged to the previous
+        // source — `.attachItem`/`.detachItem` below cover the two cases
+        // this condition can't see (a fresh attach or detach with the
+        // source unchanged).
+        if sourceChanged || resolvedGrade == .released {
+            lastFailure = nil
+            lastDiagnostic = nil
+        }
+
         let actions = planner.actions(
             from: previousGrade,
             to: resolvedGrade,
@@ -231,6 +308,12 @@ public final class ABPlayer {
         source = newSource
         grade = resolvedGrade
 
+        if resolvedGrade != .current {
+            // Leaving `.current` — whatever the user's play intent was, it
+            // can no longer be honored (no `AVPlayer` command surface at
+            // this grade).
+            desiresPlayback = false
+        }
         if resolvedGrade != .current || sourceChanged {
             target.setPeriodicTimeObserver(interval: nil, onTick: nil)
             resetSeeking()
@@ -255,6 +338,10 @@ public final class ABPlayer {
         if sourceChanged {
             broadcast(.sourceChanged(newSource))
         }
+        // End of the transition — re-evaluate the mirrors once against
+        // whatever attach/detach/tuning just happened, on top of whichever
+        // KVO-driven refreshes land asynchronously afterward.
+        refreshPlaybackMirrors()
     }
 
     public func promote(to grade: ABPlaybackGrade) {
@@ -271,7 +358,7 @@ public final class ABPlayer {
 
     public func play() {
         guard grade == .current else {
-            broadcast(.playbackRejected)
+            rejectCall(.play)
             return
         }
         // Also covers "playback start" from Q4's apply trigger — e.g. the
@@ -280,15 +367,21 @@ public final class ABPlayer {
         // `audioSessionActivationDirty`, since a grade promotion or an
         // earlier `play()` typically already activated this exact policy.
         applyAudioSessionPolicyIfNeeded(force: false)
+        desiresPlayback = true
         target.play()
+        // Synchronous — Controls relies on `isPlaying` reading `true`
+        // immediately after this call returns, not after a KVO round trip.
+        refreshPlaybackMirrors()
     }
 
     public func pause() {
         guard grade == .current else {
-            broadcast(.playbackRejected)
+            rejectCall(.pause)
             return
         }
+        desiresPlayback = false
         target.pause()
+        refreshPlaybackMirrors()
     }
 
     /// Changes the desired rate without starting paused playback.
@@ -301,42 +394,48 @@ public final class ABPlayer {
         await seek(to: time, tolerance: .precise)
     }
 
-    /// Seeks with explicit tolerances when this player is current.
+    /// Seeks with explicit tolerances when this player is current. The
+    /// destination is clamped to `0...duration` (when duration is known and
+    /// finite) — a change from v0.1, which forwarded whatever time was
+    /// given as-is.
     public func seek(to time: CMTime, tolerance: ABSeekTolerance) async {
         guard grade == .current else {
-            broadcast(.playbackRejected)
+            rejectCall(.seek)
             return
         }
-        let landed = await target.seek(to: time, tolerance: tolerance)
-        broadcast(.seekCompleted(to: landed))
+        let generation = seekGeneration
+        enqueueSeek(to: time, tolerance: tolerance)
+        await awaitSeekSettled(generation: generation)
     }
 
     /// Moves relative to the current time, clamped to the playable range.
+    /// Accumulates against ``pendingSeekTime`` rather than the live
+    /// `currentTime` when a prior skip hasn't settled yet, so consecutive
+    /// taps add up instead of each landing relative to a `currentTime` that
+    /// hasn't moved yet.
     public func skip(by interval: TimeInterval) async {
         guard grade == .current else {
-            broadcast(.playbackRejected)
+            rejectCall(.skip)
             return
         }
-        let currentSeconds = currentTime.isNumeric ? CMTimeGetSeconds(currentTime) : 0
-        let proposedSeconds = max(0, currentSeconds + (interval.isFinite ? interval : 0))
-        let upperBound: TimeInterval?
-        if let duration, duration.isNumeric {
-            let seconds = CMTimeGetSeconds(duration)
-            upperBound = seconds.isFinite && seconds >= 0 ? seconds : nil
-        } else {
-            upperBound = nil
-        }
-        let destinationSeconds = upperBound.map { min(proposedSeconds, $0) } ?? proposedSeconds
+        let base = pendingSeekTime ?? currentTime
+        let baseSeconds = base.isNumeric ? CMTimeGetSeconds(base) : 0
+        let proposedSeconds = max(0, baseSeconds + (interval.isFinite ? interval : 0))
         let destination = CMTime(
-            seconds: destinationSeconds,
-            preferredTimescale: currentTime.timescale > 0 ? currentTime.timescale : 600
+            seconds: proposedSeconds,
+            preferredTimescale: base.timescale > 0 ? base.timescale : 600
         )
         if isScrubbing {
+            // Fire-and-forget, deliberately not awaited — a skip tapped
+            // while scrubbing shares the seek coalescer with `scrub(to:)`
+            // and must not block on settlement (a scrubbing session's own
+            // rapid `scrub(to:)` calls never await either).
             scrub(to: destination)
-        } else {
-            let landed = await target.seek(to: destination, tolerance: .precise)
-            broadcast(.seekCompleted(to: landed))
+            return
         }
+        let generation = seekGeneration
+        enqueueSeek(to: destination, tolerance: .precise)
+        await awaitSeekSettled(generation: generation)
     }
 
     // MARK: - Scrubbing
@@ -344,7 +443,7 @@ public final class ABPlayer {
     /// Starts a coalesced interactive seek session.
     public func beginScrubbing() {
         guard grade == .current else {
-            broadcast(.playbackRejected)
+            rejectCall(.beginScrubbing)
             return
         }
         guard !isScrubbing else { return }
@@ -356,15 +455,15 @@ public final class ABPlayer {
     /// Requests the newest interactive destination without making callers await AVFoundation.
     public func scrub(to time: CMTime) {
         guard grade == .current else {
-            broadcast(.playbackRejected)
+            rejectCall(.scrub)
             return
         }
         guard isScrubbing else {
-            Task { [weak self, target] in
-                guard let self else { return }
-                let landed = await target.seek(to: time, tolerance: self.configuration.scrubTolerance)
-                self.broadcast(.seekCompleted(to: landed))
-            }
+            // Routed through the shared seek coalescer/generation guard
+            // (like every other non-scrubbing-session entry point) rather
+            // than a per-call `Task` — rapid out-of-session taps now
+            // coalesce instead of each issuing its own unbounded seek.
+            enqueueSeek(to: time, tolerance: configuration.scrubTolerance)
             return
         }
 
@@ -387,10 +486,13 @@ public final class ABPlayer {
             self.seekWorkerTask = nil
         }
         if grade == .current, requiresStandaloneCommit, let lastScrubTime {
+            let generation = seekGeneration
             let landed = await target.seek(to: lastScrubTime, tolerance: .precise)
-            broadcast(.seekCompleted(to: landed))
+            if generation == seekGeneration {
+                broadcast(.seekCompleted(to: landed))
+            }
         } else if grade != .current {
-            broadcast(.playbackRejected)
+            rejectCall(.endScrubbing)
         }
         let shouldBroadcastBoundary = isScrubbing
         seekCoalescer.reset()
@@ -423,15 +525,16 @@ public final class ABPlayer {
     // MARK: - Observation
 
     public func addObserver(_ observer: some ABPlayerObserver) -> ABObservationToken {
-        observerRegistry.add { [weak observer] player, event in
-            observer?.player(player, didEmit: event)
+        observerRegistry.add { [weak self, weak observer] event in
+            guard let self else { return }
+            observer?.player(self, didEmit: event)
         }
     }
 
     public func addObserver(
         _ handler: @escaping @MainActor @Sendable (ABPlayerEvent) -> Void
     ) -> ABObservationToken {
-        observerRegistry.add { _, event in handler(event) }
+        observerRegistry.add(handler)
     }
 
     func addLayerAttachmentObserver(
@@ -466,16 +569,86 @@ public final class ABPlayer {
         switch event {
         case .itemStatusChanged(let status):
             broadcast(.itemStatusChanged(status))
+            refreshPlaybackMirrors()
         case .playbackStalled:
+            isStallOutstanding = true
             broadcast(.playbackStalled)
+            refreshPlaybackMirrors()
         case .playedToEnd:
+            desiresPlayback = false
             broadcast(.playedToEnd)
+            refreshPlaybackMirrors()
         case .timeControlStatusChanged(let status):
             broadcast(.timeControlStatusChanged(status))
-        case .failed(let error):
-            lastError = error
-            broadcast(.failed(error))
+            refreshPlaybackMirrors()
+            if isStallOutstanding, status == .playing {
+                isStallOutstanding = false
+                broadcast(.stallEnded)
+            }
+        case .failed(let failure):
+            routeFailure(failure)
+        case .bufferStateChanged:
+            refreshPlaybackMirrors()
+        case .durationChanged:
+            refreshPlaybackMirrors()
+        case .presentationSizeChanged(let size):
+            guard size != .zero, size != lastBroadcastPresentationSize else { return }
+            lastBroadcastPresentationSize = size
+            broadcast(.presentationSizeChanged(size))
         }
+    }
+
+    /// Re-reads the target's raw signals and updates the three
+    /// recompute-from-target mirrors, broadcasting only what actually
+    /// changed — `@Observable` re-fires `withMutation` even for an
+    /// identical-value re-assignment, which would otherwise invalidate
+    /// SwiftUI on every trigger regardless of whether anything moved.
+    /// Assignment always precedes its broadcast, so a re-entrant handler
+    /// reading the mirror mid-broadcast sees the already-settled value.
+    private func refreshPlaybackMirrors() {
+        let newIsPlaying = target.isPlaying
+        if newIsPlaying != isPlaying {
+            isPlaying = newIsPlaying
+        }
+
+        let newDuration = target.duration
+        if newDuration != duration {
+            duration = newDuration
+        }
+        if let newDuration, newDuration.isNumeric {
+            let seconds = CMTimeGetSeconds(newDuration)
+            if seconds.isFinite, seconds > 0, newDuration != lastBroadcastFiniteDuration {
+                lastBroadcastFiniteDuration = newDuration
+                broadcast(.durationAvailable(newDuration))
+            }
+        }
+
+        let newIsBuffering = ABBufferingEvaluator.isBuffering(
+            hasItem: avPlayerItem != nil,
+            intendsToPlay: desiresPlayback,
+            timeControlStatus: target.timeControlStatus,
+            isWaitingWithNoItem: target.isWaitingWithNoItem,
+            isPlaybackLikelyToKeepUp: target.isPlaybackLikelyToKeepUp,
+            isPlaybackBufferEmpty: target.isPlaybackBufferEmpty
+        )
+        if newIsBuffering != isBuffering {
+            isBuffering = newIsBuffering
+            broadcast(.bufferingChanged(newIsBuffering))
+        }
+    }
+
+    /// Routes a failure to ``lastFailure`` or ``lastDiagnostic`` by
+    /// `isTerminal`, then broadcasts both the legacy `.failed` channel and
+    /// `.failureReported` from the same site — additive-only means neither
+    /// channel can be dropped in favor of the other this round.
+    private func routeFailure(_ failure: ABPlayerFailure) {
+        if failure.isTerminal {
+            lastFailure = failure
+        } else {
+            lastDiagnostic = failure
+        }
+        broadcast(.failed(failure.kind))
+        broadcast(.failureReported(failure))
     }
 
     private func interpret(_ actions: [ABGradeAction], source: ABMediaSource?, detachReason: ABDetachReason) {
@@ -488,31 +661,51 @@ public final class ABPlayer {
                 cancelPreload()
 
             case .pause:
+                desiresPlayback = false
                 target.pause()
+                refreshPlaybackMirrors()
 
             case .applyTuning(let role):
                 lastAppliedTuningRole = role
-                let tuning = tuning(for: role)
-                if target.applyTuning(tuning) {
-                    broadcast(.tuningApplied(role, tuning))
+                if target.applyTuning(resolvedTuning(for: role)) {
+                    broadcast(.tuningApplied(role, tuning(for: role)))
                 }
 
             case .attachItem(let attachedSource):
                 reportedFirstFrameItem = nil
                 hasDisplayedFirstFrame = false
+                lastFailure = nil
+                lastDiagnostic = nil
                 target.attachItem(
                     attachedSource,
-                    tuning: tuning(for: lastAppliedTuningRole),
+                    tuning: resolvedTuning(for: lastAppliedTuningRole),
                     assetFactory: configuration.assetFactory
                 )
+                // Before `.tuningApplied`, same action — consumers can rely
+                // on an attached item always being announced before its
+                // tuning.
+                broadcast(.itemAttached(source: attachedSource))
                 broadcast(.tuningApplied(lastAppliedTuningRole, tuning(for: lastAppliedTuningRole)))
                 target.setMuted(configuration.isMuted)
                 target.setLooping(configuration.isLooping)
                 target.setRate(configuration.playbackRate)
 
             case .detachItem:
-                broadcast(.itemDetached(reason: detachReason))
+                lastFailure = nil
+                lastDiagnostic = nil
+                reportedFirstFrameItem = nil
+                hasDisplayedFirstFrame = false
+                isStallOutstanding = false
+                lastBroadcastFiniteDuration = nil
+                lastBroadcastPresentationSize = nil
+                // Detach before broadcasting: `.itemDetached` observers
+                // (e.g. `ABPlayerView`) read `player.avPlayerItem` to decide
+                // whether to rebind — it must already be `nil` by the time
+                // they see the event, not still pointing at the item that's
+                // about to be torn down.
                 target.detachItem()
+                broadcast(.itemDetached(reason: detachReason))
+                refreshPlaybackMirrors()
 
             case .armPreroll:
                 if let rate = configuration.prerollRate {
@@ -520,7 +713,11 @@ public final class ABPlayer {
                 }
 
             case .seekToStart:
-                Task { [target] in await target.seekToStart() }
+                // Routed through the same seek gate every other seek uses
+                // (rather than a bare `target.seekToStart()` `Task`), so a
+                // `rewindOnDemotion` rewind now broadcasts `.seekCompleted`
+                // like any other seek instead of silently landing.
+                enqueueSeek(to: .zero, tolerance: .precise)
 
             case .teardownObservers:
                 // ABAVPlaybackTarget invalidates its own observation bag as
@@ -538,6 +735,33 @@ public final class ABPlayer {
         role == .preload ? configuration.preloadTuning : configuration.currentTuning
     }
 
+    /// The tuning actually handed to `target` — `displaySizeSentinel`
+    /// resolved against `displaySize` (`ABPlayerView`'s reported pixel
+    /// size, or `.zero`/no cap while no view is attached). `.tuningApplied`
+    /// keeps broadcasting the unresolved `tuning(for:)` value, matching its
+    /// existing meaning as "which preset was requested" rather than the
+    /// resolved pixel cap.
+    private func resolvedTuning(for role: ABTuningRole) -> ABPlaybackTuning {
+        tuning(for: role).resolved(displaySize: displaySize)
+    }
+
+    /// Called by `ABPlayerView.layoutSubviews()` with its pixel size
+    /// (`bounds.size × traitCollection.displayScale`). Re-applies tuning
+    /// only when the size actually changed, so repeated identical layout
+    /// passes don't loop. `.zero` (no view attached) resolves
+    /// `displaySizeSentinel` to "no cap" — a feed cell's correct cap is the
+    /// cell's own size, never the device screen's.
+    func reportDisplaySize(_ size: CGSize) {
+        guard displaySize != size else { return }
+        displaySize = size
+        guard grade.holdsItem else { return }
+        let role: ABTuningRole = grade == .current ? .current : .preload
+        lastAppliedTuningRole = role
+        if target.applyTuning(resolvedTuning(for: role)) {
+            broadcast(.tuningApplied(role, tuning(for: role)))
+        }
+    }
+
     private func armPreroll(rate: Float) {
         prerollTask?.cancel()
         let timeout = configuration.prerollTimeout
@@ -550,13 +774,11 @@ public final class ABPlayer {
                 self?.broadcast(.prerollCompleted(success: true))
             case .timedOut:
                 let error = ABPlayerError.prerollTimedOut(after: timeout)
-                self?.lastError = error
-                self?.broadcast(.failed(error))
+                self?.routeFailure(ABPlayerFailure(kind: error))
                 self?.broadcast(.prerollCompleted(success: false))
             case .failed:
                 let error = ABPlayerError.prerollFailed
-                self?.lastError = error
-                self?.broadcast(.failed(error))
+                self?.routeFailure(ABPlayerFailure(kind: error))
                 self?.broadcast(.prerollCompleted(success: false))
             case .cancelled:
                 break
@@ -581,6 +803,7 @@ public final class ABPlayer {
         }
         if previousConfiguration.isMuted != configuration.isMuted {
             target.setMuted(configuration.isMuted)
+            broadcast(.mutedChanged(configuration.isMuted))
         }
         if previousConfiguration.isLooping != configuration.isLooping {
             target.setLooping(configuration.isLooping)
@@ -588,6 +811,7 @@ public final class ABPlayer {
         if ABPlaybackRate.clamped(previousConfiguration.playbackRate) != configuration.playbackRate {
             target.setRate(configuration.playbackRate)
             broadcast(.rateChanged(configuration.playbackRate))
+            refreshPlaybackMirrors()
         }
         if previousConfiguration.periodicTimeInterval != configuration.periodicTimeInterval {
             reconcilePeriodicTimeObserver()
@@ -626,9 +850,8 @@ public final class ABPlayer {
             : previousConfiguration.currentTuning
         guard previousRoleTuning != tuning(for: role) else { return }
         lastAppliedTuningRole = role
-        let resolvedTuning = tuning(for: role)
-        if target.applyTuning(resolvedTuning) {
-            broadcast(.tuningApplied(role, resolvedTuning))
+        if target.applyTuning(resolvedTuning(for: role)) {
+            broadcast(.tuningApplied(role, tuning(for: role)))
         }
     }
 
@@ -641,64 +864,101 @@ public final class ABPlayer {
         guard appStateObserver == nil else { return }
         appStateObserver = ABApplicationStateObserver(
             center: notificationCenter,
+            onWillResignActive: { [weak self] in self?.handleWillResignActive() },
             onBackground: { [weak self] in self?.handleDidEnterBackground() },
             onForeground: { [weak self] in self?.handleWillEnterForeground() }
         )
     }
 
+    /// `willResignActive` always precedes `didEnterBackground` — capturing
+    /// `isPlaying` here (rather than in `handleDidEnterBackground`) is what
+    /// makes the capture reliable: by the time `didEnterBackground` fires,
+    /// iOS may already have stopped decode, so `isPlaying` would often read
+    /// `false` there even for playback that was genuinely still active a
+    /// moment earlier. The actual pause/detach/demote side effects stay in
+    /// `handleDidEnterBackground` — a resign that gets cancelled (e.g. a
+    /// system alert dismissed without truly backgrounding) must not stop
+    /// playback, only overwrite the capture for whenever backgrounding does
+    /// happen.
+    private func handleWillResignActive() {
+        interpretBackgroundActions(backgroundPolicyMachine.actions(
+            for: .willResignActive,
+            policy: configuration.backgroundPolicy,
+            grade: grade,
+            wasPlayingBeforeBackground: wasPlayingBeforeBackground,
+            hasCapturedGrade: gradeBeforeBackground != nil
+        ))
+    }
+
     private func handleDidEnterBackground() {
-        switch configuration.backgroundPolicy {
-        case .ignore:
-            return
-        case .pause:
-            wasPlayingBeforeBackground = isPlaying
-            if grade == .current {
-                target.pause()
-            }
-        case .pauseAndDetachLayer:
-            wasPlayingBeforeBackground = isPlaying
-            if grade == .current {
-                target.pause()
-            }
-            setLayerAttachmentEnabled(false)
-        case .demoteToInstance:
-            gradeBeforeBackground = grade
-            if grade.holdsItem {
-                set(source: source, grade: .instanceOnly, detachReason: .backgroundPolicy)
-            }
-        }
+        interpretBackgroundActions(backgroundPolicyMachine.actions(
+            for: .didEnterBackground,
+            policy: configuration.backgroundPolicy,
+            grade: grade,
+            wasPlayingBeforeBackground: wasPlayingBeforeBackground,
+            hasCapturedGrade: gradeBeforeBackground != nil
+        ))
     }
 
     private func handleWillEnterForeground() {
-        // The system may have deactivated the audio session while
-        // backgrounded regardless of `backgroundPolicy` — re-dirty
-        // unconditionally so the next `play()` reactivates instead of
-        // being skipped by N1's dirty-flag optimization above.
-        audioSessionActivationDirty = true
-        switch configuration.backgroundPolicy {
-        case .ignore:
-            return
-        case .pause:
-            if grade == .current && wasPlayingBeforeBackground {
-                target.play()
+        interpretBackgroundActions(backgroundPolicyMachine.actions(
+            for: .willEnterForeground,
+            policy: configuration.backgroundPolicy,
+            grade: grade,
+            wasPlayingBeforeBackground: wasPlayingBeforeBackground,
+            hasCapturedGrade: gradeBeforeBackground != nil
+        ))
+    }
+
+    private func interpretBackgroundActions(_ actions: [ABBackgroundAction]) {
+        for action in actions {
+            switch action {
+            case .capturePlaying:
+                // Reads the target directly, not the `isPlaying` mirror —
+                // this must be the live, authoritative value at the exact
+                // capture instant, not whatever the mirror last settled to.
+                wasPlayingBeforeBackground = target.isPlaying
+            case .pause:
+                desiresPlayback = false
+                target.pause()
+                refreshPlaybackMirrors()
+            case .setLayerAttachment(let enabled):
+                setLayerAttachmentEnabled(enabled)
+            case .demoteToInstance:
+                gradeBeforeBackground = grade
+                if grade.holdsItem {
+                    set(source: source, grade: .instanceOnly, detachReason: .backgroundPolicy)
+                }
+            case .restoreCapturedGrade:
+                if let restoredGrade = gradeBeforeBackground {
+                    promote(to: restoredGrade)
+                }
+                gradeBeforeBackground = nil
+            case .resumePlay:
+                // Routed through `self.play()` (not a direct `target.play()`
+                // call) so a foreground resume also reactivates the audio
+                // session via `applyAudioSessionPolicyIfNeeded` — the fix
+                // for the bypass a direct target call used to cause.
+                play()
+            case .markAudioSessionDirty:
+                audioSessionActivationDirty = true
+            case .clearCapture:
+                wasPlayingBeforeBackground = false
             }
-            wasPlayingBeforeBackground = false
-        case .pauseAndDetachLayer:
-            setLayerAttachmentEnabled(true)
-            if grade == .current && wasPlayingBeforeBackground {
-                target.play()
-            }
-            wasPlayingBeforeBackground = false
-        case .demoteToInstance:
-            if let restoredGrade = gradeBeforeBackground {
-                promote(to: restoredGrade)
-            }
-            gradeBeforeBackground = nil
         }
     }
 
     private func broadcast(_ event: ABPlayerEvent) {
-        observerRegistry.broadcast(event, from: self)
+        observerRegistry.broadcast(event)
+    }
+
+    /// Broadcasts the legacy `.playbackRejected` signal together with
+    /// `.callRejected`, which identifies which call and grade caused the
+    /// rejection — the "why did nothing happen" gap `.playbackRejected`
+    /// alone left a first-time consumer to guess at.
+    private func rejectCall(_ call: ABRejectedCall) {
+        broadcast(.playbackRejected)
+        broadcast(.callRejected(call, grade: grade))
     }
 
     // MARK: - Audio interruption / route change (round3 Phase4 WP10)
@@ -745,9 +1005,14 @@ public final class ABPlayer {
         // skipped reactivation and left playback silently muted).
         audioSessionActivationDirty = true
         guard configuration.interruptionPolicy != .ignore else { return }
-        wasPlayingBeforeInterruption = isPlaying
+        // Reads the target directly (not the `isPlaying` mirror) for the
+        // same reason `ABBackgroundPolicyMachine`'s `.capturePlaying`
+        // capture does — this needs the live value at this exact instant.
+        wasPlayingBeforeInterruption = target.isPlaying
         if grade == .current {
+            desiresPlayback = false
             target.pause()
+            refreshPlaybackMirrors()
         }
         broadcast(.audioInterruptionBegan)
     }
@@ -772,7 +1037,9 @@ public final class ABPlayer {
 
     private func handleRouteChangeDeviceUnavailable() {
         guard configuration.pausesOnRouteChangeDeviceUnavailable, grade == .current else { return }
+        desiresPlayback = false
         target.pause()
+        refreshPlaybackMirrors()
         broadcast(.audioRouteChangedDeviceUnavailable)
     }
 
@@ -828,11 +1095,61 @@ public final class ABPlayer {
     /// them the same way every other asynchronous failure in this type is
     /// surfaced (DESIGN-ABPlayerKit.md §6).
     private func surfaceAudioSessionFailure(_ error: Error) {
+        let nsError = error as NSError
         let policyError = ABPlayerError.audioSessionOperationFailed(
-            description: (error as NSError).localizedDescription
+            description: nsError.localizedDescription
         )
-        lastError = policyError
-        broadcast(.failed(policyError))
+        let origin = ABErrorOrigin(domain: nsError.domain, code: nsError.code)
+        routeFailure(ABPlayerFailure(kind: policyError, origin: origin))
+    }
+
+    /// The single gate every seek entry point (`seek(to:)`, non-scrubbing
+    /// `skip(by:)`, out-of-session `scrub(to:)`, the planner's
+    /// `.seekToStart`) funnels through. Does not check `grade` — callers
+    /// already broadcast their own rejection and return before reaching
+    /// this, and a planner-originated seek (`.seekToStart`) is called
+    /// mid-grade-transition, before `grade` has necessarily settled.
+    /// Because the existing seek worker (`runSeekWorker`) already carries
+    /// the generation guard, every entry point that funnels through here
+    /// automatically gets stale-seek protection for free.
+    @discardableResult
+    private func enqueueSeek(to time: CMTime, tolerance: ABSeekTolerance) -> Bool {
+        let destination = clampToPlayableRange(time)
+        if !isScrubbing, pendingSeekTime != destination {
+            pendingSeekTime = destination
+            broadcast(.seekTargetChanged(destination))
+        }
+        let decision = seekCoalescer.request(destination, tolerance: tolerance)
+        startSeekWorker(for: decision)
+        if case .issue = decision { return true }
+        return false
+    }
+
+    /// Clamps to `0...duration` when duration is known and finite —
+    /// otherwise only the lower bound applies (matches `skip(by:)`'s
+    /// pre-existing "no upper clamp while live" behavior).
+    private func clampToPlayableRange(_ time: CMTime) -> CMTime {
+        var result = time.isNumeric ? time : .zero
+        if result.seconds < 0 {
+            result = .zero
+        }
+        if let duration, duration.isNumeric {
+            let durationSeconds = CMTimeGetSeconds(duration)
+            if durationSeconds.isFinite, durationSeconds >= 0, result.seconds > durationSeconds {
+                result = duration
+            }
+        }
+        return result
+    }
+
+    /// Waits for the seek worker outstanding at `generation` (captured by
+    /// the caller *before* calling `enqueueSeek`) to fully settle —
+    /// including any further requests it coalesces in along the way.
+    /// Returns immediately if `generation` is already stale (a grade
+    /// transition reset seeking while this call was suspended elsewhere).
+    private func awaitSeekSettled(generation: Int) async {
+        guard generation == seekGeneration, let seekWorkerTask else { return }
+        await seekWorkerTask.value
     }
 
     private func startSeekWorker(for decision: ABSeekCoalescer.Decision) {
@@ -854,6 +1171,13 @@ public final class ABPlayer {
             broadcast(.seekCompleted(to: landed))
             nextDecision = seekCoalescer.completed()
         }
+        guard generation == seekGeneration,
+              !isScrubbing,
+              pendingSeekTime != nil,
+              seekCoalescer.inFlight == nil,
+              seekCoalescer.pending == nil else { return }
+        pendingSeekTime = nil
+        broadcast(.seekTargetChanged(nil))
     }
 
     private func resetSeeking() {
@@ -862,6 +1186,10 @@ public final class ABPlayer {
         seekWorkerTask = nil
         seekCoalescer.reset()
         lastScrubTime = nil
+        if pendingSeekTime != nil {
+            pendingSeekTime = nil
+            broadcast(.seekTargetChanged(nil))
+        }
         guard isScrubbing else { return }
         isScrubbing = false
         broadcast(.scrubbingChanged(isScrubbing: false))
