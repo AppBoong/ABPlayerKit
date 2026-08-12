@@ -34,6 +34,17 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
     /// Round3 Phase4 WP10.3.
     public var pausesOnRouteChangeDeviceUnavailable: Bool
     public var videoGravity: AVLayerVideoGravity
+    /// `AVPlayer.allowsExternalPlayback`. Default `true` — matches
+    /// `AVPlayer`'s own default, so existing consumers see no behavior
+    /// change. A screen with several concurrently-live players (a feed)
+    /// should set this `false` on every instance except the current one.
+    public var allowsExternalPlayback: Bool
+    /// `AVPlayer.usesExternalPlaybackWhileExternalScreenIsActive`. Default
+    /// `false`, matching `AVPlayer`'s own default.
+    public var usesExternalPlaybackWhileExternalScreenIsActive: Bool
+    /// `AVPlayer.externalPlaybackVideoGravity`. Default `.resizeAspect`,
+    /// matching `AVPlayer`'s own default.
+    public var externalPlaybackVideoGravity: AVLayerVideoGravity
     public var assetFactory: any ABAssetFactory
 
     public init(
@@ -52,6 +63,9 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
         interruptionPolicy: ABInterruptionPolicy = .ignore,
         pausesOnRouteChangeDeviceUnavailable: Bool = true,
         videoGravity: AVLayerVideoGravity = .resizeAspectFill,
+        allowsExternalPlayback: Bool = true,
+        usesExternalPlaybackWhileExternalScreenIsActive: Bool = false,
+        externalPlaybackVideoGravity: AVLayerVideoGravity = .resizeAspect,
         assetFactory: any ABAssetFactory = ABDefaultAssetFactory()
     ) {
         self.preloadTuning = preloadTuning
@@ -69,6 +83,9 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
         self.interruptionPolicy = interruptionPolicy
         self.pausesOnRouteChangeDeviceUnavailable = pausesOnRouteChangeDeviceUnavailable
         self.videoGravity = videoGravity
+        self.allowsExternalPlayback = allowsExternalPlayback
+        self.usesExternalPlaybackWhileExternalScreenIsActive = usesExternalPlaybackWhileExternalScreenIsActive
+        self.externalPlaybackVideoGravity = externalPlaybackVideoGravity
         self.assetFactory = assetFactory
     }
 
@@ -88,5 +105,8 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
             && lhs.interruptionPolicy == rhs.interruptionPolicy
             && lhs.pausesOnRouteChangeDeviceUnavailable == rhs.pausesOnRouteChangeDeviceUnavailable
             && lhs.videoGravity == rhs.videoGravity
+            && lhs.allowsExternalPlayback == rhs.allowsExternalPlayback
+            && lhs.usesExternalPlaybackWhileExternalScreenIsActive == rhs.usesExternalPlaybackWhileExternalScreenIsActive
+            && lhs.externalPlaybackVideoGravity == rhs.externalPlaybackVideoGravity
     }
 }

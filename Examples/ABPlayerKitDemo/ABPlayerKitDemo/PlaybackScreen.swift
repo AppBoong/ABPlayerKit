@@ -103,6 +103,13 @@ struct PlaybackScreen: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    GroupBox("Now Playing") {
+                        Toggle("Show on lock screen / Control Center", isOn: nowPlayingBinding)
+                        Text("Publishes to MPNowPlayingInfoCenter only while this player is Current and this toggle is on.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
                     GroupBox("Live configuration") {
                         VStack(spacing: 12) {
                             Toggle("Muted", isOn: mutedBinding)
@@ -157,6 +164,13 @@ struct PlaybackScreen: View {
         Binding(
             get: { model.isLooping },
             set: { looping in model.setLooping(looping) }
+        )
+    }
+
+    private var nowPlayingBinding: Binding<Bool> {
+        Binding(
+            get: { model.nowPlayingEnabled },
+            set: { enabled in model.setNowPlayingEnabled(enabled) }
         )
     }
 

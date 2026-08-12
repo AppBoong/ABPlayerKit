@@ -13,6 +13,7 @@
 		789E9A5E1C7D97222FFDA49A /* ABPlayerKitDemoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8365BE4D345F4DCBD527D4EB /* ABPlayerKitDemoApp.swift */; };
 		9518DB33FC263EE0C83F0DFC /* DemoRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACE361F1567AA3E2BF4CACA2 /* DemoRootView.swift */; };
 		9BBC64FD605D0D96CAF27E0C /* ABPlayerKitCache in Frameworks */ = {isa = PBXBuildFile; productRef = B38D10D3A1D3C801BDEEC0B1 /* ABPlayerKitCache */; };
+		E1F2A3B4C5D6071829304050 /* ABPlayerKitNowPlaying in Frameworks */ = {isa = PBXBuildFile; productRef = F0E1D2C3B4A596877665544A /* ABPlayerKitNowPlaying */; };
 		B1446DC7A36E8C6EA338353F /* MetricsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FD377BC928032021943832E /* MetricsScreen.swift */; };
 		C998930DB17B51A99BED385F /* CacheScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A8235864AB17F55E1ADFA3B /* CacheScreen.swift */; };
 		D5063569F92602B875128BF6 /* DemoModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0FC87B09300AFC07D882973 /* DemoModel.swift */; };
@@ -39,6 +40,7 @@
 				2C9F20A7A6084BA582D70101 /* ABPlayerKitControls in Frameworks */,
 				0978A40824D431215D2F6A40 /* ABPlayerKitMetrics in Frameworks */,
 				9BBC64FD605D0D96CAF27E0C /* ABPlayerKitCache in Frameworks */,
+				E1F2A3B4C5D6071829304050 /* ABPlayerKitNowPlaying in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -103,6 +105,7 @@
 				2C9F20A7A6084BA582D70102 /* ABPlayerKitControls */,
 				B1897A8CC22156051FE0C75C /* ABPlayerKitMetrics */,
 				B38D10D3A1D3C801BDEEC0B1 /* ABPlayerKitCache */,
+				F0E1D2C3B4A596877665544A /* ABPlayerKitNowPlaying */,
 			);
 			productName = ABPlayerKitDemo;
 			productReference = 7CCB9CB2EA028C0035D487C8 /* ABPlayerKitDemo.app */;
@@ -369,6 +372,10 @@
 		B38D10D3A1D3C801BDEEC0B1 /* ABPlayerKitCache */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ABPlayerKitCache;
+		};
+		F0E1D2C3B4A596877665544A /* ABPlayerKitNowPlaying */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ABPlayerKitNowPlaying;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

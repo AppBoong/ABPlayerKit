@@ -69,6 +69,10 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         avPlayerItem?.presentationSize ?? .zero
     }
 
+    var isExternalPlaybackActive: Bool {
+        avPlayer?.isExternalPlaybackActive ?? false
+    }
+
     func makePlayer() {
         avPlayer = AVPlayer()
         avPlayer?.automaticallyWaitsToMinimizeStalling = true
@@ -143,6 +147,12 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
 
     func setMuted(_ muted: Bool) {
         avPlayer?.isMuted = muted
+    }
+
+    func applyExternalPlayback(_ settings: ABExternalPlaybackSettings) {
+        avPlayer?.allowsExternalPlayback = settings.allowsExternalPlayback
+        avPlayer?.usesExternalPlaybackWhileExternalScreenIsActive = settings.usesExternalPlaybackWhileExternalScreenIsActive
+        avPlayer?.externalPlaybackVideoGravity = settings.externalPlaybackVideoGravity
     }
 
     /// `actionAtItemEnd` defaults to `.pause`, so looping needs `.none` or

@@ -1,6 +1,7 @@
 import ABPlayerKit
 import ABPlayerKitCache
 import ABPlayerKitMetrics
+import ABPlayerKitNowPlaying
 import AVFoundation
 import Foundation
 import Observation
@@ -172,6 +173,8 @@ final class DemoModel {
     var cacheEnabled = false
     var prefetchState = HLSPrefetchState.idle
     var cacheError: String?
+    var nowPlayingEnabled = false
+    private var nowPlayingToken: ABObservationToken?
 
     /// Where the demo's JSONL metrics log lives — shown in the Metrics tab
     /// next to a manual flush button.
@@ -251,6 +254,12 @@ final class DemoModel {
         selectedMedia = media
         usesPrefetchedHLS = false
         transitionToSelectedSource(startedAt: startedAt)
+        if nowPlayingEnabled {
+            ABNowPlayingCenter.shared.update(
+                ABNowPlayingMetadata(title: selectedMedia.rawValue, mediaType: .video),
+                for: player
+            )
+        }
     }
 
     func setGrade(_ newGrade: ABPlaybackGrade) {
@@ -282,6 +291,19 @@ final class DemoModel {
         guard configuration.isLooping != looping else { return }
         configuration.isLooping = looping
         player.configuration = configuration
+    }
+
+    func setNowPlayingEnabled(_ enabled: Bool) {
+        guard enabled != nowPlayingEnabled else { return }
+        nowPlayingEnabled = enabled
+        guard enabled else {
+            nowPlayingToken = nil
+            return
+        }
+        nowPlayingToken = ABNowPlayingCenter.shared.attach(
+            player,
+            metadata: ABNowPlayingMetadata(title: selectedMedia.rawValue, mediaType: .video)
+        )
     }
 
     func setTuning(_ preset: DemoTuningPreset) {

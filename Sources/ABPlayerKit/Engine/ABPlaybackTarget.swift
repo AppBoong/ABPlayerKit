@@ -28,6 +28,15 @@ enum ABPrerollResult: Sendable, Equatable {
     case cancelled
 }
 
+/// The `AVPlayer` external-playback (AirPlay) knobs, bundled so
+/// `applyExternalPlayback(_:)` has a single argument to apply at player
+/// creation and on every subsequent configuration change.
+struct ABExternalPlaybackSettings: Equatable {
+    var allowsExternalPlayback: Bool
+    var usesExternalPlaybackWhileExternalScreenIsActive: Bool
+    var externalPlaybackVideoGravity: AVLayerVideoGravity
+}
+
 /// The one seam between `ABPlayer` and real `AVFoundation` calls. Kept
 /// `internal` — consumers reach real playback through `ABPlayer`'s public
 /// surface, never through this protocol (`@testable import` is how tests
@@ -58,6 +67,7 @@ protocol ABPlaybackTarget: AnyObject {
     /// buffering verdict that would otherwise fire while nothing is queued.
     var isWaitingWithNoItem: Bool { get }
     var presentationSize: CGSize { get }
+    var isExternalPlaybackActive: Bool { get }
 
     /// Fired for events the target observes on its own (item status,
     /// stalls, end-of-playback, time control status, failures).
@@ -74,6 +84,7 @@ protocol ABPlaybackTarget: AnyObject {
     func setRate(_ rate: Float)
     func setMuted(_ muted: Bool)
     func setLooping(_ isLooping: Bool)
+    func applyExternalPlayback(_ settings: ABExternalPlaybackSettings)
     /// Waits for `status == .readyToPlay` (or `prerollTimeout` to elapse),
     /// then `preroll(atRate:)`. Reports timeout, failure, and cancellation
     /// separately so `ABPlayer` can surface the correct public event.

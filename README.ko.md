@@ -68,7 +68,8 @@ targets: [
             // 필요할 때만 링크합니다.
             .product(name: "ABPlayerKitControls", package: "ABPlayerKit"),
             .product(name: "ABPlayerKitMetrics", package: "ABPlayerKit"),
-            .product(name: "ABPlayerKitCache", package: "ABPlayerKit")
+            .product(name: "ABPlayerKitCache", package: "ABPlayerKit"),
+            .product(name: "ABPlayerKitNowPlaying", package: "ABPlayerKit")
         ]
     )
 ]
@@ -222,6 +223,7 @@ player.set(source: source, grade: .instanceOnly)
 | `ABPlayerKitControls` | 타임라인, 버튼, 배속 선택, 자동 숨김, UIKit/SwiftUI 컨트롤 | 표준 컨트롤 레이어가 필요할 때 |
 | `ABPlayerKitMetrics` | TTFF 기록, sink, 집계 | 재생을 측정할 때 |
 | `ABPlayerKitCache` | 프로그레시브 캐시와 명시적 HLS 프리페치 | 오프라인/캐시 동작을 소유할 때 |
+| `ABPlayerKitNowPlaying` | 잠금화면/제어 센터 연동(`MPNowPlayingInfoCenter`, `MPRemoteCommandCenter`) | 원격 커맨드/잠금화면 재생을 원할 때 |
 
 ### `ABPlayerKit` — 코어
 
@@ -261,6 +263,109 @@ player.configuration = configuration
 - **`pausesOnRouteChangeDeviceUnavailable`** (기본값 `true`, `interruptionPolicy`와 무관): 현재 출력 장치가 사라지면(예: 헤드폰 분리) 일시 정지합니다 — 플랫폼 HIG 기대에 부합합니다. 원치 않으면 `false`로 설정하세요.
 
 두 경로 모두 동일한 `ABPlayerEvent` 스트림으로 통지됩니다: `.audioInterruptionBegan`, `.audioInterruptionEnded(resumed:)`, `.audioRouteChangedDeviceUnavailable`.
+
+#### 백그라운드 정책
+
+`ABPlayerConfiguration.backgroundPolicy`는 `.current` 플레이어가 앱이 포그라운드를 벗어날 때 어떻게 반응할지 결정합니다. 기본값은 `.pause`입니다.
+
+| 정책 | 백그라운드 진입 시 | 포그라운드 복귀 시 |
+|---|---|---|
+| `.ignore` | 아무것도 하지 않음 | 아무것도 하지 않음(오디오 세션을 재활성화 대상으로 표시하는 것 제외) |
+| `.pause` (기본값) | `.current`면 일시정지 | 재생 중이었다면 재개 |
+| `.pauseAndDetachLayer` | `.current`면 일시정지, `AVPlayerLayer.player`를 뗌(디코더 해제) | 레이어 재부착, 재생 중이었다면 재개 |
+| `.demoteToInstance` | `.instanceOnly`로 강등(아이템 폐기, 네트워크 완전 차단) | 이전 등급 복원 |
+| `.continueAudioOnly` | `AVPlayerLayer.player`만 뗌 — 재생은 계속됨 | 레이어 재부착, 시스템이 재생을 멈췄다면 재개 |
+
+`.continueAudioOnly`는 아래 세 조건이 모두 갖춰져야 하며, 하나라도 빠지면 `.pause`처럼 조용히 동작합니다(시스템이 앱을 서스펜드하고, 이 정책은 포그라운드 복귀 시 안전망으로 재생을 재개합니다).
+
+| # | 조건 | 설정 주체 |
+|---|---|---|
+| 1 | `UIBackgroundModes`에 `audio` 포함 | 호스트 앱의 `Info.plist` — 라이브러리가 대신 해 줄 수 없음 |
+| 2 | `configuration.audioSessionPolicy = .playback(mixWithOthers: false)`(또는 `.ambient`) | 앱이 `ABPlayerConfiguration`으로 설정 |
+| 3 | `configuration.backgroundPolicy = .continueAudioOnly` | 앱이 `ABPlayerConfiguration`으로 설정 |
+
+`ABBackgroundPolicy`는 비전수(non-exhaustive)입니다 — 라이브러리 밖에서 이 타입을 `switch`할 때는 `default` 분기를 포함해야 합니다.
+
+#### Picture in Picture
+
+`ABPictureInPictureSession`을 `ABPlayerView`에 바인딩하거나, `ABVideoPlayer`의 **명시 소유** 이니셜라이저에 전달합니다.
+
+```swift
+import ABPlayerKit
+import SwiftUI
+
+struct VideoScreen: View {
+    let player: ABPlayer
+    @State private var pictureInPicture = ABPictureInPictureSession()
+
+    var body: some View {
+        ABVideoPlayer(player: player, pictureInPicture: pictureInPicture)
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .overlay(alignment: .topTrailing) {
+                if pictureInPicture.isPossible {
+                    Button(pictureInPicture.isActive ? "PiP 종료" : "PiP 시작") {
+                        pictureInPicture.isActive ? pictureInPicture.stop() : pictureInPicture.start()
+                    }
+                }
+            }
+    }
+}
+```
+
+세션이 활성인 동안에는 그 플레이어에 대해 모든 `ABBackgroundPolicy`의 자동 백그라운드/포그라운드 부작용이 억제됩니다 — PiP가 자기 자신에 의해 일시정지되거나 레이어가 떨어져 나가지 않고 계속 렌더링·재생됩니다. 억제되는 것은 *자동* 부작용뿐이며, `release()` 같은 명시적 호출은 여전히 PiP를 종료시킵니다.
+
+| 전제조건 | 제공 주체 |
+|---|---|
+| `UIBackgroundModes`에 `audio` 포함(PiP가 백그라운드에서도 유지되어야 한다면) | 호스트 앱의 `Info.plist` — 라이브러리가 대신 해 줄 수 없음 |
+| `configuration.audioSessionPolicy != .unmanaged` | 앱이 `ABPlayerConfiguration`으로 설정 |
+| 기기/OS가 Picture in Picture 지원 | `ABPictureInPictureSession.isSupported` 확인 — 시뮬레이터에서는 대체로 `false` |
+| 바인딩된 레이어가 표시 준비됨 | `session.isPossible`에 반영됨 |
+
+**Picture in Picture는 명시 소유 경로(`player:` 이니셜라이저)에서만 지원됩니다.** `url:`/`source:` 편의 이니셜라이저는 SwiftUI identity가 폐기될 때 소유한 플레이어를 해제하므로 PiP가 도중에 끊길 수 있습니다 — 그래서 이 이니셜라이저들은 `pictureInPicture:` 파라미터를 받지 않습니다.
+
+#### AirPlay
+
+`ABPlayerConfiguration`의 세 프로퍼티가 대응하는 `AVPlayer` 프로퍼티로 그대로 전달되며, 모두 `AVPlayer` 자체 기본값과 동일합니다(기존 소비자의 동작이 바뀌지 않습니다).
+
+```swift
+var configuration = ABPlayerConfiguration()
+configuration.allowsExternalPlayback = true                          // 기본값
+configuration.usesExternalPlaybackWhileExternalScreenIsActive = false // 기본값
+configuration.externalPlaybackVideoGravity = .resizeAspect            // 기본값
+```
+
+AirPlay가 현재 활성인지는 `player.isExternalPlaybackActive`로 확인합니다 — 매번 `AVPlayer`를 다시 읽는 평범한 computed 프로퍼티이며 `@Observable` 추적 대상이 아닙니다. 반응형 신호가 필요하면 `player.avPlayer`를 직접 KVO하거나 `AVRoutePickerView`가 자체 관리하는 상태를 사용하세요.
+
+```swift
+import AVKit
+import SwiftUI
+
+struct AirPlayButton: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView { AVRoutePickerView() }
+    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+}
+```
+
+여러 플레이어가 동시에 살아 있는 화면(피드)에서는 현재 셀을 제외한 나머지 인스턴스에 `allowsExternalPlayback = false`를 설정하세요.
+
+#### 자막과 오디오 트랙
+
+자막/오디오 트랙 선택 UI와 상태 관리는 이 라이브러리가 **제공하지 않습니다.** 탈출구를 통해 `AVMediaSelectionGroup`에 직접 접근하세요.
+
+```swift
+if let item = player.avPlayerItem,
+   let group = item.asset.mediaSelectionGroup(forMediaCharacteristic: .audible) {
+    let options = group.options
+    // options를 표시한 뒤:
+    item.select(options[0], in: group)
+}
+```
+
+세 가지 제약이 있습니다.
+
+1. `player.avPlayerItem`은 `.preloaded` 이상 등급에서만 `nil`이 아닙니다(`ABPlaybackGrade.holdsItem`).
+2. 소스 교체·강등·`release()`마다 아이템이 **새로** 만들어집니다(`ABAVPlaybackTarget`이 처음부터 다시 attach). 이전 아이템에서 선택한 값은 이어지지 않습니다 — 매 `.itemAttached(source:)` 이벤트마다 다시 적용하세요.
+3. 이 라이브러리는 attach 사이에 선택 상태를 기억하지 않습니다. 그 책임은 전적으로 소비자에게 있습니다.
 
 ### `ABPlayerKitControls` — 선택형 재생 컨트롤
 
@@ -395,6 +500,44 @@ if await handle.result == .completed {
 투명한 HLS 세그먼트 캐싱은 의도적으로 v1 범위에서 제외했습니다. `AVAssetResourceLoader`는 일반 HTTP(S) HLS 마스터/미디어 플레이리스트를 가로챌 수 없습니다. 투명 캐싱에는 플레이리스트를 재작성하고 상대 URL, 암호화 키, 백그라운드 수명을 처리하는 로컬 리버스 프록시가 필요합니다. 이는 훨씬 크고 다른 실패 영역이므로 확정된 [Q1 설계 결정](docs/DESIGN-OPEN-QUESTIONS.md)에 따라 별도 범위로 둡니다. [DESIGN-ABPlayerKit §9](docs/DESIGN-ABPlayerKit.md)도 참고하세요.
 
 프로그레시브 MP4 캐싱은 **선형 prefix**이지 sparse range가 아닙니다: 하나의 순차 fill이 파일을 0바이트부터 앞으로 채워나가며, `load(_:range:)`는 일반적으로 그 fill이 요청된 오프셋에 도달할 때까지 기다립니다. non-faststart 파일에서 멀리 떨어진 위치로 시크하면 fill이 순차적으로 그곳까지 도달할 때까지 무한정 기다리게 됩니다. 이를 제한하기 위해, 요청 오프셋이 현재 fill prefix보다 `ABCacheConfiguration.passthroughGapThreshold`(기본 2MB) 이상 앞서 있으면 대기 없이 곧바로 네트워크 직행 passthrough로 처리합니다 — 한 번의 왕복당 최대 1MB로 제한해 간격 전체를 메모리에 한 번에 적재하지 않고 청크 단위로 스트리밍합니다. 백그라운드 fill은 건드리지 않고 계속 앞으로 진행합니다 — 이는 해당 요청 하나를 위한 일회성 폴백일 뿐, 캐시 자체를 그 위치로 재시작하는 것이 아닙니다. 전면적인 sparse range 캐싱은 여전히 범위 밖입니다.
+
+### `ABPlayerKitNowPlaying` — Now Playing과 원격 커맨드
+
+이 타겟은 `ABPlayer`를 `MPNowPlayingInfoCenter`와 `MPRemoteCommandCenter`에 연결합니다. `audioSessionPolicy`와 마찬가지로 프로세스 전역 자원이며, 첫 `attach` 호출 전까지는 이 라이브러리가 아무것도 읽거나 쓰지 않습니다.
+
+```swift
+import ABPlayerKit
+import ABPlayerKitNowPlaying
+
+let token = ABNowPlayingCenter.shared.attach(
+    player,
+    metadata: ABNowPlayingMetadata(title: "12화", artist: "내 프로그램"),
+    configuration: ABNowPlayingConfiguration(skipInterval: 15),
+    artwork: ABStaticArtworkProvider(image: episodeArtwork)
+)
+
+// 이 플레이어가 Now Playing을 소유할 자격을 유지하는 동안 token을 보관하세요.
+// 취소하거나(또는 deinit되면) 반납됩니다.
+```
+
+소유권은 배타적이며 규칙 하나로 자동 결정됩니다: **`ABPlaybackGrade.current`인 플레이어만 소유할 수 있고, 가장 최근에 그 자격을 얻은 플레이어가 소유합니다**(last-eligible-wins, LIFO). 여러 `ABPlayer` 인스턴스가 있는 피드에서 중요합니다.
+
+- 플레이어는 `.current`가 되는 순간 자격을 얻고, `.current`를 벗어나는 순간 자격을 잃습니다.
+- 두 플레이어가 동시에 `.current`이면 더 나중에 `.current`가 된 쪽이 Now Playing을 소유하고, 다른 쪽은 스택에서 대기합니다.
+- 현재 소유자가 자격을 잃거나, 토큰이 취소되거나, 인스턴스 자체가 소멸하면 스택에서 가장 최근에 자격을 얻은 다음 플레이어가 자동으로 이어받습니다.
+- 마지막 자격 있는 플레이어가 반납하면, 첫 `attach` 이전에 존재하던 `MPNowPlayingInfoCenter`/`MPRemoteCommandCenter` 상태가 정확히 복원됩니다 — 아무도 쓰지 않는 동안에는 이 라이브러리가 흔적을 남기지 않습니다.
+
+원격 커맨드는 대응하는 동작이 실제로 존재할 때만 활성화됩니다 — 눌러도 아무 일도 안 일어나는 잠금화면 버튼은 버튼이 없는 것보다 나쁩니다.
+
+| 커맨드 | 기본값 | 활성화 조건 |
+|---|---|---|
+| 재생 / 일시정지 / 토글 | 켜짐 | 항상(소유자는 항상 `.current` 플레이어) |
+| 앞으로/뒤로 건너뛰기 | 켜짐 | 항상 — 간격은 `ABNowPlayingConfiguration.skipInterval` |
+| 재생 위치 변경 | 켜짐 | 현재 아이템의 duration이 유한할 때 |
+| 재생 속도 변경 | 꺼짐 | `ABNowPlayingConfiguration.supportedPlaybackRates`가 비어 있지 않을 때 |
+| 다음/이전 트랙 | 꺼짐 | `setTrackNavigationHandlers(next:previous:for:)`로 핸들러가 설치됐을 때 |
+
+메타데이터를 갱신할 때(예: 트랙 변경)는 `ABNowPlayingCenter.shared.update(_:for:)`를 사용하세요 — 그 플레이어가 현재 Now Playing을 소유하고 있으면 즉시 재발행되고, 아니면 다음에 소유권을 얻을 때 반영됩니다.
 
 ## 튜닝
 

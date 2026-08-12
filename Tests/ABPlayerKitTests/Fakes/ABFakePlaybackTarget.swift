@@ -18,6 +18,7 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
         case setRate(Float)
         case setMuted(Bool)
         case setLooping(Bool)
+        case applyExternalPlayback(ABExternalPlaybackSettings)
         case preroll(rate: Float)
         case seekToStart
         case seek(CMTime, ABSeekTolerance)
@@ -43,6 +44,8 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
     var isPlaybackBufferEmpty = false
     var isWaitingWithNoItem = false
     var presentationSize: CGSize = .zero
+    var isExternalPlaybackActive = false
+    private(set) var appliedExternalPlaybackSettings: ABExternalPlaybackSettings?
     var seekLandingTime: CMTime?
     var waitsForSeekContinuation = false
     private var seekContinuations: [CheckedContinuation<Void, Never>] = []
@@ -119,6 +122,11 @@ final class ABFakePlaybackTarget: ABPlaybackTarget {
 
     func setLooping(_ isLooping: Bool) {
         calls.append(.setLooping(isLooping))
+    }
+
+    func applyExternalPlayback(_ settings: ABExternalPlaybackSettings) {
+        calls.append(.applyExternalPlayback(settings))
+        appliedExternalPlaybackSettings = settings
     }
 
     func preroll(rate: Float, timeout: TimeInterval) async -> ABPrerollResult {

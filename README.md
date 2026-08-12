@@ -68,7 +68,8 @@ targets: [
             // Link only when needed:
             .product(name: "ABPlayerKitControls", package: "ABPlayerKit"),
             .product(name: "ABPlayerKitMetrics", package: "ABPlayerKit"),
-            .product(name: "ABPlayerKitCache", package: "ABPlayerKit")
+            .product(name: "ABPlayerKitCache", package: "ABPlayerKit"),
+            .product(name: "ABPlayerKitNowPlaying", package: "ABPlayerKit")
         ]
     )
 ]
@@ -222,6 +223,7 @@ Every release path that holds an item routes through `detachItem`. Moving betwee
 | `ABPlayerKitControls` | Timeline, buttons, rate selection, auto-hide, UIKit and SwiftUI controls | The app wants the standard controls layer |
 | `ABPlayerKitMetrics` | TTFF recording, sinks, and aggregation | The app measures playback |
 | `ABPlayerKitCache` | Progressive caching and explicit HLS prefetch | The app owns offline/cache behavior |
+| `ABPlayerKitNowPlaying` | Lock screen / Control Center integration (`MPNowPlayingInfoCenter`, `MPRemoteCommandCenter`) | The app wants remote-command/lock-screen playback |
 
 ### `ABPlayerKit` — Core
 
@@ -261,6 +263,109 @@ player.configuration = configuration
 - **`pausesOnRouteChangeDeviceUnavailable`** (default `true`, independent of `interruptionPolicy`): pauses when the current output device disappears (e.g. headphones unplugged), matching platform HIG expectations. Set to `false` to opt out.
 
 Both paths broadcast through the same `ABPlayerEvent` stream: `.audioInterruptionBegan`, `.audioInterruptionEnded(resumed:)`, and `.audioRouteChangedDeviceUnavailable`.
+
+#### Background Policy
+
+`ABPlayerConfiguration.backgroundPolicy` controls what happens to a `.current` player when the app leaves the foreground. Default is `.pause`.
+
+| Policy | On background entry | On foreground return |
+|---|---|---|
+| `.ignore` | Nothing | Nothing (besides re-marking the audio session for reactivation) |
+| `.pause` (default) | Pauses if `.current` | Resumes if it was playing |
+| `.pauseAndDetachLayer` | Pauses if `.current`; detaches `AVPlayerLayer.player` (releases the decoder) | Re-attaches the layer; resumes if it was playing |
+| `.demoteToInstance` | Demotes to `.instanceOnly` (drops the item; blocks network entirely) | Restores the prior grade |
+| `.continueAudioOnly` | Detaches `AVPlayerLayer.player` only — playback keeps running | Re-attaches the layer; resumes if the system suspended playback anyway |
+
+`.continueAudioOnly` needs all three of the following, or it silently behaves like `.pause` (the system suspends the app, and this policy resumes playback on foreground return as a safety net):
+
+| # | Condition | Who sets it |
+|---|---|---|
+| 1 | `UIBackgroundModes` includes `audio` | The host app's `Info.plist` — this library cannot do it for you |
+| 2 | `configuration.audioSessionPolicy = .playback(mixWithOthers: false)` (or `.ambient`) | The app, via `ABPlayerConfiguration` |
+| 3 | `configuration.backgroundPolicy = .continueAudioOnly` | The app, via `ABPlayerConfiguration` |
+
+`ABBackgroundPolicy` is non-exhaustive — a `switch` over it outside this package should include a `default` branch.
+
+#### Picture in Picture
+
+Bind an `ABPictureInPictureSession` to an `ABPlayerView`, or pass one to `ABVideoPlayer`'s **explicit-ownership** initializer:
+
+```swift
+import ABPlayerKit
+import SwiftUI
+
+struct VideoScreen: View {
+    let player: ABPlayer
+    @State private var pictureInPicture = ABPictureInPictureSession()
+
+    var body: some View {
+        ABVideoPlayer(player: player, pictureInPicture: pictureInPicture)
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .overlay(alignment: .topTrailing) {
+                if pictureInPicture.isPossible {
+                    Button(pictureInPicture.isActive ? "Stop PiP" : "Start PiP") {
+                        pictureInPicture.isActive ? pictureInPicture.stop() : pictureInPicture.start()
+                    }
+                }
+            }
+    }
+}
+```
+
+While a session is active, every `ABBackgroundPolicy`'s automatic background/foreground side effects are suppressed for that player — PiP keeps rendering and playing instead of being paused or detached out from under itself. The suppression only covers the *automatic* side effects; explicit calls like `release()` still end PiP.
+
+| Prerequisite | Who provides it |
+|---|---|
+| `UIBackgroundModes` includes `audio` (if PiP should survive backgrounding) | The host app's `Info.plist` — this library cannot do it for you |
+| `configuration.audioSessionPolicy != .unmanaged` | The app, via `ABPlayerConfiguration` |
+| Device/OS supports Picture in Picture | Check `ABPictureInPictureSession.isSupported` — usually `false` in the simulator |
+| The bound layer is ready for display | Reflected in `session.isPossible` |
+
+**Picture in Picture is supported only on the explicit-ownership path** (`player:` initializers). The `url:`/`source:` convenience initializers release their owned player when the SwiftUI identity is discarded, which would cut PiP short — so they don't accept a `pictureInPicture:` parameter.
+
+#### AirPlay
+
+Three `ABPlayerConfiguration` properties pass straight through to the matching `AVPlayer` properties, all defaulting to `AVPlayer`'s own defaults (so existing consumers see no behavior change):
+
+```swift
+var configuration = ABPlayerConfiguration()
+configuration.allowsExternalPlayback = true                          // default
+configuration.usesExternalPlaybackWhileExternalScreenIsActive = false // default
+configuration.externalPlaybackVideoGravity = .resizeAspect            // default
+```
+
+Check whether AirPlay is currently active with `player.isExternalPlaybackActive` — a plain computed property, not `@Observable`-tracked, since it re-reads `AVPlayer` on every access. For a reactive signal, KVO `player.avPlayer` directly, or use `AVRoutePickerView`'s own state:
+
+```swift
+import AVKit
+import SwiftUI
+
+struct AirPlayButton: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView { AVRoutePickerView() }
+    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+}
+```
+
+A screen with several simultaneously-live players (a feed) should set `allowsExternalPlayback = false` on every instance except the current one.
+
+#### Subtitles and Audio Tracks
+
+Subtitle/audio track selection UI and state management are **not provided** by this library. Reach `AVMediaSelectionGroup` directly through the escape hatch:
+
+```swift
+if let item = player.avPlayerItem,
+   let group = item.asset.mediaSelectionGroup(forMediaCharacteristic: .audible) {
+    let options = group.options
+    // Present `options`, then:
+    item.select(options[0], in: group)
+}
+```
+
+Three constraints apply:
+
+1. `player.avPlayerItem` is non-`nil` only from `.preloaded` upward (`ABPlaybackGrade.holdsItem`).
+2. A source change, demotion, or `release()` creates a **new** item (`ABAVPlaybackTarget` re-attaches from scratch) — a selection made on a previous item does not carry over. Re-apply on every `.itemAttached(source:)` event.
+3. This library remembers no selection state across attaches; that responsibility is entirely the consumer's.
 
 ### `ABPlayerKitControls` — Opt-in Playback Controls
 
@@ -395,6 +500,44 @@ if await handle.result == .completed {
 Transparent HLS segment caching is intentionally outside v1. `AVAssetResourceLoader` cannot intercept ordinary HTTP(S) HLS master/media playlists; transparent caching would require a local reverse proxy that rewrites playlists and handles relative URLs, encryption keys, and background lifetime. That has a different and much larger failure surface, so the accepted [Q1 design decision](docs/DESIGN-OPEN-QUESTIONS.md) keeps it separate. See also [DESIGN-ABPlayerKit §9](docs/DESIGN-ABPlayerKit.md).
 
 Progressive MP4 caching is a **linear prefix**, not sparse ranges: a single sequential fill grows the cached file from byte 0 forward, and `load(_:range:)` normally waits for that fill to reach a requested offset. A distant seek in a non-faststart file would otherwise wait for the fill to sequentially crawl there. To bound that, a request whose offset sits `ABCacheConfiguration.passthroughGapThreshold` (default 2MB) or more ahead of the current fill prefix skips waiting entirely and is served by a direct network passthrough instead — capped to ≤1MB per round trip so it streams back in bounded chunks rather than buffering the whole gap in memory. The background fill keeps crawling forward untouched; this is a one-off fallback for that request, not a jump-start of the cache itself. Full sparse-range caching remains out of scope.
+
+### `ABPlayerKitNowPlaying` — Now Playing and Remote Commands
+
+This target bridges `ABPlayer` to `MPNowPlayingInfoCenter` and `MPRemoteCommandCenter`. Like `audioSessionPolicy`, it is a process-wide resource this library never touches until you opt in — nothing is read or written until the first `attach` call.
+
+```swift
+import ABPlayerKit
+import ABPlayerKitNowPlaying
+
+let token = ABNowPlayingCenter.shared.attach(
+    player,
+    metadata: ABNowPlayingMetadata(title: "Episode 12", artist: "My Show"),
+    configuration: ABNowPlayingConfiguration(skipInterval: 15),
+    artwork: ABStaticArtworkProvider(image: episodeArtwork)
+)
+
+// Retain `token` for as long as this player should be eligible to own
+// Now Playing. Cancelling it (or letting it deinitialize) detaches.
+```
+
+Ownership is exclusive and automatic, following one rule: **only a player at `ABPlaybackGrade.current` may own the surface, and the most recently promoted eligible player wins** (last-eligible-wins, LIFO). This matters for feeds with multiple `ABPlayer` instances:
+
+- A player becomes eligible the moment it reaches `.current`, and loses eligibility the moment it leaves.
+- If two players are simultaneously `.current`, the one that became `.current` more recently owns Now Playing; the other waits on a stack.
+- When the current owner loses eligibility (or its token is cancelled, or the instance itself is deallocated), the next-most-recent eligible player on the stack takes over automatically.
+- When the last eligible player relinquishes, whatever `MPNowPlayingInfoCenter`/`MPRemoteCommandCenter` state existed before the first `attach` is restored exactly — this library leaves no trace once nobody is using it.
+
+Remote commands only activate when a corresponding action actually exists — a lock-screen button that does nothing is worse than no button:
+
+| Command | Default | Activates when |
+|---|---|---|
+| Play / Pause / Toggle Play-Pause | On | Always (an owner always has a `.current` player) |
+| Skip Forward / Backward | On | Always — interval from `ABNowPlayingConfiguration.skipInterval` |
+| Change Playback Position | On | The current item's duration is finite |
+| Change Playback Rate | Off | `ABNowPlayingConfiguration.supportedPlaybackRates` is non-empty |
+| Next / Previous Track | Off | A handler is installed via `setTrackNavigationHandlers(next:previous:for:)` |
+
+Update metadata (e.g. on a track change) with `ABNowPlayingCenter.shared.update(_:for:)` — it republishes immediately if the player currently owns Now Playing, or takes effect the next time it acquires ownership otherwise.
 
 ## Tuning
 
