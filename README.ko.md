@@ -392,11 +392,11 @@ import SwiftUI
 ABVideoPlayerWithControls(
     player: player,
     videoGravity: .resizeAspect
-)
+) {}
 .aspectRatio(16 / 9, contentMode: .fit)
 ```
 
-표준 오버레이에서는 뒤로 건너뛰기, 재생/일시 정지, 앞으로 건너뛰기 버튼이 영상 중앙에 놓입니다. 탐색 막대는 하단에 붙고, `HH:mm:ss/HH:mm:ss` 형식의 경과/전체 시간은 탐색 막대 바로 위 왼쪽에, 재생 속도는 오른쪽 하단에 놓입니다. 기본 흰색/회색 컨트롤은 불투명도가 낮은 어두운 스크림을 사용해 영상이 선명하게 비치도록 합니다.
+표준 오버레이에서는 뒤로 건너뛰기, 재생/일시 정지, 앞으로 건너뛰기 버튼이 영상 중앙에 놓입니다. 탐색 막대는 하단에 붙고, `HH:mm:ss/HH:mm:ss` 형식의 경과/전체 시간은 탐색 막대의 보이는 트랙 바로 아래 왼쪽에, 재생 속도는 오른쪽 하단에 놓입니다. 기본 흰색/회색 컨트롤은 불투명도가 낮은 어두운 스크림을 사용해 영상이 선명하게 비치도록 합니다.
 
 스타일은 기존 컨트롤 뷰에 즉시 반영됩니다. 뒷편 트랙, 재생 완료 구간, 썸 외형, 아이콘을 각각 바꿀 수 있습니다.
 
@@ -412,7 +412,37 @@ style.pauseIcon = .system("pause.circle.fill")
 controlsView.style = style
 ```
 
-동작은 `ABPlayerControlsConfiguration`으로 설정합니다. 주기 UI 갱신 간격 기본값은 0.25초이고, 지원되는 스킵 간격에 맞춰 아이콘을 동기화하며, 배속 선택은 메뉴·순환·숨김 모드를 지원합니다. VoiceOver 실행 중에는 자동 숨김을 억제하고 Reduce Motion에서는 페이드를 제거합니다.
+동작은 `ABPlayerControlsConfiguration`으로 설정합니다. 주기 UI 갱신 간격 기본값은 0.25초이고, 지원되는 스킵 간격에 맞춰 아이콘을 동기화하며, 배속 선택은 메뉴·순환·숨김 모드를 지원합니다. VoiceOver 실행 중에는 자동 숨김을 억제하고 Reduce Motion에서는 페이드를 제거합니다. 재생이 끝에 도달한 뒤 재생 버튼을 누르면(끝에서는 아무 일도 하지 않는 단순 `play()` 대신) 처음으로 되감은 뒤 재생합니다(replay-from-start).
+
+레이아웃 코드를 건드리지 않고도 개별 컨트롤을 숨길 수 있습니다 — `showsPlayPauseButton`/`showsSeekBar`(둘 다 기본값 `true`)는 기존 `showsSkipButtons`와 같은 방식으로 동작합니다. 탐색 막대를 숨기면 그 막대가 차지하던 행이 접힙니다.
+
+`ABPlayer.isBuffering`이 `true`인 동안에는 재생/일시정지 버튼의 아이콘 위에 스피너가 겹쳐 표시됩니다 — 버튼 자체는 계속 활성화된 채 히트 테스트가 가능합니다(멈춘 상태에서도 일시정지는 가능해야 하므로). `showsBufferingIndicator`(기본값 `true`)와 `ABPlayerControlsStyle.bufferingIndicatorColor`(기본값 `nil`, `tintColor`를 따름)로 제어합니다. 버퍼링 중에는 컨트롤을 강제로 보이게 하지는 않으면서 자동 숨김만 억제합니다.
+
+```swift
+var configuration = ABPlayerControlsConfiguration()
+configuration.showsBufferingIndicator = true
+configuration.touchPassthrough = .whenControlsHidden
+configuration.doubleTapSeek = .edges(edgeWidthFraction: 0.3)
+configuration.providesHapticFeedback = true
+configuration.rateLabelFormat = .automatic
+configuration.timeLabelSeparator = "/"
+
+controlsView.configuration = configuration
+```
+
+- **`touchPassthrough`**(`ABControlsTouchPassthrough`, 기본값 `.never`): 어떤 컨트롤에도 맞지 않은 터치를 오버레이 뒤에 있는 뷰로 통과시킬지 결정합니다 — `.never`(기존 동작), `.whenControlsHidden`, `.always` 중 선택합니다. 기존 히트 테스트 우선순위를 덮어쓰지 않으며, 다른 무언가가 이미 그 터치를 처리하지 않았을 때만 적용됩니다.
+- **`doubleTapSeek`**(`ABDoubleTapSeek`, 기본값 `.disabled`): 오버레이의 좌우 가장자리 밴드를 더블탭하면 `skipInterval`만큼 시크합니다. `.edges(edgeWidthFraction:)`는 각 밴드의 너비를 오버레이 전체 너비의 비율로 지정합니다(`0.1...0.5`로 클램프). 옵트인하지 않은 소비자가 매 싱글탭마다 더블탭 타임아웃을 기다리게 되지 않도록 기본값은 비활성화입니다. `providesHapticFeedback`(기본값 `true`)은 더블탭 시크가 인정될 때 가벼운 햅틱을 울립니다.
+- **`rateLabelFormat`**(`ABPlayerControlsConfiguration.RateLabelFormat`, 기본값 `.automatic`): `.automatic`은 로케일을 인식하는 `NumberFormatter`로 배속을 표시합니다(`en`에서 `"1.5"`, `de`에서 `"1,5"`). `.custom { rate in ... }`는 레이블 전체 텍스트를 직접 제공합니다.
+- **`timeLabelSeparator`**(기본값 `"/"`): 시간 레이블의 경과 필드와 보조 필드 사이에 놓는 문자열입니다.
+
+스킵/더블탭/VoiceOver 조정 시크가 연속으로 발생하는 동안에는 누적 피드백 배지(`"+20s"`/`"-10s"`)가 표시됩니다. 이는 전적으로 코어의 `pendingSeekTime`/`seekTargetChanged`가 구동하며, Controls가 직접 델타를 누적하지 않습니다. `ABPlayerControlsStyle.seekFeedbackTextColor`/`.seekFeedbackBackgroundColor`/`.seekFeedbackFont`로 스타일을 지정합니다.
+
+단일 `accessoryViews` 위치 외에도, `ABControlsSlot`(`.topTrailing`, `.transportTrailing`, `.bottomTrailing`)을 사용하면 `ABPlayerControlsView.accessoryViews(in:)`/`setAccessoryViews(_:in:)`를 통해 소비자 뷰를 오버레이의 다른 위치에 배치할 수 있습니다. 기존 `accessoryViews` 프로퍼티는 `.bottomTrailing`의 별칭이며 동작은 동일합니다.
+
+```swift
+controlsView.setAccessoryViews([captionsButton], in: .topTrailing)
+controlsView.setAccessoryViews([fullscreenButton], in: .transportTrailing)
+```
 
 컨트롤을 별도 제품으로 둔 이유는 피드나 백그라운드 플레이어가 자체 제스처를 제공하거나 UI가 전혀 없는 경우가 많기 때문입니다. 그런 소비자는 작은 코어만 링크하고, 표준 플레이어 화면만 UIKit 컨트롤과 SwiftUI 래퍼를 import 한 줄로 선택합니다.
 
@@ -467,6 +497,34 @@ final class PlaybackSession {
 `PlaybackSession`은 측정이 끝날 때까지 화면이나 코디네이터의 프로퍼티로 보관하세요. sink, recorder, 관찰 토큰은 모두 비동기 첫 프레임 이벤트보다 오래 유지되어야 합니다.
 
 중도 이탈한 TTFF 표본은 `hitRate`와 `abandonRate`의 분모에 남습니다. 측정에서 조용히 제외하지 않습니다.
+
+#### QoE 세션
+
+같은 `attach(to:)`가 TTFF뿐 아니라 재생 세션 전체도 추적합니다 — 별도의 세션 식별자가 없으므로 `(playerID, sessionStartedAt)`을 키로 사용합니다. 세션은 `ABPlayerEvent.itemAttached(source:)`에서 열리고 `ABPlayerEvent.itemDetached(reason:)`에서 닫히며, 각각 `ABMetricEvent.sessionStarted(_:)`와 `.sessionSummary(_:)`를 방출합니다.
+
+```swift
+recorder.attach(to: player).store(in: &tokens)
+
+// 토큰을 취소하기 전에 최종 요약이 필요하다면:
+recorder.endSession(for: player)
+
+// 또는 언제든 아직 열려 있는 실시간 요약을 읽으려면:
+let inProgress = recorder.snapshot(for: player)
+```
+
+- `attach(to:)`가 반환하는 토큰에는 recorder가 관찰할 수 있는 취소 훅이 없으므로, 토큰만 취소해서는 최종 `.sessionSummary`가 생성되지 않습니다 — 최종 요약이 필요하면 먼저 `ABMetricsRecorder.endSession(for:)`을 호출하세요.
+- `ABMetricsRecorder.snapshot(for:)`은 아직 열려 있는 세션의 실시간, 미확정 `ABSessionSummary`를 반환합니다.
+- `ABSessionSummary.rebufferRatio`는 `rebufferMilliseconds / (rebufferMilliseconds + watchedMilliseconds)`이며 둘 다 `0`이면 `nil`입니다. 첫 프레임 이전의 버퍼링은 `rebufferMilliseconds`가 아니라 `startupBufferMilliseconds`에 집계됩니다 — TTFF가 이미 그 대기 시간을 측정하므로, 리버퍼로도 집계하면 같은 지연을 이중으로 계산하게 됩니다.
+- `ABSessionSummary.completionRatio`의 정밀도는 `ABPlayerConfiguration.periodicTimeInterval`을 설정하면 향상됩니다. `watchedMilliseconds`는 주기적 위치 샘플이 아니라 `ABPlayerEvent.timeControlStatusChanged(_:)` 전이에서 유도되므로 설정과 무관하게 정확합니다.
+- `ABSessionAnchor.sourceURL`/`ABSessionSummary.sourceURL`은 서버 측 로그와 조인하기 위한 미디어 URL을 담습니다. 서명되거나 토큰이 포함된 URL을 사용하는 소스는 `ABMetricsRecorder.init(sink:clock:includesSourceURL:)`에 `includesSourceURL: false`를 전달하거나, 커스텀 `ABMetricsSink`에서 해당 필드를 마스킹해야 합니다 — 이 패키지는 자체 마스킹 정책을 내장하지 않습니다.
+
+이 세션들을 뒷받침하는 새 공개 타입들: `ABSessionAnchor`(세션 식별), `ABBufferingInterval`/`ABFailureRecord`(세션별 원시 기록), `ABSessionSummary`(세션 하나의 롤업), `ABQoESummary`(세션 전체 집계), `ABLatencyDistribution`(p50/p95/max/waited 분포 — `ABPlaybackStatistics.waited`는 `.waited` TTFF 표본만을 대상으로 한 같은 형태이며, 기존 `.hit`를 `0`ms로 접어 넣는 레거시 `p50`/`p95`/`max`와 나란히 있습니다).
+
+`ABMetricEvent`는 `ABPlayerEvent`와 같은 관례로 비전수(non-exhaustive)입니다 — 마이너 릴리스에서 케이스가 추가될 수 있으므로(가장 최근에 추가된 네 케이스는 `.sessionStarted`, `.buffering`, `.failure`, `.sessionSummary`) 이 패키지 밖의 `switch`에는 `default` 분기를 두어야 합니다.
+
+`ABAccessSnapshot`도 마지막 항목뿐 아니라 접근 로그 *전체*에 걸쳐 필드를 접어 넣습니다 — `totalBytesTransferred`, `totalStallCount`, `droppedVideoFrameCount`, `bitrateSwitchCount`, `mediaRequestCount`, `durationWatchedSeconds`, `observedBitrateAverage`, `initialStartupTimeSeconds`, `entryCount`, 그리고 `segmentsDownloadedCount`(항상 `0` — `AVPlayerItemAccessLogEvent.numberOfSegmentsDownloaded`는 iOS 7부터 Swift에서 API 사용 불가 상태이며, 향후 호환을 위해 스키마에는 남겨 둡니다)가 있습니다. `ABClock.wallClockEpoch`(기본값 `Date().timeIntervalSince1970`)는 세션이 열리는 시점에 한 번, 세션의 단조 시간축을 벽시계 시각에 대응시켜 서버 측 로그와의 조인에 사용합니다.
+
+`ABJSONLinesMetricsSink.flush()`는 `public`입니다. `init(fileURL:maxFileSizeBytes:maxRotatedFiles:)`를 전달하면 파일이 `maxFileSizeBytes`를 넘는 순간 로테이션하며 `maxRotatedFiles`개의 회전된 사본(`.1`, `.2`, …)을 유지합니다. 영구적인 쓰기 실패는 더 이상 조용히 무시되지 않습니다 — `writeFailureCount`/`lastWriteErrorDescription`을 확인하세요.
 
 ### `ABPlayerKitCache` — 프로그레시브 캐시와 HLS 프리페치
 
@@ -527,15 +585,28 @@ let token = ABNowPlayingCenter.shared.attach(
 - 현재 소유자가 자격을 잃거나, 토큰이 취소되거나, 인스턴스 자체가 소멸하면 스택에서 가장 최근에 자격을 얻은 다음 플레이어가 자동으로 이어받습니다.
 - 마지막 자격 있는 플레이어가 반납하면, 첫 `attach` 이전에 존재하던 `MPNowPlayingInfoCenter`/`MPRemoteCommandCenter` 상태가 정확히 복원됩니다 — 아무도 쓰지 않는 동안에는 이 라이브러리가 흔적을 남기지 않습니다.
 
-원격 커맨드는 대응하는 동작이 실제로 존재할 때만 활성화됩니다 — 눌러도 아무 일도 안 일어나는 잠금화면 버튼은 버튼이 없는 것보다 나쁩니다.
+원격 커맨드는 **두 조건이 모두** 충족될 때만 잠금화면에 나타납니다: (a) `ABNowPlayingConfiguration.commands`(`ABRemoteCommandSet`)에 포함되어 있을 것, (b) 그 커맨드가 매핑하는 동작이 실제로 존재할 것 — 눌러도 아무 일도 안 일어나는 잠금화면 버튼은 버튼이 없는 것보다 나쁩니다. `commands`의 기본값은 `ABRemoteCommandSet.default`이며 `[.play, .pause, .togglePlayPause, .skipForward, .skipBackward, .changePlaybackPosition]`입니다 — `.changePlaybackRate`, `.nextTrack`, `.previousTrack`는 **제외**됩니다. `ABNowPlayingConfiguration()`을 그대로 둔 채 핸들러나 배속 목록만 추가하는 것으로는 이 세 커맨드를 켤 수 없습니다 — `commands`를 명시적으로 확장해야 합니다.
 
-| 커맨드 | 기본값 | 활성화 조건 |
+```swift
+var configuration = ABNowPlayingConfiguration()
+configuration.commands = .default.union([.nextTrack, .previousTrack, .changePlaybackRate])
+configuration.supportedPlaybackRates = [1, 1.5, 2] // 아래 표대로 여전히 필요합니다
+
+let token = ABNowPlayingCenter.shared.attach(player, metadata: metadata, configuration: configuration)
+ABNowPlayingCenter.shared.setTrackNavigationHandlers(
+    next: { player.skipToNextEpisode() },
+    previous: { player.skipToPreviousEpisode() },
+    for: player
+)
+```
+
+| 커맨드 | `.default`에 포함? | 추가로 필요한 것 |
 |---|---|---|
-| 재생 / 일시정지 / 토글 | 켜짐 | 항상(소유자는 항상 `.current` 플레이어) |
-| 앞으로/뒤로 건너뛰기 | 켜짐 | 항상 — 간격은 `ABNowPlayingConfiguration.skipInterval` |
-| 재생 위치 변경 | 켜짐 | 현재 아이템의 duration이 유한할 때 |
-| 재생 속도 변경 | 꺼짐 | `ABNowPlayingConfiguration.supportedPlaybackRates`가 비어 있지 않을 때 |
-| 다음/이전 트랙 | 꺼짐 | `setTrackNavigationHandlers(next:previous:for:)`로 핸들러가 설치됐을 때 |
+| 재생 / 일시정지 / 토글 | 예 | 없음 — 항상 활성화 |
+| 앞으로/뒤로 건너뛰기 | 예 | 없음 — 간격은 `ABNowPlayingConfiguration.skipInterval` |
+| 재생 위치 변경 | 예 | 현재 아이템의 duration이 유한할 것 |
+| 재생 속도 변경 | **아니오** | `commands`가 `.changePlaybackRate`를 포함해야 **하고**, `ABNowPlayingConfiguration.supportedPlaybackRates`가 비어 있지 않아야 함 |
+| 다음/이전 트랙 | **아니오** | `commands`가 `.nextTrack`/`.previousTrack`를 포함해야 **하고**, `setTrackNavigationHandlers(next:previous:for:)`로 핸들러가 설치돼야 함 |
 
 메타데이터를 갱신할 때(예: 트랙 변경)는 `ABNowPlayingCenter.shared.update(_:for:)`를 사용하세요 — 그 플레이어가 현재 Now Playing을 소유하고 있으면 즉시 재발행되고, 아니면 다음에 소유권을 얻을 때 반영됩니다.
 
