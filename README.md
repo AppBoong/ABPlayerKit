@@ -392,11 +392,11 @@ import SwiftUI
 ABVideoPlayerWithControls(
     player: player,
     videoGravity: .resizeAspect
-)
+) {}
 .aspectRatio(16 / 9, contentMode: .fit)
 ```
 
-The standard overlay keeps skip-backward, play/pause, and skip-forward centered over the video. Its seek bar hugs the bottom; `HH:mm:ss/HH:mm:ss` elapsed/total time sits directly above the seek bar at the left, and playback rate sits at the bottom-right. The default white/grey controls use a low-opacity dark scrim so the video remains clearly visible.
+The standard overlay keeps skip-backward, play/pause, and skip-forward centered over the video. Its seek bar hugs the bottom; `HH:mm:ss/HH:mm:ss` elapsed/total time sits directly below the seek bar's visible track at the left, and playback rate sits at the bottom-right. The default white/grey controls use a low-opacity dark scrim so the video remains clearly visible.
 
 Style changes apply live to the existing controls. Track, played progress, thumb appearance, and icons are independent:
 
@@ -585,15 +585,28 @@ Ownership is exclusive and automatic, following one rule: **only a player at `AB
 - When the current owner loses eligibility (or its token is cancelled, or the instance itself is deallocated), the next-most-recent eligible player on the stack takes over automatically.
 - When the last eligible player relinquishes, whatever `MPNowPlayingInfoCenter`/`MPRemoteCommandCenter` state existed before the first `attach` is restored exactly — this library leaves no trace once nobody is using it.
 
-Remote commands only activate when a corresponding action actually exists — a lock-screen button that does nothing is worse than no button:
+A remote command reaches the lock screen only when **both** of these hold: (a) it's included in `ABNowPlayingConfiguration.commands` (an `ABRemoteCommandSet`), and (b) the action it maps to actually exists — a lock-screen button that does nothing is worse than no button. `commands` defaults to `ABRemoteCommandSet.default`, which is `[.play, .pause, .togglePlayPause, .skipForward, .skipBackward, .changePlaybackPosition]`; it **excludes** `.changePlaybackRate`, `.nextTrack`, and `.previousTrack`. Passing `ABNowPlayingConfiguration()` unchanged, plus a handler or a rates list, is not enough to enable those three — `commands` has to be expanded explicitly:
 
-| Command | Default | Activates when |
+```swift
+var configuration = ABNowPlayingConfiguration()
+configuration.commands = .default.union([.nextTrack, .previousTrack, .changePlaybackRate])
+configuration.supportedPlaybackRates = [1, 1.5, 2] // still required, see the table below
+
+let token = ABNowPlayingCenter.shared.attach(player, metadata: metadata, configuration: configuration)
+ABNowPlayingCenter.shared.setTrackNavigationHandlers(
+    next: { player.skipToNextEpisode() },
+    previous: { player.skipToPreviousEpisode() },
+    for: player
+)
+```
+
+| Command | In `.default`? | Also requires |
 |---|---|---|
-| Play / Pause / Toggle Play-Pause | On | Always (an owner always has a `.current` player) |
-| Skip Forward / Backward | On | Always — interval from `ABNowPlayingConfiguration.skipInterval` |
-| Change Playback Position | On | The current item's duration is finite |
-| Change Playback Rate | Off | `ABNowPlayingConfiguration.supportedPlaybackRates` is non-empty |
-| Next / Previous Track | Off | A handler is installed via `setTrackNavigationHandlers(next:previous:for:)` |
+| Play / Pause / Toggle Play-Pause | Yes | Nothing further — always enabled |
+| Skip Forward / Backward | Yes | Nothing further — interval from `ABNowPlayingConfiguration.skipInterval` |
+| Change Playback Position | Yes | The current item's duration to be finite |
+| Change Playback Rate | **No** | `commands` must include `.changePlaybackRate`, **and** `ABNowPlayingConfiguration.supportedPlaybackRates` must be non-empty |
+| Next / Previous Track | **No** | `commands` must include `.nextTrack`/`.previousTrack`, **and** a handler must be installed via `setTrackNavigationHandlers(next:previous:for:)` |
 
 Update metadata (e.g. on a track change) with `ABNowPlayingCenter.shared.update(_:for:)` — it republishes immediately if the player currently owns Now Playing, or takes effect the next time it acquires ownership otherwise.
 
