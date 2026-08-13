@@ -63,7 +63,14 @@ final class DeviceModel {
             guard let self, case .timeControlStatusChanged(let status) = event else { return }
             self.isPlaying = status == .playing
         }
-        player.set(source: selectedMedia.source, grade: .current)
+        // No set(source:grade:) here on purpose. TabView builds every tab's
+        // content value — including this model's default — when the root
+        // view's body is evaluated, so this initializer runs at app launch,
+        // before the tester has ever opened this tab. Setting a source here
+        // would start loading a network stream and activate the audio
+        // session (both synchronous work) for a screen nobody asked for.
+        // togglePlayback() sets the source lazily the first time Play is
+        // pressed.
     }
 
     func togglePlayback() {
@@ -132,6 +139,7 @@ final class DeviceModel {
 
 struct DeviceScreen: View {
     @State private var model = DeviceModel()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
@@ -147,6 +155,10 @@ struct DeviceScreen: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16))
 
                     Text("No controls overlay here on purpose — Picture in Picture is supported only on this explicit-ownership initializer, not the ABVideoPlayerWithControls convenience API the Playback tab uses.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    Text("Black until you press Play. Nothing loads when this tab opens — the source is only set the first time you press Play — so opening this screen costs nothing.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
@@ -184,7 +196,11 @@ struct DeviceScreen: View {
                                     .buttonStyle(.bordered)
                             }
 
-                            Toggle("Starts automatically from inline", isOn: startsAutomaticallyFromInlineBinding)
+                            Toggle("Auto PiP", isOn: autoPiPBinding)
+                            Text("Backgrounding the app enters PiP automatically; returning to the foreground leaves PiP and resumes inline. Must be off for checklist item 6 — with it on, returning to the app to check on a floating PiP window stops PiP as a side effect, so the destroy-the-player action runs against a session that already stopped, and \"nothing happened\" reads as a false pass.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+
                             Toggle("Requires linear playback", isOn: requiresLinearPlaybackBinding)
                         }
                     }
@@ -212,11 +228,21 @@ struct DeviceScreen: View {
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
 
-                            HStack {
-                                Text("Route picker")
-                                Spacer()
-                                AirPlayRoutePickerView()
-                                    .frame(width: 32, height: 32)
+                            // Collapsed by default: AVRoutePickerView() does
+                            // synchronous XPC route discovery on creation.
+                            // Building it eagerly here would put that cost
+                            // back on the tab transition this screen exists
+                            // to keep cheap — the DisclosureGroup defers
+                            // instantiation until the tester deliberately
+                            // expands it to check AirPlay routing.
+                            DisclosureGroup("Route picker") {
+                                HStack {
+                                    Spacer()
+                                    AirPlayRoutePickerView()
+                                        .frame(width: 32, height: 32)
+                                    Spacer()
+                                }
+                                .padding(.top, 4)
                             }
                         }
                     }
@@ -248,9 +274,24 @@ struct DeviceScreen: View {
         .task {
             await model.pollExternalPlaybackState()
         }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Symmetric with startsAutomaticallyFromInline's background
+            // entry: gated on the Auto PiP toggle itself, not on whether
+            // this particular PiP session happened to start automatically
+            // or via the manual Start PiP button — the session doesn't
+            // record which, and a tester who flips Auto PiP on after
+            // starting PiP manually still expects returning to the
+            // foreground to behave the same way. stop() is a no-op if PiP
+            // already stopped itself (e.g. the tester used the PiP
+            // window's own return button before the app finished
+            // reactivating), so this can't race that path into a bad
+            // state.
+            guard newPhase == .active, model.pipSession.startsAutomaticallyFromInline, model.pipSession.isActive else { return }
+            model.pipSession.stop()
+        }
     }
 
-    private var startsAutomaticallyFromInlineBinding: Binding<Bool> {
+    private var autoPiPBinding: Binding<Bool> {
         Binding(
             get: { model.pipSession.startsAutomaticallyFromInline },
             set: { model.pipSession.startsAutomaticallyFromInline = $0 }
