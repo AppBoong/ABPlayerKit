@@ -39,16 +39,18 @@ Set ``ABPlayerControlsStyle/isThumbHidden`` for a slim timeline with no pointer.
 
 ## Replace Icons
 
-Use an SF Symbol name, a custom image, or hide a button with ``ABControlIcon/none``.
+Use an SF Symbol name, a custom image, or hide a button entirely with ``ABControlIcon/none``.
 
 ```swift
 style.playIcon = .system("play.circle.fill")
 style.pauseIcon = .image(customPauseImage)
-style.skipBackwardIcon = .none
+style.skipBackwardIcon = ABControlIcon.none
 controls.style = style
 ```
 
-When skip icons are `nil`, the controls derive supported SF Symbols from ``ABPlayerControlsConfiguration/skipInterval``. An explicit icon always wins. ``ABPlayerControlsConfiguration/skipInterval`` defaults to 10 seconds and accepts 5-second steps between 5 and 60; other values are rounded to the nearest step and clamped into that range. Steps with a native `gobackward.N`/`goforward.N` glyph (5, 10, 15, 30, 45, 60) use it directly; other steps (e.g. 20, 25) badge the number over a generic arrow so the rendered icon always matches the configured interval.
+``ABPlayerControlsStyle/skipBackwardIcon``/``ABPlayerControlsStyle/skipForwardIcon`` are `ABControlIcon?`, so a bare `.none` there resolves to `Optional.none` (`nil`) — the sentinel below that *derives* an icon from the skip interval, not the case that hides the button. Spell out the type, `ABControlIcon.none`, to reach the hiding case. ``ABPlayerControlsStyle/playIcon``/``ABPlayerControlsStyle/pauseIcon`` aren't optional, so a bare `.none` on those already resolves to ``ABControlIcon/none`` and hides the button as written — the ambiguity is specific to the two optional skip icons.
+
+When a skip icon is `nil`, the controls derive a supported SF Symbol from ``ABPlayerControlsConfiguration/skipInterval``. An explicit icon — including ``ABControlIcon/none`` — always wins over that derivation. ``ABPlayerControlsConfiguration/skipInterval`` defaults to 10 seconds and accepts 5-second steps between 5 and 60; other values are rounded to the nearest step and clamped into that range. Steps with a native `gobackward.N`/`goforward.N` glyph (5, 10, 15, 30, 45, 60) use it directly; other steps (e.g. 20, 25) badge the number over a generic arrow so the rendered icon always matches the configured interval.
 
 This default (10 seconds) is independent of `ABPlayerKitNowPlaying`'s `ABNowPlayingConfiguration.skipInterval`, which defaults to 15 — the two configurations aren't linked, so a consumer using both products on the same player should set both explicitly if the on-screen skip buttons and the lock-screen skip commands should agree.
 

@@ -246,6 +246,16 @@ token.cancel()
 
 `ABPlayerEvent`는 비전수(non-exhaustive) 열거형으로 취급하세요. 마이너 릴리스에서 케이스가 추가될 수 있으므로 소비자 코드의 `switch`에는 반드시 `default` 분기를 두어야 합니다.
 
+#### 실패, 진단, 거부된 호출
+
+`ABPlayer.lastFailure`는 가장 최근의 **종료성(terminal)** 실패를 `ABPlayerFailure`로 담습니다 — 기존의 `ABPlayerError` 분류에, 알려진 경우 원인이 되는 서브시스템을 나타내는 `ABErrorOrigin`(기반 `NSError`의 `domain`/`code`)을 더한 값입니다. 분류만으로 충분하지 않은 경우를 위한 것이며, 다음 attach·소스 교체·detach·release 시 초기화됩니다. `ABPlayer.lastDiagnostic`은 형태는 같지만 비종료성 케이스 하나, `.itemErrorLogEntry`만을 담습니다 — 아직 로딩 중이거나 재생 중인 스트림은 이 진단을 스스로 내놓고 회복하는 일이 흔하므로, 정상적인 진단이 실제 실패로 오인되지 않도록 `lastFailure`와 분리했습니다. `ABPlayer.lastError`는 변경 없이 `lastFailure?.kind`를 계산하는 프로퍼티로 남아 `lastFailure`가 생기기 전에 작성된 코드와 호환됩니다.
+
+어느 채널로 갈지를 결정하는 것은 `ABPlayerError.isTerminal`이며, `ABPlayerFailure.isTerminal`로도 그대로 투영됩니다. 케이스를 직접 매칭하는 대신 이 값으로 분기하십시오 — 향후 릴리스가 새 케이스를 추가해도 처리가 깨지지 않습니다.
+
+두 채널 모두 이벤트 스트림으로도 통지됩니다: 기존 `.failed(ABPlayerError)`와 같은 지점에서 함께 방송되는 `.failureReported(ABPlayerFailure)`가 그것이며, 새 코드는 원인 정보를 담은 `.failureReported`를 우선 사용해야 합니다.
+
+`grade != .current`인 상태에서의 재생 제어 호출(`play`/`pause`/`seek`/`skip`/스크러빙)은 예외를 던지지 않고 무시됩니다. `.playbackRejected`는 기존 신호로 남아 있고, `.callRejected(ABRejectedCall, grade:)`가 같은 지점에서 함께 방송되어 어떤 호출이 어떤 등급에서 무시됐는지 식별합니다.
+
 #### 오디오 세션과 인터럽션
 
 `ABPlayer`는 명시적으로 옵트인하지 않는 한 프로세스 전역 `AVAudioSession`을 절대 건드리지 않습니다 — 둘 다 기본값이 꺼짐입니다.
@@ -274,7 +284,9 @@ player.configuration = configuration
 | `.pause` (기본값) | `.current`면 일시정지 | 재생 중이었다면 재개 |
 | `.pauseAndDetachLayer` | `.current`면 일시정지, `AVPlayerLayer.player`를 뗌(디코더 해제) | 레이어 재부착, 재생 중이었다면 재개 |
 | `.demoteToInstance` | `.instanceOnly`로 강등(아이템 폐기, 네트워크 완전 차단) | 이전 등급 복원 |
-| `.continueAudioOnly` | `AVPlayerLayer.player`만 뗌 — 재생은 계속됨 | 레이어 재부착, 시스템이 재생을 멈췄다면 재개 |
+| `.continueAudioOnly` | `AVPlayerLayer.player`만 뗌 — 재생은 계속됨 | 레이어 재부착, 시스템이 재생을 멈췄을 때만 재개 — 명시적 `pause()`는 절대 덮어쓰지 않음 |
+
+`.continueAudioOnly`는 백그라운드 상태에서도 재생이 계속되는 유일한 정책이라, 사용자가 그 상태에서 일시정지할 수 있는 유일한 정책이기도 합니다 — 잠금 화면, Now Playing Center, 또는 Controls를 통해서요. 백그라운드 중 명시적으로 호출된 `pause()`는 그대로 우선하며 포그라운드 복귀 시에도 재개되지 않습니다. 위의 안전망 재개는 그 사이에 `pause()` 호출 없이 시스템이 스스로 재생을 멈춘 경우에만 적용됩니다.
 
 `.continueAudioOnly`는 아래 세 조건이 모두 갖춰져야 하며, 하나라도 빠지면 `.pause`처럼 조용히 동작합니다(시스템이 앱을 서스펜드하고, 이 정책은 포그라운드 복귀 시 안전망으로 재생을 재개합니다).
 
@@ -350,11 +362,11 @@ struct AirPlayButton: UIViewRepresentable {
 
 #### 자막과 오디오 트랙
 
-자막/오디오 트랙 선택 UI와 상태 관리는 이 라이브러리가 **제공하지 않습니다.** 탈출구를 통해 `AVMediaSelectionGroup`에 직접 접근하세요.
+자막/오디오 트랙 선택 UI와 상태 관리는 이 라이브러리가 **제공하지 않습니다.** 탈출구를 통해 `AVMediaSelectionGroup`에 직접 접근하세요 — `loadMediaSelectionGroup(for:)`는 `async`이므로 async 컨텍스트(`Task` 또는 `async` 함수)가 필요합니다.
 
 ```swift
 if let item = player.avPlayerItem,
-   let group = item.asset.mediaSelectionGroup(forMediaCharacteristic: .audible) {
+   let group = try? await item.asset.loadMediaSelectionGroup(for: .audible) {
     let options = group.options
     // options를 표시한 뒤:
     item.select(options[0], in: group)
@@ -635,6 +647,8 @@ player.set(source: source, grade: .preloaded) // preloadTuning 복원
 ```
 
 이 대칭성은 강등된 아이템에 unrestricted/current 정책이 실수로 남는 것을 막습니다.
+
+`ABPlaybackTuning.audioTimePitchAlgorithm`(기본값 `nil` — `AVFoundation`의 기본 알고리즘을 그대로 둠)은 `AVPlayerItem.audioTimePitchAlgorithm`으로 그대로 전달됩니다 — 1.0이 아닌 `ABPlaybackRate` 값을 쓰면서 타임피치 보정을 켜거나(또는 명시적으로 끄고) 싶다면 역할별로 설정하세요.
 
 ## 아키텍처
 

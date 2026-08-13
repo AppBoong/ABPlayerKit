@@ -2,10 +2,24 @@
 import Foundation
 
 /// Subscribes to `AVAudioSession` interruption and route-change
-/// notifications for a single `ABPlayer` instance. Follows
-/// `ABApplicationStateObserver`'s pattern (Policy/ABApplicationStateObserver.swift):
+/// notifications for a single `ABPlayer` instance. Like
+/// `ABApplicationStateObserver` (Policy/ABApplicationStateObserver.swift):
 /// no global/static observers, each instance owns and tears down its own
-/// tokens.
+/// registration.
+///
+/// Deliberately *not* selector-based like `ABApplicationStateObserver`,
+/// even though the two otherwise solve the same problem. That type can use
+/// `NotificationCenter`'s selector form because `UIApplication` posts its
+/// lifecycle notifications on the main thread, so the `@objc` thunk for a
+/// main-actor method runs where it's already isolated. `AVAudioSession`
+/// posts interruption/route-change notifications off the main thread —
+/// routing them through a selector would call that same kind of thunk from
+/// a non-main thread, and its runtime executor check would trap in release
+/// builds, not just debug. The closure-plus-`queue: .main` form here hops
+/// to the main actor first, which is the only shape that's actually safe
+/// for a notification source that doesn't post on main. Harmonizing this
+/// with `ABApplicationStateObserver`'s selector form would reintroduce that
+/// trap.
 ///
 /// Deliberately reads real `AVAudioSession.interruptionNotification`/
 /// `routeChangeNotification` names and their real `userInfo` key/value
@@ -17,7 +31,7 @@ import Foundation
 final class ABAudioInterruptionObserver {
     // `nonisolated(unsafe)`: NotificationCenter observer tokens are opaque,
     // thread-safe-to-hold reference types; `removeObserver` itself is safe
-    // to call from any thread. Mirrors `ABApplicationStateObserver`.
+    // to call from any thread.
     private nonisolated(unsafe) var tokens: [NSObjectProtocol] = []
     private let center: NotificationCenter
 

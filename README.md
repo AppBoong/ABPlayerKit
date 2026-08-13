@@ -246,6 +246,16 @@ token.cancel()
 
 Treat `ABPlayerEvent` as non-exhaustive. Minor releases may add cases, so consumer switches must include a `default` branch.
 
+#### Failures, Diagnostics, and Rejected Calls
+
+`ABPlayer.lastFailure` holds the most recent *terminal* failure as an `ABPlayerFailure` — the existing `ABPlayerError` classification plus an optional `ABErrorOrigin` (the underlying `NSError`'s `domain`/`code`, when known), for the cases where the classification alone doesn't say enough. It's cleared on the next attach, source change, detach, or release. `ABPlayer.lastDiagnostic` is the same shape but for the one non-terminal case, `.itemErrorLogEntry` — a stream that's still loading or still playing routinely surfaces one of these and recovers on its own, so it's kept off `lastFailure` to avoid a healthy diagnostic masquerading as a real failure. `ABPlayer.lastError` is unchanged: a computed projection of `lastFailure?.kind`, for code written before `lastFailure` existed.
+
+What decides which channel a failure lands on is `ABPlayerError.isTerminal`, projected as `ABPlayerFailure.isTerminal`. Branch on that rather than matching cases by hand — a future release can classify a new case without breaking your handling.
+
+Both channels also broadcast through the event stream: `.failureReported(ABPlayerFailure)` alongside the legacy `.failed(ABPlayerError)`, at the same site. New code should prefer `.failureReported` for the provenance.
+
+A playback control call (`play`/`pause`/`seek`/`skip`/scrubbing) made while `grade != .current` is ignored, not thrown. `.playbackRejected` stays the legacy signal; `.callRejected(ABRejectedCall, grade:)` identifies which call was ignored and at what grade, broadcast alongside it at the same site.
+
 #### Audio Session and Interruptions
 
 `ABPlayer` never touches the process-global `AVAudioSession` unless you opt in — both are `off` by default:
@@ -274,7 +284,9 @@ Both paths broadcast through the same `ABPlayerEvent` stream: `.audioInterruptio
 | `.pause` (default) | Pauses if `.current` | Resumes if it was playing |
 | `.pauseAndDetachLayer` | Pauses if `.current`; detaches `AVPlayerLayer.player` (releases the decoder) | Re-attaches the layer; resumes if it was playing |
 | `.demoteToInstance` | Demotes to `.instanceOnly` (drops the item; blocks network entirely) | Restores the prior grade |
-| `.continueAudioOnly` | Detaches `AVPlayerLayer.player` only — playback keeps running | Re-attaches the layer; resumes if the system suspended playback anyway |
+| `.continueAudioOnly` | Detaches `AVPlayerLayer.player` only — playback keeps running | Re-attaches the layer; resumes only if the system suspended playback anyway, never overriding an explicit `pause()` |
+
+`.continueAudioOnly` is the only policy where playback keeps running while backgrounded, so it's the only one where a user can pause it there — from the lock screen, Now Playing Center, or Controls. An explicit `pause()` while backgrounded is authoritative and stays paused on foreground return; the safety-net resume above only covers the system suspending playback on its own, with no `pause()` in between.
 
 `.continueAudioOnly` needs all three of the following, or it silently behaves like `.pause` (the system suspends the app, and this policy resumes playback on foreground return as a safety net):
 
@@ -350,11 +362,11 @@ A screen with several simultaneously-live players (a feed) should set `allowsExt
 
 #### Subtitles and Audio Tracks
 
-Subtitle/audio track selection UI and state management are **not provided** by this library. Reach `AVMediaSelectionGroup` directly through the escape hatch:
+Subtitle/audio track selection UI and state management are **not provided** by this library. Reach `AVMediaSelectionGroup` directly through the escape hatch — `loadMediaSelectionGroup(for:)` is `async`, so this needs an async context (a `Task`, or an `async` function):
 
 ```swift
 if let item = player.avPlayerItem,
-   let group = item.asset.mediaSelectionGroup(forMediaCharacteristic: .audible) {
+   let group = try? await item.asset.loadMediaSelectionGroup(for: .audible) {
     let options = group.options
     // Present `options`, then:
     item.select(options[0], in: group)
@@ -636,6 +648,8 @@ player.set(source: source, grade: .preloaded) // restores preloadTuning
 ```
 
 This symmetry prevents a demoted item from retaining the unrestricted/current policy by accident.
+
+`ABPlaybackTuning.audioTimePitchAlgorithm` (default `nil`, leaving `AVFoundation`'s own default algorithm unchanged) passes straight through to `AVPlayerItem.audioTimePitchAlgorithm` — set it per role for a consumer using non-1.0 `ABPlaybackRate` values who wants to opt into (or explicitly out of) time-pitch correction.
 
 ## Architecture
 
