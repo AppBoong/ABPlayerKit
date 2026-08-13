@@ -8,3 +8,6 @@ DerivedData/
 *.xcodeproj
 !Examples/ABPlayerKitDemo/ABPlayerKitDemo.xcodeproj/
 .index-build/
+# Agent worktrees live inside the checkout; without this, `git add -A` stages
+# them as embedded repositories.
+.claude/worktrees/
