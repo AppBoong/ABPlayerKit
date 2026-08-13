@@ -357,12 +357,11 @@ struct ABPlayerEventBroadcastTests {
 
         player.configuration.backgroundPolicy = .pause
         center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
-        // `ABApplicationStateObserver` registers with `queue: .main` and
-        // wraps its callback in its own `Task { @MainActor in ... }`, so the
-        // actual `onBackground()` call is one more main-actor turn away
-        // from this synchronous `post(name:)` — a single `Task.yield()`
-        // deterministically hands the actor over long enough for both hops
-        // to run before this test resumes (round3 Phase1+2 review m6).
+        // `ABApplicationStateObserver` handles the notification synchronously,
+        // so `onBackground()` has already run by the time `post(name:)`
+        // returns. The yield is kept only because this test also tolerates
+        // effects that settle asynchronously; the timing itself is pinned by
+        // `ABContinueAudioOnlyTests`, where synchrony is load-bearing.
         await Task.yield()
         let pauseCount = target.calls.filter { $0 == .pause }.count
         #expect(pauseCount == 1)

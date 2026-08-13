@@ -4,6 +4,20 @@ import UIKit
 /// Subscribes to app background/foreground transitions for a single
 /// `ABPlayer` instance. No global/static observers — each instance owns
 /// and tears down its own tokens.
+///
+/// Handlers run **synchronously**, inside the notification dispatch, via
+/// `MainActor.assumeIsolated` rather than a `Task` hop. This is load-bearing
+/// for ``ABBackgroundPolicy/continueAudioOnly``: keeping audio alive in the
+/// background requires clearing `AVPlayerLayer.player` *while handling*
+/// `didEnterBackgroundNotification`. Deferring that by even one main-actor
+/// turn lets AVFoundation stop the still-attached player first, after which
+/// nothing is playing, iOS grants no audio assertion, and the process is
+/// suspended seconds later. `willResignActive` has the same requirement for
+/// a different reason — it captures the live `isPlaying` value, which decode
+/// teardown would have already falsified by the next turn.
+///
+/// `assumeIsolated` cannot trap here: `addObserver(forName:object:queue:)`
+/// with `queue: .main` always runs the block on the main thread.
 @MainActor
 final class ABApplicationStateObserver {
     // `nonisolated(unsafe)`: NotificationCenter observer tokens are opaque,
@@ -26,7 +40,7 @@ final class ABApplicationStateObserver {
                 object: nil,
                 queue: .main
             ) { _ in
-                Task { @MainActor in onWillResignActive() }
+                MainActor.assumeIsolated { onWillResignActive() }
             }
         )
         tokens.append(
@@ -35,7 +49,7 @@ final class ABApplicationStateObserver {
                 object: nil,
                 queue: .main
             ) { _ in
-                Task { @MainActor in onBackground() }
+                MainActor.assumeIsolated { onBackground() }
             }
         )
         tokens.append(
@@ -44,7 +58,7 @@ final class ABApplicationStateObserver {
                 object: nil,
                 queue: .main
             ) { _ in
-                Task { @MainActor in onForeground() }
+                MainActor.assumeIsolated { onForeground() }
             }
         )
     }
