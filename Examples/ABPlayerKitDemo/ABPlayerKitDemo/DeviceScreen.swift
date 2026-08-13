@@ -206,7 +206,7 @@ struct DeviceScreen: View {
                     }
 
                     GroupBox("Audio session") {
-                        Text("This screen's player uses audioSessionPolicy = .playback(mixWithOthers: false), separate from the Playback tab's session — Picture in Picture and background continuation both need an active playback session to keep working once the app leaves the foreground.")
+                        Text("This screen's player uses audioSessionPolicy = .playback(mixWithOthers: false), separate from the Playback tab's session — Picture in Picture needs an active playback session to keep rendering once the app leaves the foreground. Its backgroundPolicy is left at the default .pause, so backgrounding without PiP active stops the audio here; that is correct, not a fault. Background audio is the Playback tab's Continue audio only check.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

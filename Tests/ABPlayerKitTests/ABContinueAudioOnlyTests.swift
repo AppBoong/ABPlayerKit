@@ -36,6 +36,66 @@ struct ABContinueAudioOnlyTests {
         #expect(!target.calls.contains(.pause))
     }
 
+    /// Deliberately non-`async`, with no `Task.yield()` between the post and
+    /// the expectations — the assertion *is* that the detach already happened
+    /// by the time `post(name:)` returned.
+    ///
+    /// iOS keeps background audio alive only when `AVPlayerLayer.player` is
+    /// cleared while the app is still handling the background notification.
+    /// Deferring the handler by even one main-actor turn lets AVFoundation
+    /// stop the still-attached player first; nothing is then playing, so no
+    /// audio assertion is granted and the process is suspended seconds later.
+    /// Every other test here yields before asserting, which measures the end
+    /// state but not the timing — and so passes against a build that fails on
+    /// a real device.
+    @Test("The layer detaches inside the background notification's own dispatch, not a turn later")
+    func backgroundEntryDetachesLayerSynchronously() {
+        let center = NotificationCenter()
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(
+            configuration: ABPlayerConfiguration(backgroundPolicy: .continueAudioOnly),
+            target: target,
+            notificationCenter: center
+        )
+        player.set(source: source, grade: .current)
+        player.play()
+
+        center.post(name: UIApplication.willResignActiveNotification, object: nil)
+        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+
+        #expect(!player.isLayerAttachmentEnabled)
+        #expect(player.isPlaying)
+        #expect(!target.calls.contains(.pause))
+    }
+
+    /// The companion to the test above, covering the other half of the causal
+    /// chain. That one pins the engine's flag; what iOS actually reads is
+    /// `AVPlayerLayer.player`, cleared by the bound view in response. Pinning
+    /// only the flag would let someone defer the view's own reaction later and
+    /// reintroduce the device failure with a fully green suite.
+    @Test("The bound view's layer drops its player in the same dispatch, not just the engine's flag")
+    func backgroundEntryClearsTheBoundLayerSynchronously() {
+        let center = NotificationCenter()
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(
+            configuration: ABPlayerConfiguration(backgroundPolicy: .continueAudioOnly),
+            target: target,
+            notificationCenter: center
+        )
+        let view = ABPlayerView()
+        view.player = player
+        player.set(source: source, grade: .current)
+        player.play()
+
+        let layer = view.layer as? AVPlayerLayer
+        #expect(layer?.player != nil)
+
+        center.post(name: UIApplication.willResignActiveNotification, object: nil)
+        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+
+        #expect(layer?.player == nil)
+    }
+
     @Test("Regression: switching away from .continueAudioOnly mid-background re-attaches the layer")
     func switchingAwayFromContinueAudioOnlyMidBackgroundReattachesLayer() async {
         let center = NotificationCenter()
