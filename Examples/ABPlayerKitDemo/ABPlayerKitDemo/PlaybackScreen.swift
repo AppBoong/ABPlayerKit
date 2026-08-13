@@ -149,7 +149,7 @@ struct PlaybackScreen: View {
                                     Text(preset.title).tag(preset)
                                 }
                             }
-                            Text("Continue audio only needs a managed audio session and UIBackgroundModes = audio (already declared for this demo target) to keep playing once the app leaves the foreground. Selecting it also switches the audio session to managed if it wasn't already — background it on a real device to verify.")
+                            Text("Continue audio only needs a managed audio session and UIBackgroundModes = audio to keep playing once the app leaves the foreground. Both are already in place — this demo opts into a .playback session at startup (which is also why it ignores the Ring/Silent switch, unlike the library's .unmanaged default) and the target declares the background mode. So this picker supplies the only missing piece; background it on a real device to verify.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }

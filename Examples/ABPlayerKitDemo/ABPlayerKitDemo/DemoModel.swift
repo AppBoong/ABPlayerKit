@@ -225,7 +225,17 @@ final class DemoModel {
     let metricsLogFileURL: URL
 
     init() {
-        let player = ABPlayer()
+        // A managed playback session from the start. The library defaults to
+        // `.unmanaged` so it never reconfigures a host app's audio behind its
+        // back, which leaves an app on iOS's own `soloAmbient` category —
+        // silenced by the Ring/Silent switch. For a video demo that reads as
+        // "playback is broken": the picture moves and nothing is audible.
+        // `.playback` also happens to be what `.continueAudioOnly` requires,
+        // so the background-audio path no longer depends on the policy picker
+        // having been touched first.
+        var configuration = ABPlayerConfiguration()
+        configuration.audioSessionPolicy = .playback(mixWithOthers: false)
+        let player = ABPlayer(configuration: configuration)
         let metricsSink = ABInMemoryMetricsSink()
         let metricsLogFileURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("metrics.jsonl")
@@ -403,18 +413,14 @@ final class DemoModel {
     /// playing in the background: `UIBackgroundModes` including `audio`
     /// (declared once, in the Xcode project itself — this method can't set
     /// that), `audioSessionPolicy != .unmanaged`, and this assignment. The
-    /// demo never sets `audioSessionPolicy` elsewhere, so it defaults to
-    /// `.unmanaged` — selecting `.continueAudioOnly` here also switches the
-    /// session to a managed policy if it's still unmanaged, so the picker
-    /// visibly does something on device instead of silently no-op'ing.
+    /// first two are already in place before this runs — the project
+    /// declares the background mode and `init` opts into a managed session —
+    /// so this picker supplies the only missing piece.
     func setBackgroundPolicy(_ preset: DemoBackgroundPolicy) {
         guard preset != selectedBackgroundPolicy else { return }
         selectedBackgroundPolicy = preset
         var configuration = player.configuration
         configuration.backgroundPolicy = preset.policy
-        if preset == .continueAudioOnly, configuration.audioSessionPolicy == .unmanaged {
-            configuration.audioSessionPolicy = .playback(mixWithOthers: false)
-        }
         player.configuration = configuration
     }
 
