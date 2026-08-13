@@ -1079,7 +1079,7 @@ struct ABCacheStoreTests {
                 }
             }
             group.addTask {
-                try? await Task.sleep(for: .seconds(2))
+                try? await Task.sleep(for: abScaledTimeout(.seconds(2)))
                 return .timedOut
             }
             let first = await group.next() ?? .timedOut
@@ -1567,7 +1567,7 @@ struct ABCacheStoreTests {
                 }
             }
             group.addTask {
-                try? await Task.sleep(for: .seconds(2))
+                try? await Task.sleep(for: abScaledTimeout(.seconds(2)))
                 return .timedOut
             }
             let first = await group.next() ?? .timedOut

@@ -17,6 +17,23 @@ private let deadlineScale: Double = {
     return scale
 }()
 
+/// Scales an ad-hoc timeout by the same factor ``waitUntil`` applies to its
+/// own deadline.
+///
+/// Some tests can't express their wait as a predicate — a `withTaskGroup`
+/// race where one branch sleeps and reports `.timedOut` needs a real
+/// duration, not a poll. Those deadlines are subject to exactly the same
+/// slowdown ``waitUntil`` exists to absorb, so they must be scaled the same
+/// way; a bare `Task.sleep(for: .seconds(2))` silently opts out and reports a
+/// slow machine as a product failure.
+///
+/// Only for a bound the *success* path has to beat. A deliberately long
+/// sleep standing in for work that should be cancelled must stay unscaled —
+/// stretching it delays detection of the failure it exists to catch.
+public func abScaledTimeout(_ duration: Duration) -> Duration {
+    duration * deadlineScale
+}
+
 /// Deterministic polling helper shared by every test target: waits for a
 /// predicate against a `ContinuousClock` deadline, polling on a fixed
 /// interval so the awaiting task never spins the scheduler.
