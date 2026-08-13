@@ -250,6 +250,8 @@ token.cancel()
 
 `ABPlayer.lastFailure`는 가장 최근의 **종료성(terminal)** 실패를 `ABPlayerFailure`로 담습니다 — 기존의 `ABPlayerError` 분류에, 알려진 경우 원인이 되는 서브시스템을 나타내는 `ABErrorOrigin`(기반 `NSError`의 `domain`/`code`)을 더한 값입니다. 분류만으로 충분하지 않은 경우를 위한 것이며, 다음 attach·소스 교체·detach·release 시 초기화됩니다. `ABPlayer.lastDiagnostic`은 형태는 같지만 비종료성 케이스 하나, `.itemErrorLogEntry`만을 담습니다 — 아직 로딩 중이거나 재생 중인 스트림은 이 진단을 스스로 내놓고 회복하는 일이 흔하므로, 정상적인 진단이 실제 실패로 오인되지 않도록 `lastFailure`와 분리했습니다. `ABPlayer.lastError`는 변경 없이 `lastFailure?.kind`를 계산하는 프로퍼티로 남아 `lastFailure`가 생기기 전에 작성된 코드와 호환됩니다.
 
+어느 채널로 갈지를 결정하는 것은 `ABPlayerError.isTerminal`이며, `ABPlayerFailure.isTerminal`로도 그대로 투영됩니다. 케이스를 직접 매칭하는 대신 이 값으로 분기하십시오 — 향후 릴리스가 새 케이스를 추가해도 처리가 깨지지 않습니다.
+
 두 채널 모두 이벤트 스트림으로도 통지됩니다: 기존 `.failed(ABPlayerError)`와 같은 지점에서 함께 방송되는 `.failureReported(ABPlayerFailure)`가 그것이며, 새 코드는 원인 정보를 담은 `.failureReported`를 우선 사용해야 합니다.
 
 `grade != .current`인 상태에서의 재생 제어 호출(`play`/`pause`/`seek`/`skip`/스크러빙)은 예외를 던지지 않고 무시됩니다. `.playbackRejected`는 기존 신호로 남아 있고, `.callRejected(ABRejectedCall, grade:)`가 같은 지점에서 함께 방송되어 어떤 호출이 어떤 등급에서 무시됐는지 식별합니다.

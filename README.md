@@ -250,6 +250,8 @@ Treat `ABPlayerEvent` as non-exhaustive. Minor releases may add cases, so consum
 
 `ABPlayer.lastFailure` holds the most recent *terminal* failure as an `ABPlayerFailure` — the existing `ABPlayerError` classification plus an optional `ABErrorOrigin` (the underlying `NSError`'s `domain`/`code`, when known), for the cases where the classification alone doesn't say enough. It's cleared on the next attach, source change, detach, or release. `ABPlayer.lastDiagnostic` is the same shape but for the one non-terminal case, `.itemErrorLogEntry` — a stream that's still loading or still playing routinely surfaces one of these and recovers on its own, so it's kept off `lastFailure` to avoid a healthy diagnostic masquerading as a real failure. `ABPlayer.lastError` is unchanged: a computed projection of `lastFailure?.kind`, for code written before `lastFailure` existed.
 
+What decides which channel a failure lands on is `ABPlayerError.isTerminal`, projected as `ABPlayerFailure.isTerminal`. Branch on that rather than matching cases by hand — a future release can classify a new case without breaking your handling.
+
 Both channels also broadcast through the event stream: `.failureReported(ABPlayerFailure)` alongside the legacy `.failed(ABPlayerError)`, at the same site. New code should prefer `.failureReported` for the provenance.
 
 A playback control call (`play`/`pause`/`seek`/`skip`/scrubbing) made while `grade != .current` is ignored, not thrown. `.playbackRejected` stays the legacy signal; `.callRejected(ABRejectedCall, grade:)` identifies which call was ignored and at what grade, broadcast alongside it at the same site.
