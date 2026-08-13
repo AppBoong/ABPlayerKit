@@ -69,6 +69,13 @@ Treat ``ABPlayerEvent`` and ``ABPlayerError`` as non-exhaustive. Minor releases 
 - ``ABBackgroundPolicy``
 - ``ABAudioSession``
 
+### Failures, Diagnostics, and Rejected Calls
+
+- ``ABPlayerError``
+- ``ABPlayerFailure``
+- ``ABErrorOrigin``
+- ``ABRejectedCall``
+
 ### Extension Seams
 
 - ``ABAssetFactory``

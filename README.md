@@ -246,6 +246,14 @@ token.cancel()
 
 Treat `ABPlayerEvent` as non-exhaustive. Minor releases may add cases, so consumer switches must include a `default` branch.
 
+#### Failures, Diagnostics, and Rejected Calls
+
+`ABPlayer.lastFailure` holds the most recent *terminal* failure as an `ABPlayerFailure` — the existing `ABPlayerError` classification plus an optional `ABErrorOrigin` (the underlying `NSError`'s `domain`/`code`, when known), for the cases where the classification alone doesn't say enough. It's cleared on the next attach, source change, detach, or release. `ABPlayer.lastDiagnostic` is the same shape but for the one non-terminal case, `.itemErrorLogEntry` — a stream that's still loading or still playing routinely surfaces one of these and recovers on its own, so it's kept off `lastFailure` to avoid a healthy diagnostic masquerading as a real failure. `ABPlayer.lastError` is unchanged: a computed projection of `lastFailure?.kind`, for code written before `lastFailure` existed.
+
+Both channels also broadcast through the event stream: `.failureReported(ABPlayerFailure)` alongside the legacy `.failed(ABPlayerError)`, at the same site. New code should prefer `.failureReported` for the provenance.
+
+A playback control call (`play`/`pause`/`seek`/`skip`/scrubbing) made while `grade != .current` is ignored, not thrown. `.playbackRejected` stays the legacy signal; `.callRejected(ABRejectedCall, grade:)` identifies which call was ignored and at what grade, broadcast alongside it at the same site.
+
 #### Audio Session and Interruptions
 
 `ABPlayer` never touches the process-global `AVAudioSession` unless you opt in — both are `off` by default:
@@ -638,6 +646,8 @@ player.set(source: source, grade: .preloaded) // restores preloadTuning
 ```
 
 This symmetry prevents a demoted item from retaining the unrestricted/current policy by accident.
+
+`ABPlaybackTuning.audioTimePitchAlgorithm` (default `nil`, leaving `AVFoundation`'s own default algorithm unchanged) passes straight through to `AVPlayerItem.audioTimePitchAlgorithm` — set it per role for a consumer using non-1.0 `ABPlaybackRate` values who wants to opt into (or explicitly out of) time-pitch correction.
 
 ## Architecture
 

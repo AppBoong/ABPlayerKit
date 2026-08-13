@@ -246,6 +246,14 @@ token.cancel()
 
 `ABPlayerEvent`는 비전수(non-exhaustive) 열거형으로 취급하세요. 마이너 릴리스에서 케이스가 추가될 수 있으므로 소비자 코드의 `switch`에는 반드시 `default` 분기를 두어야 합니다.
 
+#### 실패, 진단, 거부된 호출
+
+`ABPlayer.lastFailure`는 가장 최근의 **종료성(terminal)** 실패를 `ABPlayerFailure`로 담습니다 — 기존의 `ABPlayerError` 분류에, 알려진 경우 원인이 되는 서브시스템을 나타내는 `ABErrorOrigin`(기반 `NSError`의 `domain`/`code`)을 더한 값입니다. 분류만으로 충분하지 않은 경우를 위한 것이며, 다음 attach·소스 교체·detach·release 시 초기화됩니다. `ABPlayer.lastDiagnostic`은 형태는 같지만 비종료성 케이스 하나, `.itemErrorLogEntry`만을 담습니다 — 아직 로딩 중이거나 재생 중인 스트림은 이 진단을 스스로 내놓고 회복하는 일이 흔하므로, 정상적인 진단이 실제 실패로 오인되지 않도록 `lastFailure`와 분리했습니다. `ABPlayer.lastError`는 변경 없이 `lastFailure?.kind`를 계산하는 프로퍼티로 남아 `lastFailure`가 생기기 전에 작성된 코드와 호환됩니다.
+
+두 채널 모두 이벤트 스트림으로도 통지됩니다: 기존 `.failed(ABPlayerError)`와 같은 지점에서 함께 방송되는 `.failureReported(ABPlayerFailure)`가 그것이며, 새 코드는 원인 정보를 담은 `.failureReported`를 우선 사용해야 합니다.
+
+`grade != .current`인 상태에서의 재생 제어 호출(`play`/`pause`/`seek`/`skip`/스크러빙)은 예외를 던지지 않고 무시됩니다. `.playbackRejected`는 기존 신호로 남아 있고, `.callRejected(ABRejectedCall, grade:)`가 같은 지점에서 함께 방송되어 어떤 호출이 어떤 등급에서 무시됐는지 식별합니다.
+
 #### 오디오 세션과 인터럽션
 
 `ABPlayer`는 명시적으로 옵트인하지 않는 한 프로세스 전역 `AVAudioSession`을 절대 건드리지 않습니다 — 둘 다 기본값이 꺼짐입니다.
@@ -637,6 +645,8 @@ player.set(source: source, grade: .preloaded) // preloadTuning 복원
 ```
 
 이 대칭성은 강등된 아이템에 unrestricted/current 정책이 실수로 남는 것을 막습니다.
+
+`ABPlaybackTuning.audioTimePitchAlgorithm`(기본값 `nil` — `AVFoundation`의 기본 알고리즘을 그대로 둠)은 `AVPlayerItem.audioTimePitchAlgorithm`으로 그대로 전달됩니다 — 1.0이 아닌 `ABPlaybackRate` 값을 쓰면서 타임피치 보정을 켜거나(또는 명시적으로 끄고) 싶다면 역할별로 설정하세요.
 
 ## 아키텍처
 
