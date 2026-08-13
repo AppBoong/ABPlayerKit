@@ -48,11 +48,13 @@ style.skipBackwardIcon = .none
 controls.style = style
 ```
 
-When skip icons are `nil`, the controls derive supported SF Symbols from ``ABPlayerControlsConfiguration/skipInterval``. An explicit icon always wins. ``ABPlayerControlsConfiguration/skipInterval`` accepts 5-second steps between 5 and 60; other values are rounded to the nearest step and clamped into that range. Steps with a native `gobackward.N`/`goforward.N` glyph (5, 10, 15, 30, 45, 60) use it directly; other steps (e.g. 20, 25) badge the number over a generic arrow so the rendered icon always matches the configured interval.
+When skip icons are `nil`, the controls derive supported SF Symbols from ``ABPlayerControlsConfiguration/skipInterval``. An explicit icon always wins. ``ABPlayerControlsConfiguration/skipInterval`` defaults to 10 seconds and accepts 5-second steps between 5 and 60; other values are rounded to the nearest step and clamped into that range. Steps with a native `gobackward.N`/`goforward.N` glyph (5, 10, 15, 30, 45, 60) use it directly; other steps (e.g. 20, 25) badge the number over a generic arrow so the rendered icon always matches the configured interval.
+
+This default (10 seconds) is independent of `ABPlayerKitNowPlaying`'s `ABNowPlayingConfiguration.skipInterval`, which defaults to 15 — the two configurations aren't linked, so a consumer using both products on the same player should set both explicitly if the on-screen skip buttons and the lock-screen skip commands should agree.
 
 ## Apply a Style Across Several Players
 
-``View/playerControlsStyle(_:)`` and ``View/playerControlsConfiguration(_:)`` set a style/configuration on every ``ABPlayerControls``/``ABVideoPlayerWithControls`` in that view's subtree, so one modifier can cover a whole screen of players instead of repeating a `style:`/`configuration:` argument at every call site.
+``SwiftUICore/View/playerControlsStyle(_:)`` and ``SwiftUICore/View/playerControlsConfiguration(_:)`` set a style/configuration on every ``ABPlayerControls``/``ABVideoPlayerWithControls`` in that view's subtree, so one modifier can cover a whole screen of players instead of repeating a `style:`/`configuration:` argument at every call site.
 
 ```swift
 VStack {

@@ -8,19 +8,38 @@ Which lock-screen commands activate, and how ownership moves between players.
 
 **A remote command is enabled only if it has a real, observable action behind it.** A Control Center button that does nothing when pressed is worse than no button at all.
 
-| Command | Default | Maps to | Activates when |
+A command activates only when **both** of these hold: (1) it's included in `ABNowPlayingConfiguration.commands` (an ``ABRemoteCommandSet``), and (2) the action it maps to actually exists. ``ABRemoteCommandSet/default`` — the `commands` default — is `.play, .pause, .togglePlayPause, .skipForward, .skipBackward, .changePlaybackPosition`; it **excludes** `.changePlaybackRate`, `.nextTrack`, and `.previousTrack`. Supplying a rates list or a handler alone, without also expanding `commands`, leaves those three disabled with no runtime signal that anything is missing:
+
+| Command | In `.default`? | Maps to | Also requires |
 |---|---|---|---|
-| Play | On | `player.play()` | Always (the owner is always `.current`) |
-| Pause | On | `player.pause()` | Always |
-| Toggle Play/Pause | On | `isPlaying ? pause() : play()` | Always — this is the real path a headset button takes |
-| Skip Forward | On | `player.skip(by: +interval)` | Always — `interval` is ``ABNowPlayingConfiguration/skipInterval`` |
-| Skip Backward | On | `player.skip(by: -interval)` | Always |
-| Change Playback Position | On | `player.seek(to:)` | Only while the current item's duration is finite — re-evaluated whenever duration becomes known or the item changes |
-| Change Playback Rate | Off | `player.setRate(_:)` | Only when ``ABNowPlayingConfiguration/supportedPlaybackRates`` is non-empty |
-| Next Track | Off | The `next` handler from `setTrackNavigationHandlers(next:previous:for:)` | Only when a handler is installed — this library has no queue/playlist concept of its own |
-| Previous Track | Off | The `previous` handler | Only when a handler is installed |
+| Play | Yes | `player.play()` | Nothing further — always enabled |
+| Pause | Yes | `player.pause()` | Nothing further — always enabled |
+| Toggle Play/Pause | Yes | `isPlaying ? pause() : play()` | Nothing further — this is the real path a headset button takes |
+| Skip Forward | Yes | `player.skip(by: +interval)` | Nothing further — `interval` is ``ABNowPlayingConfiguration/skipInterval`` |
+| Skip Backward | Yes | `player.skip(by: -interval)` | Nothing further |
+| Change Playback Position | Yes | `player.seek(to:)` | The current item's duration to be finite — re-evaluated whenever duration becomes known or the item changes |
+| Change Playback Rate | **No** | `player.setRate(_:)` | `commands` must include `.changePlaybackRate`, **and** ``ABNowPlayingConfiguration/supportedPlaybackRates`` must be non-empty |
+| Next Track | **No** | The `next` handler from `setTrackNavigationHandlers(next:previous:for:)` | `commands` must include `.nextTrack`, **and** a handler must be installed — this library has no queue/playlist concept of its own |
+| Previous Track | **No** | The `previous` handler | `commands` must include `.previousTrack`, **and** a handler must be installed |
+
+Enabling the three off-by-default commands needs both an expanded `commands` set and the matching action:
+
+```swift
+var configuration = ABNowPlayingConfiguration()
+configuration.commands = .default.union([.nextTrack, .previousTrack, .changePlaybackRate])
+configuration.supportedPlaybackRates = [1, 1.5, 2]
+
+let token = ABNowPlayingCenter.shared.attach(player, metadata: metadata, configuration: configuration)
+ABNowPlayingCenter.shared.setTrackNavigationHandlers(
+    next: { player.skipToNextEpisode() },
+    previous: { player.skipToPreviousEpisode() },
+    for: player
+)
+```
 
 Out of scope entirely: continuous seek (`seekForward`/`seekBackward`), `changeRepeatMode`, `changeShuffleMode`, `like`/`dislike`/`rating`/`bookmark`, and `stop` — none has a corresponding concept in `ABPlayerKit`.
+
+``ABNowPlayingConfiguration/skipInterval`` defaults to 15 seconds — a different default than `ABPlayerKitControls`' `ABPlayerControlsConfiguration.skipInterval` (10 seconds). The two configurations are independent: a consumer using both `ABPlayerKitControls` and `ABPlayerKitNowPlaying` on the same player should set both explicitly if the on-screen skip buttons and the lock-screen skip commands should agree.
 
 ## Ownership rules
 

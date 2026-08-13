@@ -6,7 +6,7 @@ An opt-in, accessible playback-controls layer for ABPlayerKit.
 
 ABPlayerKitControls provides a UIKit overlay and SwiftUI wrappers while keeping the playback engine in `ABPlayerKit`. Link this product only when an app wants the standard timeline, playback-rate, skip, and auto-hide experience.
 
-The standard overlay centers its transport buttons and places the timeline at the bottom. A fixed-hour elapsed/total label sits immediately above the timeline's leading edge, while playback rate sits at the trailing edge. The default white controls use a subtle dark scrim that preserves the video image beneath them.
+The standard overlay centers its transport buttons and places the timeline at the bottom. A fixed-hour elapsed/total label sits immediately below the timeline's visible track at the leading edge, while playback rate sits at the trailing edge. The default white controls use a subtle dark scrim that preserves the video image beneath them.
 
 A stall shows a spinner over the play/pause glyph (``ABPlayerControlsConfiguration/showsBufferingIndicator``); a skip or double-tap seek shows a cumulative feedback badge (``ABPlayerControlsStyle/seekFeedbackTextColor`` and friends); and ``ABControlsSlot`` places consumer accessory views at additional overlay positions beyond the default bottom-trailing spot. See <doc:CustomizingControls> for all of these.
 
@@ -48,10 +48,10 @@ Controls hide after ``ABPlayerControlsConfiguration/autoHideDelay`` while playin
 
 Set a style or configuration once on an ancestor view to cover every player-controls view in its subtree — an explicit `style:`/`configuration:` initializer argument still overrides it locally.
 
-- ``View/playerControlsStyle(_:)``
-- ``View/playerControlsConfiguration(_:)``
-- ``EnvironmentValues/playerControlsStyle``
-- ``EnvironmentValues/playerControlsConfiguration``
+- ``SwiftUICore/View/playerControlsStyle(_:)``
+- ``SwiftUICore/View/playerControlsConfiguration(_:)``
+- ``SwiftUICore/EnvironmentValues/playerControlsStyle``
+- ``SwiftUICore/EnvironmentValues/playerControlsConfiguration``
 
 ### Appearance
 
