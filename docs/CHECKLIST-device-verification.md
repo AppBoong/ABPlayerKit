@@ -39,9 +39,9 @@
 **자동 검증이 닿은 범위** — 정책 리듀서, 세션 바인딩 수명, `AVPictureInPictureController` 설정 전달까지. 실제 PiP 창이 뜨는지는 **전혀 검증되지 않았다.**
 
 **절차**
-1. 데모의 **PiP** 화면으로 이동한다.
-2. 재생을 시작하고 영상이 보이는지 확인한다.
-3. PiP 시작 버튼을 누른다.
+1. 데모의 **Device** 탭으로 이동한다.
+2. **Play** 버튼으로 재생을 시작하고 영상이 보이는지 확인한다.
+3. **Picture in Picture** 섹션의 **Start PiP** 버튼을 누른다.
 4. 홈 제스처로 앱을 배경으로 보낸다.
 5. PiP 창의 복귀 버튼을 눌러 앱으로 돌아온다.
 
@@ -60,8 +60,8 @@
 **자동 검증이 닿은 범위** — 복구 경로 자체는 단위 테스트로 고정돼 있다. **실제 도착 순서는 기기에서만 관측된다.**
 
 **절차**
-1. PiP 화면에서 `startsAutomaticallyFromInline`을 켠다.
-2. 재생을 시작한다. PiP를 **수동으로 켜지 않는다.**
+1. **Device** 탭의 **Starts automatically from inline** 토글을 켠다.
+2. 재생을 시작한다. **Start PiP는 누르지 않는다** — PiP를 수동으로 켜지 않는다.
 3. 홈 제스처로 앱을 배경으로 보낸다.
 
 **통과** — 배경 전환과 동시에 PiP가 자동으로 시작되고 재생이 끊기지 않는다.
@@ -115,7 +115,7 @@
 
 ### 4-B. 확장 `commands`
 
-**절차** — 데모에서 확장 commands 옵션을 켠 뒤 4-A를 반복한다.
+**절차** — **Playback** 탭의 **Now Playing** 그룹에서 **Extended commands** 토글을 켠 뒤 4-A를 반복한다.
 
 **통과** — 위 항목에 더해 다음/이전 트랙 버튼이 나타나고 눌렀을 때 반응한다. 배속 커맨드도 노출된다.
 
@@ -131,15 +131,15 @@
 
 **절차**
 1. 기기와 수신기를 같은 네트워크에 둔다.
-2. 데모에서 재생을 시작한다.
-3. 제어 센터 또는 데모의 AirPlay 라우트 피커에서 수신기를 선택한다.
-4. 화면에 표시되는 `isExternalPlaybackActive` 값을 관측한다.
+2. 데모의 **Device** 탭에서 재생을 시작한다.
+3. 제어 센터 또는 **AirPlay** 섹션의 **Route picker**에서 수신기를 선택한다.
+4. 화면에 표시되는 **isExternalPlaybackActive** 값을 관측한다.
 
 **통과** — 영상/오디오가 수신기로 넘어가고 `isExternalPlaybackActive`가 `true`가 된다. 라우트를 기기로 되돌리면 `false`로 돌아온다.
 
 **실패 징후** — 라우팅은 되는데 `isExternalPlaybackActive`가 `false`로 남는다, 또는 `allowsExternalPlayback`를 껐는데도 영상이 넘어간다.
 
-**함께 볼 것** — `usesExternalPlaybackWhileExternalScreenIsActive`와 `externalPlaybackVideoGravity`를 데모에서 바꿔가며 화면 채움 방식이 달라지는지 확인한다.
+**함께 볼 것** — **AirPlay** 섹션의 **Uses external playback while screen active** 토글과 **Aspect / Aspect fill** 피커로 `usesExternalPlaybackWhileExternalScreenIsActive`와 `externalPlaybackVideoGravity`를 바꿔가며 화면 채움 방식이 달라지는지 확인한다.
 
 ---
 
@@ -150,9 +150,9 @@
 **중요** — 설계 §12.4의 안전망(바인딩된 플레이어의 `avPlayer`가 `nil`이 되면 세션을 강제 `stop()`)은 **구현되지 않았다.** 코드 경로 분석상으로는 안전해 보이나 **미검증**이며, 이 항목은 그 가정을 실증하는 것이다.
 
 **절차**
-1. PiP를 시작한다.
+1. **Device** 탭에서 PiP를 시작한다.
 2. 앱을 배경으로 보내 PiP만 남긴다.
-3. 플레이어를 소멸시키는 조작을 한다 — 화면 이동, 소스 교체, `release()` 등 데모가 제공하는 경로.
+3. 플레이어를 소멸시키는 조작을 한다 — **Destroy the player** 섹션의 **Swap source** 또는 **Release player** 버튼.
 
 **통과** — PiP 창이 깔끔하게 닫히거나, 남더라도 앱이 죽지 않는다.
 

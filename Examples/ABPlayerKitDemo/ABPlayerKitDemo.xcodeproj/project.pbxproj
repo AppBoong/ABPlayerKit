@@ -18,6 +18,7 @@
 		C998930DB17B51A99BED385F /* CacheScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A8235864AB17F55E1ADFA3B /* CacheScreen.swift */; };
 		D5063569F92602B875128BF6 /* DemoModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0FC87B09300AFC07D882973 /* DemoModel.swift */; };
 		FD17E7F2147B6EF7FA1F4D4B /* PlaybackScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E190F1D00ED3C971D98BAA3 /* PlaybackScreen.swift */; };
+		C87A63D597484FE7BF520A82 /* DeviceScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C14B0B53EB740178266D9F9 /* DeviceScreen.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +31,7 @@
 		ACE361F1567AA3E2BF4CACA2 /* DemoRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoRootView.swift; sourceTree = "<group>"; };
 		AE8B5544D18865A3A8AB4D53 /* video-player */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "video-player"; path = ../..; sourceTree = SOURCE_ROOT; };
 		9D9B541FFD684C47A8567936 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		3C14B0B53EB740178266D9F9 /* DeviceScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceScreen.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -62,6 +64,7 @@
 				8365BE4D345F4DCBD527D4EB /* ABPlayerKitDemoApp.swift */,
 				1A8235864AB17F55E1ADFA3B /* CacheScreen.swift */,
 				A0FC87B09300AFC07D882973 /* DemoModel.swift */,
+				3C14B0B53EB740178266D9F9 /* DeviceScreen.swift */,
 				ACE361F1567AA3E2BF4CACA2 /* DemoRootView.swift */,
 				9D9B541FFD684C47A8567936 /* Info.plist */,
 				6FD377BC928032021943832E /* MetricsScreen.swift */,
@@ -154,6 +157,7 @@
 				789E9A5E1C7D97222FFDA49A /* ABPlayerKitDemoApp.swift in Sources */,
 				C998930DB17B51A99BED385F /* CacheScreen.swift in Sources */,
 				D5063569F92602B875128BF6 /* DemoModel.swift in Sources */,
+				C87A63D597484FE7BF520A82 /* DeviceScreen.swift in Sources */,
 				9518DB33FC263EE0C83F0DFC /* DemoRootView.swift in Sources */,
 				B1446DC7A36E8C6EA338353F /* MetricsScreen.swift in Sources */,
 				FD17E7F2147B6EF7FA1F4D4B /* PlaybackScreen.swift in Sources */,

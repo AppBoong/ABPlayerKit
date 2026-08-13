@@ -210,6 +210,14 @@ final class DemoModel {
     var prefetchState = HLSPrefetchState.idle
     var cacheError: String?
     var nowPlayingEnabled = false
+    /// When `false`, `attach` gets no `configuration:` argument at all, so
+    /// `commands` is `ABRemoteCommandSet.default` — no next/previous/rate.
+    /// When `true`, all three of `commands`, `supportedPlaybackRates`, and
+    /// the track-navigation handlers below are set together; any one
+    /// missing leaves the corresponding command silently inert.
+    var nowPlayingCommandsExtended = false
+    var nextTrackCount = 0
+    var previousTrackCount = 0
     private var nowPlayingToken: ABObservationToken?
 
     /// Where the demo's JSONL metrics log lives — shown in the Metrics tab
@@ -337,9 +345,41 @@ final class DemoModel {
             nowPlayingToken = nil
             return
         }
+        attachNowPlaying()
+    }
+
+    /// Toggling this while already attached must reconcile all three
+    /// activation requirements at once (see `nowPlayingCommandsExtended`),
+    /// so it re-attaches from scratch rather than mutating in place.
+    func setNowPlayingCommandsExtended(_ extended: Bool) {
+        guard extended != nowPlayingCommandsExtended else { return }
+        nowPlayingCommandsExtended = extended
+        guard nowPlayingEnabled else { return }
+        attachNowPlaying()
+    }
+
+    /// Drops any existing token before attaching again — `nowPlayingToken =
+    /// ABNowPlayingCenter.shared.attach(...)` alone would evaluate the RHS
+    /// (registering the new participant for this player's id) before the
+    /// old token's `deinit` fires and detaches that same id, undoing the
+    /// attach that was just made.
+    private func attachNowPlaying() {
+        nowPlayingToken = nil
+        var configuration = ABNowPlayingConfiguration()
+        if nowPlayingCommandsExtended {
+            configuration.commands = .default.union([.nextTrack, .previousTrack, .changePlaybackRate])
+            configuration.supportedPlaybackRates = [0.5, 1, 1.5, 2]
+        }
         nowPlayingToken = ABNowPlayingCenter.shared.attach(
             player,
-            metadata: ABNowPlayingMetadata(title: selectedMedia.rawValue, mediaType: .video)
+            metadata: ABNowPlayingMetadata(title: selectedMedia.rawValue, mediaType: .video),
+            configuration: configuration
+        )
+        guard nowPlayingCommandsExtended else { return }
+        ABNowPlayingCenter.shared.setTrackNavigationHandlers(
+            next: { [weak self] in self?.nextTrackCount += 1 },
+            previous: { [weak self] in self?.previousTrackCount += 1 },
+            for: player
         )
     }
 
