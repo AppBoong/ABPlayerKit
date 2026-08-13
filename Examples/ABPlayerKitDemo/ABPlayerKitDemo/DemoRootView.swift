@@ -19,6 +19,11 @@ struct DemoRootView: View {
                 .tabItem {
                     Label("Cache", systemImage: "internaldrive")
                 }
+
+            DeviceScreen()
+                .tabItem {
+                    Label("Device", systemImage: "iphone.gen3")
+                }
         }
         .task {
             await model.monitorCacheSize()

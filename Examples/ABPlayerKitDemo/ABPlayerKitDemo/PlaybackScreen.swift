@@ -108,6 +108,23 @@ struct PlaybackScreen: View {
                         Text("Publishes to MPNowPlayingInfoCenter only while this player is Current and this toggle is on.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+
+                        Divider()
+                            .padding(.vertical, 4)
+
+                        Toggle("Extended commands", isOn: nowPlayingCommandsExtendedBinding)
+                        Text("Adds next/previous track and playback rate to Control Center. Requires a supported-rates list and installed handlers, not just the command flags, so this toggle exercises all three at once.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+
+                        if model.nowPlayingCommandsExtended {
+                            LabeledContent(
+                                "Track navigation",
+                                value: "Next: \(model.nextTrackCount) / Previous: \(model.previousTrackCount)"
+                            )
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
                     }
 
                     GroupBox("Live configuration") {
@@ -183,6 +200,13 @@ struct PlaybackScreen: View {
         Binding(
             get: { model.nowPlayingEnabled },
             set: { enabled in model.setNowPlayingEnabled(enabled) }
+        )
+    }
+
+    private var nowPlayingCommandsExtendedBinding: Binding<Bool> {
+        Binding(
+            get: { model.nowPlayingCommandsExtended },
+            set: { extended in model.setNowPlayingCommandsExtended(extended) }
         )
     }
 
