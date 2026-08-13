@@ -3,29 +3,36 @@ import UIKit
 
 /// Subscribes to app background/foreground transitions for a single
 /// `ABPlayer` instance. No global/static observers — each instance owns
-/// and tears down its own tokens.
+/// and tears down its own registration.
 ///
-/// Handlers run **synchronously**, inside the notification dispatch, via
-/// `MainActor.assumeIsolated` rather than a `Task` hop. This is load-bearing
-/// for ``ABBackgroundPolicy/continueAudioOnly``: keeping audio alive in the
-/// background requires clearing `AVPlayerLayer.player` *while handling*
-/// `didEnterBackgroundNotification`. Deferring that by even one main-actor
-/// turn lets AVFoundation stop the still-attached player first, after which
-/// nothing is playing, iOS grants no audio assertion, and the process is
-/// suspended seconds later. `willResignActive` has the same requirement for
-/// a different reason — it captures the live `isPlaying` value, which decode
-/// teardown would have already falsified by the next turn.
+/// Handlers run **synchronously**, inside the notification's own dispatch.
+/// That is load-bearing for ``ABBackgroundPolicy/continueAudioOnly``: keeping
+/// audio alive in the background requires clearing `AVPlayerLayer.player`
+/// *while handling* `didEnterBackgroundNotification`. Deferring it by even
+/// one main-actor turn lets AVFoundation stop the still-attached player
+/// first, after which nothing is playing, iOS grants no audio assertion, and
+/// the process is suspended seconds later. `willResignActive` has the same
+/// requirement for a different reason — it captures the live `isPlaying`
+/// value, which decode teardown would have already falsified by the next
+/// turn.
 ///
-/// `assumeIsolated` cannot trap here: `addObserver(forName:object:queue:)`
-/// with `queue: .main` always runs the block on the main thread.
+/// Hence the selector-based registration rather than the closure-and-queue
+/// form: `NotificationCenter` invokes a selector directly, on the posting
+/// thread, as part of `post(name:)`. The closure form cannot express this
+/// without assuming isolation, which this project prohibits — and its
+/// `queue:` parameter buys nothing here, since a queue hop is the very
+/// thing that breaks the feature.
+///
+/// The three notifications this observes are posted by `UIApplication` on
+/// the main thread, so the selectors run there. Tests drive them through an
+/// injected center from a `@MainActor` context, which holds the same
+/// guarantee.
 @MainActor
-final class ABApplicationStateObserver {
-    // `nonisolated(unsafe)`: NotificationCenter observer tokens are opaque,
-    // thread-safe-to-hold reference types; `removeObserver` itself is safe
-    // to call from any thread. This lets `deinit` (always nonisolated) tear
-    // them down without requiring `[any NSObjectProtocol]` to be `Sendable`.
-    private nonisolated(unsafe) var tokens: [NSObjectProtocol] = []
+final class ABApplicationStateObserver: NSObject {
     private let center: NotificationCenter
+    private let onWillResignActive: @MainActor () -> Void
+    private let onBackground: @MainActor () -> Void
+    private let onForeground: @MainActor () -> Void
 
     init(
         center: NotificationCenter = .default,
@@ -34,45 +41,47 @@ final class ABApplicationStateObserver {
         onForeground: @escaping @MainActor @Sendable () -> Void
     ) {
         self.center = center
-        tokens.append(
-            center.addObserver(
-                forName: UIApplication.willResignActiveNotification,
-                object: nil,
-                queue: .main
-            ) { _ in
-                MainActor.assumeIsolated { onWillResignActive() }
-            }
+        self.onWillResignActive = onWillResignActive
+        self.onBackground = onBackground
+        self.onForeground = onForeground
+        super.init()
+        center.addObserver(
+            self,
+            selector: #selector(applicationWillResignActive),
+            name: UIApplication.willResignActiveNotification,
+            object: nil
         )
-        tokens.append(
-            center.addObserver(
-                forName: UIApplication.didEnterBackgroundNotification,
-                object: nil,
-                queue: .main
-            ) { _ in
-                MainActor.assumeIsolated { onBackground() }
-            }
+        center.addObserver(
+            self,
+            selector: #selector(applicationDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
         )
-        tokens.append(
-            center.addObserver(
-                forName: UIApplication.willEnterForegroundNotification,
-                object: nil,
-                queue: .main
-            ) { _ in
-                MainActor.assumeIsolated { onForeground() }
-            }
+        center.addObserver(
+            self,
+            selector: #selector(applicationWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
         )
+    }
+
+    @objc private func applicationWillResignActive() {
+        onWillResignActive()
+    }
+
+    @objc private func applicationDidEnterBackground() {
+        onBackground()
+    }
+
+    @objc private func applicationWillEnterForeground() {
+        onForeground()
     }
 
     func invalidate() {
-        for token in tokens {
-            center.removeObserver(token)
-        }
-        tokens.removeAll()
+        center.removeObserver(self)
     }
 
     deinit {
-        for token in tokens {
-            center.removeObserver(token)
-        }
+        center.removeObserver(self)
     }
 }
