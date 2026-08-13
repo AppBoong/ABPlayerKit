@@ -4,6 +4,8 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-13
+
 ### Added
 
 - Added `ABVideoPlayer.init(url:videoGravity:autoplay:configuration:)` and `init(source:videoGravity:autoplay:configuration:)` — the view creates and owns an `ABPlayer` for its SwiftUI identity's lifetime, releasing it when that identity is discarded (never on `onDisappear`, since that signals "not visible," not "gone for good"). `autoplay` defaults to `true`.
@@ -200,6 +202,7 @@ If you need to keep passing raw `UIView`s, wrap each in `UIViewRepresentable` fi
 
 - Initial release with the four-grade playback state machine, UIKit and SwiftUI rendering, TTFF metrics, progressive media caching, and explicit HLS prefetch.
 
+[0.4.0]: https://github.com/AppBoong/ABPlayerKit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/AppBoong/ABPlayerKit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AppBoong/ABPlayerKit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/AppBoong/ABPlayerKit/releases/tag/v0.1.0
