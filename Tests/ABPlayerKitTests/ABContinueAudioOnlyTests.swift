@@ -68,6 +68,34 @@ struct ABContinueAudioOnlyTests {
         #expect(!target.calls.contains(.pause))
     }
 
+    /// The companion to the test above, covering the other half of the causal
+    /// chain. That one pins the engine's flag; what iOS actually reads is
+    /// `AVPlayerLayer.player`, cleared by the bound view in response. Pinning
+    /// only the flag would let someone defer the view's own reaction later and
+    /// reintroduce the device failure with a fully green suite.
+    @Test("The bound view's layer drops its player in the same dispatch, not just the engine's flag")
+    func backgroundEntryClearsTheBoundLayerSynchronously() {
+        let center = NotificationCenter()
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(
+            configuration: ABPlayerConfiguration(backgroundPolicy: .continueAudioOnly),
+            target: target,
+            notificationCenter: center
+        )
+        let view = ABPlayerView()
+        view.player = player
+        player.set(source: source, grade: .current)
+        player.play()
+
+        let layer = view.layer as? AVPlayerLayer
+        #expect(layer?.player != nil)
+
+        center.post(name: UIApplication.willResignActiveNotification, object: nil)
+        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+
+        #expect(layer?.player == nil)
+    }
+
     @Test("Regression: switching away from .continueAudioOnly mid-background re-attaches the layer")
     func switchingAwayFromContinueAudioOnlyMidBackgroundReattachesLayer() async {
         let center = NotificationCenter()

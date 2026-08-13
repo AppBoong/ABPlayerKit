@@ -19,14 +19,18 @@ import UIKit
 /// Hence the selector-based registration rather than the closure-and-queue
 /// form: `NotificationCenter` invokes a selector directly, on the posting
 /// thread, as part of `post(name:)`. The closure form cannot express this
-/// without assuming isolation, which this project prohibits — and its
-/// `queue:` parameter buys nothing here, since a queue hop is the very
-/// thing that breaks the feature.
+/// without writing an isolation assumption, which this project prohibits —
+/// and its `queue:` parameter buys nothing here, since a queue hop is the
+/// very thing that breaks the feature.
 ///
-/// The three notifications this observes are posted by `UIApplication` on
-/// the main thread, so the selectors run there. Tests drive them through an
-/// injected center from a `@MainActor` context, which holds the same
-/// guarantee.
+/// The assumption does not disappear, it moves: the `@objc` thunk for a
+/// main-actor-isolated method carries a runtime executor check, in release
+/// builds as well as debug. The three notifications this observes are posted
+/// by `UIApplication` on the main thread, and tests drive them through an
+/// injected center from a `@MainActor` context, so the check always holds.
+/// Posting any of these names from another thread traps immediately in that
+/// thunk — a loud failure rather than a silent data race, which is the right
+/// trade for state only the main actor may touch.
 @MainActor
 final class ABApplicationStateObserver: NSObject {
     private let center: NotificationCenter
