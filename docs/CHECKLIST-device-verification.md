@@ -76,12 +76,16 @@
 
 > 이 경로는 v0.4.0에서 **새로 만들어졌고 실기기에서 한 번도 실행된 적이 없다.** 우선순위가 높다.
 
-**확인 대상** — 배경 정책이 `.continueAudioOnly`일 때 앱이 배경으로 가도 오디오가 계속 나는가.
+> **이 항목은 반드시 Playback 탭에서 확인한다.** 실제로 한 테스터가 Device 탭에서 이 항목을 확인해 `.pause` 동작(배경 전환 즉시 소리가 끊기는 것)을 보고 실패로 보고한 적이 있다 — 그러나 Device 탭에는 이 항목이 요구하는 `Playback grade` / `Live configuration` / `Muted` 컨트롤이 애초에 없다. 그 결과는 이 항목과 무관하다.
+
+> **사전 조건 — 항목 2를 방금 마쳤다면 Device 탭으로 돌아가 그 플레이어를 먼저 정지시킨다.** 항목 2는 Device 탭을 배경 상태로, Auto PiP가 켜진 채로, 그 플레이어가 PiP로 계속 렌더링되는 채로 남겨 둔다. 그 세션이 계속 재생 중이면 스피커에서 나는 소리가 이 항목이 검증하려는 `.continueAudioOnly` 오디오와 구분되지 않아 아래 통과 기준을 오판하게 된다. 앱으로 돌아와 Device 탭에서 **Stop PiP**를 누르거나 **Auto PiP**를 끄고 재생을 멈춘 뒤 진행한다.
+
+**확인 대상** — **Playback** 탭에서, 배경 정책이 `.continueAudioOnly`일 때 앱이 배경으로 가도 오디오가 계속 나는가.
 
 **동작에 필요한 세 조건** — `UIBackgroundModes`에 `audio` 포함(데모에 선언돼 있음), `audioSessionPolicy != .unmanaged`, `backgroundPolicy == .continueAudioOnly`. **셋이 동시에 맞아야 한다.** 데모에서 피커를 고르면 오디오 세션은 자동으로 관리형으로 전환되므로 사용자가 따로 할 일은 없다.
 
 **절차**
-1. **Playback grade**를 `Current`로 선택한다.
+1. **Playback** 탭으로 이동해 **Playback grade**를 `Current`로 선택한다.
 2. 재생을 시작하고 **소리가 나는지** 확인한다. **Muted** 토글이 꺼져 있어야 한다.
 3. **Live configuration** → **Background policy** → `Continue audio only`를 선택한다.
 4. 홈 제스처로 앱을 배경으로 보낸다. 앱을 종료하지 않는다.
@@ -104,8 +108,10 @@
 
 ### 4-A. 기본 `commands`
 
+> **참고 — 항목 3을 마친 직후라면 배경 정책이 여전히 `Continue audio only`로 남아 있다.** 아래 통과 기준의 재생/일시정지 확인을 잠금화면에서 일시정지하는 것으로 수행했다면, 앱으로 돌아왔을 때 **일시정지 상태가 유지되는 것이 올바른 결과다.** 저절로 재생이 재개된다면 회귀다 — 배경에서도 재생이 계속되는 `.continueAudioOnly`에서 사용자가 명시적으로 건 일시정지를 배경 정책의 재개 로직이 덮어쓰던 결함이 있었고, 이 정책에서만 재현 가능했다.
+
 **절차**
-1. **Playback grade** = `Current`, 재생 시작.
+1. **Playback** 탭에서 **Playback grade** = `Current`, 재생 시작.
 2. **Now Playing** 그룹의 **"Show on lock screen / Control Center"** 토글을 켠다.
 3. 기기를 잠그거나 제어 센터를 연다.
 
@@ -145,9 +151,9 @@
 
 **통과** — 영상/오디오가 수신기로 넘어가고 `isExternalPlaybackActive`가 `true`가 된다. 라우트를 기기로 되돌리면 `false`로 돌아온다.
 
-**실패 징후** — 라우팅은 되는데 `isExternalPlaybackActive`가 `false`로 남는다, 또는 `allowsExternalPlayback`를 껐는데도 영상이 넘어간다.
+**실패 징후** — 라우팅은 되는데 `isExternalPlaybackActive`가 `false`로 남는다, 또는 아래 "함께 볼 것"에서 **Allows external playback**을 껐는데도 영상이 수신기로 넘어간다.
 
-**함께 볼 것** — **AirPlay** 섹션의 **Uses external playback while screen active** 토글과 **Aspect / Aspect fill** 피커로 `usesExternalPlaybackWhileExternalScreenIsActive`와 `externalPlaybackVideoGravity`를 바꿔가며 화면 채움 방식이 달라지는지 확인한다.
+**함께 볼 것** — **AirPlay** 섹션의 **Allows external playback** 토글을 꺼서 라우팅이 되지 않는지 확인한다. **Uses external playback while screen active** 토글과 **Aspect / Aspect fill** 피커로는 `usesExternalPlaybackWhileExternalScreenIsActive`와 `externalPlaybackVideoGravity`를 바꿔가며 화면 채움 방식이 달라지는지 확인한다.
 
 ---
 
@@ -157,15 +163,15 @@
 
 **중요** — 설계 §12.4의 안전망(바인딩된 플레이어의 `avPlayer`가 `nil`이 되면 세션을 강제 `stop()`)은 **구현되지 않았다.** 코드 경로 분석상으로는 안전해 보이나 **미검증**이며, 이 항목은 그 가정을 실증하는 것이다.
 
-> **사전 조건 — Auto PiP는 반드시 꺼져 있어야 한다.** 켜져 있으면 앱으로 복귀하는 순간 그 자체로 PiP가 자동으로 꺼지므로, 3에서 요구하는 "PiP가 아직 떠 있는 상태"를 만들 수 없다. 그 상태에서 4를 실행하면 이미 멈춘 세션을 대상으로 플레이어를 소멸시키는 것이라 이 항목이 검사하려는 상황이 아니며, 아무 일도 일어나지 않는 것을 통과로 착각하게 된다.
+> **사전 조건 — Auto PiP는 반드시 꺼져 있어야 한다.** 켜져 있으면 앱으로 복귀하는 순간 그 자체로 PiP가 자동으로 꺼지므로, 아래 절차 3단계가 요구하는 "PiP가 아직 떠 있는 상태"를 만들 수 없다. 그 상태에서 4단계를 실행하면 이미 멈춘 세션을 대상으로 플레이어를 소멸시키는 것이라 이 항목이 검사하려는 상황이 아니며, 아무 일도 일어나지 않는 것을 통과로 착각하게 된다.
 
 **절차**
 1. **Device** 탭에서 **Auto PiP** 토글이 꺼져 있는지 확인한다. PiP를 시작한다.
 2. 앱을 배경으로 보내 PiP만 남긴다.
 3. **PiP 창의 복귀 버튼을 쓰지 말고** 앱으로 돌아온다 — 홈 화면의 아이콘이나 앱 전환기를 쓴다. PiP 창이 앱 위에 계속 떠 있어야 한다.
-4. 플레이어를 소멸시키는 조작을 한다 — **Destroy the player** 섹션의 **Swap source** 또는 **Release player** 버튼.
+4. 플레이어를 소멸시키는 조작을 한다 — **Destroy the player** 섹션의 **Swap source (HLS → MP4)**(현재 선택된 소스에 따라 문구가 바뀐다) 또는 **Release player** 버튼.
 
-> 3에서 **복귀 버튼을 누르면 PiP가 종료된다.** 그 상태로 4를 하면 PiP가 꺼진 채 플레이어를 소멸시키는 것이라 이 항목이 검사하려는 상황이 아니며, 아무 일도 일어나지 않는 것을 통과로 착각하게 된다. 4를 누르기 전에 **PiP 창이 아직 떠 있는지 반드시 눈으로 확인한다.**
+> 절차 3단계에서 **복귀 버튼을 누르면 PiP가 종료된다.** 그 상태로 4단계를 하면 PiP가 꺼진 채 플레이어를 소멸시키는 것이라 이 항목이 검사하려는 상황이 아니며, 아무 일도 일어나지 않는 것을 통과로 착각하게 된다. 4단계를 누르기 전에 **PiP 창이 아직 떠 있는지 반드시 눈으로 확인한다.**
 
 **통과** — PiP 창이 깔끔하게 닫히거나, 남더라도 앱이 죽지 않는다.
 
