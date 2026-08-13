@@ -352,11 +352,11 @@ struct AirPlayButton: UIViewRepresentable {
 
 #### 자막과 오디오 트랙
 
-자막/오디오 트랙 선택 UI와 상태 관리는 이 라이브러리가 **제공하지 않습니다.** 탈출구를 통해 `AVMediaSelectionGroup`에 직접 접근하세요.
+자막/오디오 트랙 선택 UI와 상태 관리는 이 라이브러리가 **제공하지 않습니다.** 탈출구를 통해 `AVMediaSelectionGroup`에 직접 접근하세요 — `loadMediaSelectionGroup(for:)`는 `async`이므로 async 컨텍스트(`Task` 또는 `async` 함수)가 필요합니다.
 
 ```swift
 if let item = player.avPlayerItem,
-   let group = item.asset.mediaSelectionGroup(forMediaCharacteristic: .audible) {
+   let group = try? await item.asset.loadMediaSelectionGroup(for: .audible) {
     let options = group.options
     // options를 표시한 뒤:
     item.select(options[0], in: group)

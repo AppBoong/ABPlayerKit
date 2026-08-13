@@ -352,11 +352,11 @@ A screen with several simultaneously-live players (a feed) should set `allowsExt
 
 #### Subtitles and Audio Tracks
 
-Subtitle/audio track selection UI and state management are **not provided** by this library. Reach `AVMediaSelectionGroup` directly through the escape hatch:
+Subtitle/audio track selection UI and state management are **not provided** by this library. Reach `AVMediaSelectionGroup` directly through the escape hatch — `loadMediaSelectionGroup(for:)` is `async`, so this needs an async context (a `Task`, or an `async` function):
 
 ```swift
 if let item = player.avPlayerItem,
-   let group = item.asset.mediaSelectionGroup(forMediaCharacteristic: .audible) {
+   let group = try? await item.asset.loadMediaSelectionGroup(for: .audible) {
     let options = group.options
     // Present `options`, then:
     item.select(options[0], in: group)
