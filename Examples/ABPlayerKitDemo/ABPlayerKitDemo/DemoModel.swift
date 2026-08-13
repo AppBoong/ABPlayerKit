@@ -579,7 +579,16 @@ final class DemoModel {
     }
 
     private func handle(_ event: ABPlayerEvent) {
-        latestEvent = event.title
+        // `.periodicTime` arrives four times a second while the controls are
+        // attached (they lease a 0.25s interval to drive the scrubber).
+        // Mirroring it into `latestEvent` would re-evaluate the whole
+        // Playback screen at that rate — every picker, toggle, and the video
+        // view — to display a timecode the scrubber already shows. The
+        // segmented controls visibly flicker under that load. Every other
+        // event is a discrete state change worth surfacing.
+        if case .periodicTime = event {} else {
+            latestEvent = event.title
+        }
         switch event {
         case .timeControlStatusChanged(let status):
             isPlaying = status == .playing
