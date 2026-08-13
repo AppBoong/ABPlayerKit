@@ -807,15 +807,21 @@ public final class ABPlayer {
     /// attached) resolves `displaySizeSentinel` to "no cap" — a feed cell's
     /// correct cap is the cell's own size, never the device screen's.
     ///
-    /// Two independent guards keep this from closing a feedback loop with a
-    /// consumer that lays out in response to `.tuningApplied`: the size has
-    /// to have moved far enough to matter (``isSignificantDisplaySizeChange(to:)``),
-    /// *and* the tuning that would reach the target has to actually come
-    /// out different. Re-applying on any inequality is not enough — a host
-    /// whose layout alternates between two sizes a pixel apart would
-    /// otherwise re-resolve the cap, re-apply it, and broadcast on every
-    /// layout pass, which its own re-render then feeds back into the next
-    /// pass, at display refresh rate, forever.
+    /// Two guards raise the bar for re-applying: the size has to have moved
+    /// far enough to matter (``isSignificantDisplaySizeChange(to:)``), *and*
+    /// the tuning that would reach the target has to actually come out
+    /// different. Re-applying on any inequality is not enough — a host whose
+    /// layout alternates between two sizes a pixel apart would otherwise
+    /// re-resolve the cap, re-apply it, and broadcast on every layout pass,
+    /// which its own re-render then feeds back into the next pass, at
+    /// display refresh rate, forever. That is the oscillation seen in
+    /// practice, and it is what these guards are sized against.
+    ///
+    /// They raise the threshold rather than removing the possibility. A
+    /// consumer whose re-render moves this view's own frame by more than the
+    /// tolerance, in response to the broadcast, still closes the same loop —
+    /// nothing here rate-limits the re-apply, and nothing can, since the
+    /// library does not control what a consumer does with an event.
     func reportDisplaySize(_ size: CGSize) {
         guard isSignificantDisplaySizeChange(to: size) else { return }
         guard grade.holdsItem else {
