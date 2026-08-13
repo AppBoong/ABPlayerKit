@@ -1961,6 +1961,12 @@ struct ABCacheStoreTests {
         deadline: Duration = .seconds(5),
         sourceLocation: SourceLocation = #_sourceLocation
     ) async throws {
+        // Scaled for the same reason `waitUntil` scales its own deadline:
+        // this is a bound the success path has to beat, and the fill it
+        // waits on runs several times slower under sanitizer instrumentation.
+        // Hand-rolled deadlines are the third shape this hazard takes, after
+        // `waitUntil` callers and bare `Task.sleep` races.
+        let deadline = abScaledTimeout(deadline)
         let clock = ContinuousClock()
         let start = clock.now
         while await store.fillHandleCount() != expected {
