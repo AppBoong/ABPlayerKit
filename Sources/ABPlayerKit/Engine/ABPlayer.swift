@@ -117,6 +117,14 @@ public final class ABPlayer {
     /// `displaySizeSentinel` to "no cap" rather than a device screen size.
     @ObservationIgnored
     private var displaySize: CGSize = .zero
+    /// How far, in pixels, a reported display size has to move before it
+    /// counts as a different size. A decode-resolution cap is only
+    /// meaningful at macroblock granularity, so anything below this is
+    /// noise as far as `preferredMaximumResolution` is concerned — while a
+    /// host whose layout settles a pixel differently between passes is
+    /// perfectly legal, and something this library has to survive rather
+    /// than amplify. See ``reportDisplaySize(_:)``.
+    private static let displaySizeChangeThreshold: CGFloat = 16
     /// `nonisolated(unsafe)` so `deinit` (nonisolated even on this
     /// `@MainActor` class) can cancel outstanding work when a consumer drops
     /// this instance without calling `release()`. Safe because no other
@@ -795,20 +803,52 @@ public final class ABPlayer {
     }
 
     /// Called by `ABPlayerView.layoutSubviews()` with its pixel size
-    /// (`bounds.size × traitCollection.displayScale`). Re-applies tuning
-    /// only when the size actually changed, so repeated identical layout
-    /// passes don't loop. `.zero` (no view attached) resolves
-    /// `displaySizeSentinel` to "no cap" — a feed cell's correct cap is the
-    /// cell's own size, never the device screen's.
+    /// (`bounds.size × traitCollection.displayScale`). `.zero` (no view
+    /// attached) resolves `displaySizeSentinel` to "no cap" — a feed cell's
+    /// correct cap is the cell's own size, never the device screen's.
+    ///
+    /// Two independent guards keep this from closing a feedback loop with a
+    /// consumer that lays out in response to `.tuningApplied`: the size has
+    /// to have moved far enough to matter (``isSignificantDisplaySizeChange(to:)``),
+    /// *and* the tuning that would reach the target has to actually come
+    /// out different. Re-applying on any inequality is not enough — a host
+    /// whose layout alternates between two sizes a pixel apart would
+    /// otherwise re-resolve the cap, re-apply it, and broadcast on every
+    /// layout pass, which its own re-render then feeds back into the next
+    /// pass, at display refresh rate, forever.
     func reportDisplaySize(_ size: CGSize) {
-        guard displaySize != size else { return }
-        displaySize = size
-        guard grade.holdsItem else { return }
+        guard isSignificantDisplaySizeChange(to: size) else { return }
+        guard grade.holdsItem else {
+            displaySize = size
+            return
+        }
         let role: ABTuningRole = grade == .current ? .current : .preload
+        let previousResolvedTuning = resolvedTuning(for: role)
+        displaySize = size
         lastAppliedTuningRole = role
-        if target.applyTuning(resolvedTuning(for: role)) {
+        // A tuning that carries no `displaySizeSentinel` resolves to the
+        // same value at every display size, so a resize can't have changed
+        // anything the target would see.
+        let newResolvedTuning = resolvedTuning(for: role)
+        guard newResolvedTuning != previousResolvedTuning else { return }
+        if target.applyTuning(newResolvedTuning) {
             broadcast(.tuningApplied(role, tuning(for: role)))
         }
+    }
+
+    /// Whether `size` is far enough from the stored ``displaySize`` to be a
+    /// different size for capping purposes.
+    ///
+    /// Measured against the *stored* size rather than the previously
+    /// reported one: that keeps the stored value an anchor, so sub-threshold
+    /// jitter can never accumulate into a drift, while a view that genuinely
+    /// grows or shrinks still crosses the threshold and re-caps. `.zero`
+    /// means "no view, no cap" rather than a size, so entering or leaving it
+    /// always counts however small the other side is.
+    private func isSignificantDisplaySizeChange(to size: CGSize) -> Bool {
+        guard displaySize != .zero, size != .zero else { return displaySize != size }
+        return abs(size.width - displaySize.width) >= Self.displaySizeChangeThreshold
+            || abs(size.height - displaySize.height) >= Self.displaySizeChangeThreshold
     }
 
     private func armPreroll(rate: Float) {
