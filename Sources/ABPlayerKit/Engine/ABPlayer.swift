@@ -388,6 +388,17 @@ public final class ABPlayer {
             return
         }
         desiresPlayback = false
+        // Retires a `capturePlaying` from `willResignActive`, if one is
+        // outstanding. Only `.continueAudioOnly` can reach this while
+        // backgrounded — it's the only policy that leaves playback running
+        // there, so it's the only one where an explicit `pause()` (lock
+        // screen, Now Playing, Controls) can contradict the capture.
+        // Without this, `willEnterForeground`'s `.resumePlay` — gated only
+        // on that stale flag — would override the user's pause on return.
+        // The machine's own `.pause` action and interruption/route-change
+        // handling call `target.pause()` directly rather than through this
+        // method, so they don't touch the capture and stay unaffected.
+        wasPlayingBeforeBackground = false
         target.pause()
         refreshPlaybackMirrors()
     }

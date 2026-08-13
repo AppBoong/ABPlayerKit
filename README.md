@@ -274,7 +274,9 @@ Both paths broadcast through the same `ABPlayerEvent` stream: `.audioInterruptio
 | `.pause` (default) | Pauses if `.current` | Resumes if it was playing |
 | `.pauseAndDetachLayer` | Pauses if `.current`; detaches `AVPlayerLayer.player` (releases the decoder) | Re-attaches the layer; resumes if it was playing |
 | `.demoteToInstance` | Demotes to `.instanceOnly` (drops the item; blocks network entirely) | Restores the prior grade |
-| `.continueAudioOnly` | Detaches `AVPlayerLayer.player` only — playback keeps running | Re-attaches the layer; resumes if the system suspended playback anyway |
+| `.continueAudioOnly` | Detaches `AVPlayerLayer.player` only — playback keeps running | Re-attaches the layer; resumes only if the system suspended playback anyway, never overriding an explicit `pause()` |
+
+`.continueAudioOnly` is the only policy where playback keeps running while backgrounded, so it's the only one where a user can pause it there — from the lock screen, Now Playing Center, or Controls. An explicit `pause()` while backgrounded is authoritative and stays paused on foreground return; the safety-net resume above only covers the system suspending playback on its own, with no `pause()` in between.
 
 `.continueAudioOnly` needs all three of the following, or it silently behaves like `.pause` (the system suspends the app, and this policy resumes playback on foreground return as a safety net):
 

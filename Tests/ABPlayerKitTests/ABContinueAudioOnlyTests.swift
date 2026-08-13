@@ -174,6 +174,66 @@ struct ABContinueAudioOnlyTests {
         #expect(!target.calls.contains(.pause))
     }
 
+    @Test("An explicit pause() during .continueAudioOnly backgrounding stays paused on foreground return")
+    func explicitPauseDuringBackgroundStaysPausedOnForeground() async {
+        let center = NotificationCenter()
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(
+            configuration: ABPlayerConfiguration(backgroundPolicy: .continueAudioOnly),
+            target: target,
+            notificationCenter: center
+        )
+        player.set(source: source, grade: .current)
+        player.play()
+
+        center.post(name: UIApplication.willResignActiveNotification, object: nil)
+        await Task.yield()
+        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        await Task.yield()
+        #expect(player.isPlaying)
+
+        // The user pauses explicitly while backgrounded — e.g. the lock
+        // screen or Now Playing Center's pause command, or Controls.
+        player.pause()
+        #expect(!player.isPlaying)
+
+        let playCallsBeforeForeground = target.calls.filter { $0 == .play }.count
+        center.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        await Task.yield()
+
+        #expect(!player.isPlaying)
+        #expect(target.calls.filter { $0 == .play }.count == playCallsBeforeForeground)
+    }
+
+    @Test("Control: .pause policy's own background pause still resumes on foreground return")
+    func pausePolicyOwnPauseStillResumesOnForeground() async {
+        let center = NotificationCenter()
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(
+            configuration: ABPlayerConfiguration(backgroundPolicy: .pause),
+            target: target,
+            notificationCenter: center
+        )
+        player.set(source: source, grade: .current)
+        player.play()
+
+        center.post(name: UIApplication.willResignActiveNotification, object: nil)
+        await Task.yield()
+        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        await Task.yield()
+        // The policy itself paused this — via `target.pause()`, not the
+        // public `pause()` — so the capture that drives resume-on-foreground
+        // must survive untouched.
+        #expect(!player.isPlaying)
+
+        let playCallsBeforeForeground = target.calls.filter { $0 == .play }.count
+        center.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        await Task.yield()
+
+        #expect(player.isPlaying)
+        #expect(target.calls.filter { $0 == .play }.count == playCallsBeforeForeground + 1)
+    }
+
     @Test("Recovery: activating Picture in Picture after a .continueAudioOnly background entry re-attaches the layer and resumes playback")
     func pictureInPictureActivationRepairsADetachedLayer() async {
         let center = NotificationCenter()

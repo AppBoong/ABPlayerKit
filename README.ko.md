@@ -274,7 +274,9 @@ player.configuration = configuration
 | `.pause` (기본값) | `.current`면 일시정지 | 재생 중이었다면 재개 |
 | `.pauseAndDetachLayer` | `.current`면 일시정지, `AVPlayerLayer.player`를 뗌(디코더 해제) | 레이어 재부착, 재생 중이었다면 재개 |
 | `.demoteToInstance` | `.instanceOnly`로 강등(아이템 폐기, 네트워크 완전 차단) | 이전 등급 복원 |
-| `.continueAudioOnly` | `AVPlayerLayer.player`만 뗌 — 재생은 계속됨 | 레이어 재부착, 시스템이 재생을 멈췄다면 재개 |
+| `.continueAudioOnly` | `AVPlayerLayer.player`만 뗌 — 재생은 계속됨 | 레이어 재부착, 시스템이 재생을 멈췄을 때만 재개 — 명시적 `pause()`는 절대 덮어쓰지 않음 |
+
+`.continueAudioOnly`는 백그라운드 상태에서도 재생이 계속되는 유일한 정책이라, 사용자가 그 상태에서 일시정지할 수 있는 유일한 정책이기도 합니다 — 잠금 화면, Now Playing Center, 또는 Controls를 통해서요. 백그라운드 중 명시적으로 호출된 `pause()`는 그대로 우선하며 포그라운드 복귀 시에도 재개되지 않습니다. 위의 안전망 재개는 그 사이에 `pause()` 호출 없이 시스템이 스스로 재생을 멈춘 경우에만 적용됩니다.
 
 `.continueAudioOnly`는 아래 세 조건이 모두 갖춰져야 하며, 하나라도 빠지면 `.pause`처럼 조용히 동작합니다(시스템이 앱을 서스펜드하고, 이 정책은 포그라운드 복귀 시 안전망으로 재생을 재개합니다).
 
