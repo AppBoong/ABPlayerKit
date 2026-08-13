@@ -594,8 +594,10 @@ configuration.supportedPlaybackRates = [1, 1.5, 2] // 아래 표대로 여전히
 
 let token = ABNowPlayingCenter.shared.attach(player, metadata: metadata, configuration: configuration)
 ABNowPlayingCenter.shared.setTrackNavigationHandlers(
-    next: { player.skipToNextEpisode() },
-    previous: { player.skipToPreviousEpisode() },
+    // 이 라이브러리에는 큐/재생목록 개념이 없습니다 — 두 클로저의 내용은
+    // 소비자가 채웁니다. 보통 자체 큐를 넘긴 뒤 다음 플레이어를 attach합니다.
+    next: { /* 큐를 다음으로 */ },
+    previous: { /* 큐를 이전으로 */ },
     for: player
 )
 ```

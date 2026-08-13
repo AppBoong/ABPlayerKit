@@ -94,7 +94,7 @@ Set ``ABPlayerControlsConfiguration/periodicTimeInterval`` to tune UI update fre
 
 ## Show Buffering and Seek Feedback
 
-While ``ABPlayerKit/ABPlayer/isBuffering`` is `true`, the play/pause button's glyph gets a spinner overlay — the button stays enabled and hit-testable throughout, since a stall can still be paused. Auto-hide is suppressed while buffering, without forcing controls visible.
+While `ABPlayer.isBuffering` is `true`, the play/pause button's glyph gets a spinner overlay — the button stays enabled and hit-testable throughout, since a stall can still be paused. Auto-hide is suppressed while buffering, without forcing controls visible.
 
 ```swift
 configuration.showsBufferingIndicator = true // default

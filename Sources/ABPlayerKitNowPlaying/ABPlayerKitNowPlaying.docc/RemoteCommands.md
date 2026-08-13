@@ -2,8 +2,6 @@
 
 Which lock-screen commands activate, and how ownership moves between players.
 
-## Overview
-
 ## The "no empty handlers" invariant
 
 **A remote command is enabled only if it has a real, observable action behind it.** A Control Center button that does nothing when pressed is worse than no button at all.
@@ -31,8 +29,11 @@ configuration.supportedPlaybackRates = [1, 1.5, 2]
 
 let token = ABNowPlayingCenter.shared.attach(player, metadata: metadata, configuration: configuration)
 ABNowPlayingCenter.shared.setTrackNavigationHandlers(
-    next: { player.skipToNextEpisode() },
-    previous: { player.skipToPreviousEpisode() },
+    // This library has no queue or playlist concept — these bodies are yours
+    // to fill in, typically by advancing your own queue and attaching the
+    // next player.
+    next: { /* advance your queue */ },
+    previous: { /* step back in your queue */ },
     for: player
 )
 ```
