@@ -1,5 +1,4 @@
 import ABPlayerKit
-import ABPlayerKitMetrics
 import Foundation
 import Testing
 @testable import ABPlayerKitMetrics

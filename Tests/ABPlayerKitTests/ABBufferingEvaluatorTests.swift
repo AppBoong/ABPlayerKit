@@ -8,7 +8,7 @@ struct ABBufferingEvaluatorTests {
     @Test("No item, no intent, or waiting-with-no-item all short-circuit to not buffering", arguments: [
         (hasItem: false, intendsToPlay: true, isWaitingWithNoItem: false),
         (hasItem: true, intendsToPlay: false, isWaitingWithNoItem: false),
-        (hasItem: true, intendsToPlay: true, isWaitingWithNoItem: true),
+        (hasItem: true, intendsToPlay: true, isWaitingWithNoItem: true)
     ])
     func guardConditionsShortCircuit(hasItem: Bool, intendsToPlay: Bool, isWaitingWithNoItem: Bool) {
         let result = ABBufferingEvaluator.isBuffering(ABBufferingSignals(
@@ -54,7 +54,7 @@ struct ABBufferingEvaluatorTests {
         (keepUp: true, empty: false, expected: false),
         (keepUp: false, empty: false, expected: true),
         (keepUp: true, empty: true, expected: true),
-        (keepUp: false, empty: true, expected: true),
+        (keepUp: false, empty: true, expected: true)
     ])
     func pausedBuffersOnStallSignalsOnly(keepUp: Bool, empty: Bool, expected: Bool) {
         let result = ABBufferingEvaluator.isBuffering(ABBufferingSignals(
