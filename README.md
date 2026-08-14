@@ -26,6 +26,8 @@ ABVideoPlayerWithControls(url: url)
 - **Optional metrics and caching** in separately linked targets: QoE session summaries, progressive MP4 caching, and explicit HLS prefetch.
 - **Swift 6 language mode**, `@MainActor`-isolated UI, `Sendable` configuration values.
 
+> **[Engineering Notes](docs/ENGINEERING-NOTES.md)** — three AVFoundation defects that a green 743-test suite at 91% coverage did not catch, including a background-audio policy that was completely dead on hardware. Each had a test aimed directly at it that passed, because it measured the end state and never the timing iOS actually cares about. What the tests were measuring instead, and the five rules that came out of it.
+
 <table>
 <tr>
 <td align="center" width="50%">
