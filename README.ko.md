@@ -26,6 +26,8 @@ ABVideoPlayerWithControls(url: url)
 - **선택형 메트릭과 캐시**를 별도 링크 타겟으로 분리했습니다. QoE 세션 요약, 프로그레시브 MP4 캐싱, 명시적 HLS 프리페치.
 - **Swift 6 언어 모드**, `@MainActor`로 격리된 UI, `Sendable` 설정 값.
 
+> **[Engineering Notes](docs/ENGINEERING-NOTES.md)** (영문) — 커버리지 91%의 테스트 743건이 전부 그린인 채로 놓친 AVFoundation 결함 3건. 그중 하나는 백그라운드 오디오 정책이 실기기에서 완전히 죽어 있던 것입니다. 셋 다 그 결함을 정면으로 겨냥한 테스트가 있었고 전부 통과했습니다 — 최종 상태만 단언하고 iOS가 실제로 보는 타이밍은 보지 않았기 때문입니다. 테스트가 대신 무엇을 재고 있었는지, 그리고 거기서 나온 다섯 가지 규칙.
+
 <table>
 <tr>
 <td align="center" width="50%">
