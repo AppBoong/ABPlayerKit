@@ -124,7 +124,7 @@ https://github.com/AppBoong/ABPlayerKit.git
 dependencies: [
     .package(
         url: "https://github.com/AppBoong/ABPlayerKit.git",
-        from: "0.4.0"
+        from: "0.4.1"
     )
 ],
 targets: [
@@ -142,7 +142,7 @@ targets: [
 ]
 ```
 
-릴리스 전 개발 버전을 사용하려면 `from: "0.4.0"`을 `branch: "main"`으로 바꾸세요. 애플리케이션에서는 위의 버전 조건 사용을 권장합니다.
+릴리스 전 개발 버전을 사용하려면 `from: "0.4.1"`을 `branch: "main"`으로 바꾸세요. 애플리케이션에서는 위의 버전 조건 사용을 권장합니다.
 
 필수는 `ABPlayerKit` 하나뿐입니다. 나머지 선택 제품은 링크하지 않으면 코드 자체가 앱에 포함되지 않습니다 — [타겟별 사용법](#타겟별-사용법)을 참고하세요.
 

@@ -124,7 +124,7 @@ Or add it to `Package.swift`:
 dependencies: [
     .package(
         url: "https://github.com/AppBoong/ABPlayerKit.git",
-        from: "0.4.0"
+        from: "0.4.1"
     )
 ],
 targets: [
@@ -142,7 +142,7 @@ targets: [
 ]
 ```
 
-For unreleased development, replace `from: "0.4.0"` with `branch: "main"`. Applications should prefer the version requirement shown above.
+For unreleased development, replace `from: "0.4.1"` with `branch: "main"`. Applications should prefer the version requirement shown above.
 
 Only `ABPlayerKit` is required. Each optional product's code is absent from your app unless you link it — see [Usage by Target](#usage-by-target).
 
