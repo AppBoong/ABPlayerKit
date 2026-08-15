@@ -6,6 +6,29 @@ public protocol ABMetricsSink: Sendable {
     func record(_ event: ABMetricEvent)
 }
 
+extension ABMetricEvent {
+    /// The event's case name — the one part of a record that carries no
+    /// payload.
+    ///
+    /// Both shipped sinks depend on that: it is the JSON `"event"`
+    /// discriminator, and it is the half of an `OSLog` line that
+    /// ``ABOSLogMetricsSink`` logs unredacted. Adding a case that folds
+    /// payload into this string would leak it through both.
+    var abKindName: String {
+        switch self {
+        case .ttff: "ttff"
+        case .stall: "stall"
+        case .preloadStarted: "preloadStarted"
+        case .itemDetached: "itemDetached"
+        case .tuning: "tuning"
+        case .sessionStarted: "sessionStarted"
+        case .buffering: "buffering"
+        case .failure: "failure"
+        case .sessionSummary: "sessionSummary"
+        }
+    }
+}
+
 public final class ABInMemoryMetricsSink: ABMetricsSink, @unchecked Sendable {
     private let lock = NSLock()
     private var storedEvents: [ABMetricEvent] = []
@@ -218,17 +241,17 @@ public final class ABJSONLinesMetricsSink: ABMetricsSink, @unchecked Sendable {
             if let resumedFromTime = sample.resumedFromTime {
                 sampleObject["resumedFromTime"] = resumedFromTime
             }
-            return ["event": "ttff", "sample": sampleObject]
+            return ["event": event.abKindName, "sample": sampleObject]
 
         case .stall(let playerID, let time):
-            return ["event": "stall", "playerID": playerID.description, "at": time]
+            return ["event": event.abKindName, "playerID": playerID.description, "at": time]
 
         case .preloadStarted(let playerID, let time):
-            return ["event": "preloadStarted", "playerID": playerID.description, "at": time]
+            return ["event": event.abKindName, "playerID": playerID.description, "at": time]
 
         case .itemDetached(let playerID, let reason, let access):
             var item: [String: Any] = [
-                "event": "itemDetached",
+                "event": event.abKindName,
                 "playerID": playerID.description,
                 "reason": String(describing: reason)
             ]
@@ -239,14 +262,14 @@ public final class ABJSONLinesMetricsSink: ABMetricsSink, @unchecked Sendable {
 
         case .tuning(let playerID, let role):
             return [
-                "event": "tuning",
+                "event": event.abKindName,
                 "playerID": playerID.description,
                 "role": String(describing: role)
             ]
 
         case .sessionStarted(let anchor):
             var item: [String: Any] = [
-                "event": "sessionStarted",
+                "event": event.abKindName,
                 "playerID": anchor.playerID.description,
                 "startedAt": anchor.startedAt,
                 "wallClockEpoch": anchor.wallClockEpoch,
@@ -259,7 +282,7 @@ public final class ABJSONLinesMetricsSink: ABMetricsSink, @unchecked Sendable {
 
         case .buffering(let interval):
             return [
-                "event": "buffering",
+                "event": event.abKindName,
                 "playerID": interval.playerID.description,
                 "sessionStartedAt": interval.sessionStartedAt,
                 "startedAt": interval.startedAt,
@@ -272,7 +295,7 @@ public final class ABJSONLinesMetricsSink: ABMetricsSink, @unchecked Sendable {
 
         case .failure(let record):
             var item: [String: Any] = [
-                "event": "failure",
+                "event": event.abKindName,
                 "playerID": record.playerID.description,
                 "at": record.at,
                 "isTerminal": record.failure.isTerminal,
@@ -292,7 +315,7 @@ public final class ABJSONLinesMetricsSink: ABMetricsSink, @unchecked Sendable {
             // `.active` is a live snapshot for display, never sunk.
             guard summary.endReason != .active else { return nil }
             var item: [String: Any] = [
-                "event": "sessionSummary",
+                "event": event.abKindName,
                 "playerID": summary.playerID.description,
                 "startedAt": summary.startedAt,
                 "wallClockEpoch": summary.wallClockEpoch,
@@ -400,6 +423,18 @@ public final class ABJSONLinesMetricsSink: ABMetricsSink, @unchecked Sendable {
     }
 }
 
+/// Mirrors each record into the unified logging system.
+///
+/// A record's detail is interpolated under `OSLog`'s default `.private`
+/// redaction. `.sessionStarted` and `.sessionSummary` carry `sourceURL`, and
+/// a signed or tokenized URL is a credential: logged `.public` it lands in a
+/// device-wide log that a sysdiagnose collects, outside the container of the
+/// app that produced it. `ABMetricsRecorder`'s `includesSourceURL` defaults
+/// to `true`, so that is the path a consumer who never thought about it takes.
+///
+/// The event's kind stays `.public`, so the log is still navigable — filter
+/// and scan it without a logging profile installed — while nothing that can
+/// carry a payload leaves redaction.
 public struct ABOSLogMetricsSink: ABMetricsSink {
     private let logger: Logger
 
@@ -408,6 +443,18 @@ public struct ABOSLogMetricsSink: ABMetricsSink {
     }
 
     public func record(_ event: ABMetricEvent) {
-        logger.info("\(String(describing: event), privacy: .public)")
+        let parts = Self.logParts(for: event)
+        logger.info("\(parts.kind, privacy: .public) \(parts.detail, privacy: .private)")
+    }
+
+    /// Splits a record into the half that is safe to log unredacted and the
+    /// half that is not.
+    ///
+    /// Separate from ``record(_:)`` because an `OSLog` privacy attribute is
+    /// not observable from a test, while this split is — it lets the
+    /// invariant that the public half never carries a `sourceURL` be pinned
+    /// by one.
+    static func logParts(for event: ABMetricEvent) -> (kind: String, detail: String) {
+        (kind: event.abKindName, detail: String(describing: event))
     }
 }

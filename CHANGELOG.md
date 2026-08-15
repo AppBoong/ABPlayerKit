@@ -7,6 +7,7 @@ All notable changes to ABPlayerKit are documented in this file.
 ### Fixed
 
 - `Package.swift` no longer declares `.macOS(.v13)`. Nothing in this package could build for macOS — the core imports `UIKit` and `AVKit` directly — so the declaration only made package tooling advertise a platform that does not work. Consuming the package from an iOS app in Xcode is unaffected; Xcode resolved the iOS platform before and does now. A build for any other platform stops on a single explanatory diagnostic naming the `xcodebuild` invocation to use instead, rather than opening with dozens of `no such module 'UIKit'` errors that read like the package is broken.
+- `ABOSLogMetricsSink` no longer logs a record's payload unredacted. It interpolated the whole event as `privacy: .public`, so `.sessionStarted`/`.sessionSummary` published their `sourceURL` — a credential when the URL is signed or tokenized — into a device-wide log that a sysdiagnose collects, outside the container of the app that produced it. Since `ABMetricsRecorder`'s `includesSourceURL` defaults to `true`, that was the path taken by a consumer who never considered it. The event's kind stays `.public` so the log is still navigable by filtering; the detail now takes `OSLog`'s default `.private` redaction. Console output for this sink changes accordingly — the payload reads as `<private>` without a logging profile installed. A consumer who wants it back should write their own `ABMetricsSink`, which is where the README already directs URL masking policy.
 
 ## [0.4.0] - 2026-08-13
 
