@@ -126,17 +126,42 @@ jobs:
   lint:
     runs-on: macos-15
     timeout-minutes: 10
+    env:
+      # Pinned deliberately. The previous step used whatever `brew install
+      # swiftlint` resolved to, so a SwiftLint release that adds or tightens a
+      # default rule could turn this job red with no change in this repository.
+      # Keep in sync with `.swiftlint-version` — the first step enforces that,
+      # and the checksum has to move with the version.
+      SWIFTLINT_VERSION: "0.65.0"
+      SWIFTLINT_SHA256: "d6cb0aa7a2f5f1ef306fc9e37bcb54dc9a26facc8f7784ac0c3dd3eccf5c6ba6"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install SwiftLint if missing
+      - name: Check the pin matches .swiftlint-version
         run: |
-          if ! command -v swiftlint >/dev/null 2>&1; then
-            brew install swiftlint
+          set -euo pipefail
+          declared="$(tr -d '[:space:]' < .swiftlint-version)"
+          if [ "$declared" != "$SWIFTLINT_VERSION" ]; then
+            echo "::error::.swiftlint-version says '${declared}' but this workflow pins '${SWIFTLINT_VERSION}'. Update both, and SWIFTLINT_SHA256 with them."
+            exit 1
           fi
 
+      - name: Install pinned SwiftLint
+        run: |
+          set -euo pipefail
+          dir="${RUNNER_TEMP}/swiftlint"
+          mkdir -p "$dir"
+          curl -fsSL --retry 3 -o "$dir/portable_swiftlint.zip" \
+            "https://github.com/realm/SwiftLint/releases/download/${SWIFTLINT_VERSION}/portable_swiftlint.zip"
+          echo "${SWIFTLINT_SHA256}  $dir/portable_swiftlint.zip" | shasum -a 256 -c -
+          unzip -qo "$dir/portable_swiftlint.zip" -d "$dir"
+          rm "$dir/portable_swiftlint.zip"
+
       - name: Run SwiftLint
-        run: swiftlint lint --strict
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/swiftlint/swiftlint" version
+          "${RUNNER_TEMP}/swiftlint/swiftlint" lint --strict
 
   thread-sanitizer:
     # Separate job (not a step in build-and-test) so a slow TSan run never

@@ -15,6 +15,11 @@ Thanks for your interest in contributing!
   xcodebuild -scheme ABPlayerKit-Package -destination 'platform=iOS Simulator,name=iPhone 16 Pro' test
   ```
 - The build must be **zero-warning**; CI treats warnings as errors.
+- Lint before opening a PR. CI runs `swiftlint lint --strict`, which promotes every warning to an error:
+  ```bash
+  swiftlint lint --strict
+  ```
+  CI pins the version in [`.swiftlint-version`](.swiftlint-version) — install that exact version locally, since a different one can disagree about what is a violation.
 
 ## Conventions
 
