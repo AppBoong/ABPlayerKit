@@ -10,7 +10,7 @@ import Testing
 /// `AVFoundation`/`MediaPlayer`): no surface contact before the first
 /// attach, no touch while unowned, and no republish from periodic ticks —
 /// all held end to end through a fake `ABNowPlayingSurface`.
-@Suite("ABNowPlayingCenter bridges ABPlayer lifecycle to a Now Playing surface", .timeLimit(.minutes(3)))
+@Suite("ABNowPlayingCenter bridges ABPlayer lifecycle to a Now Playing surface", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABNowPlayingCenterTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)

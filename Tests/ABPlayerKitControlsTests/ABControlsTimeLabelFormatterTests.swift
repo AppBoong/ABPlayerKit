@@ -1,8 +1,9 @@
 import ABPlayerKit
+import ABTestSupport
 import Testing
 @testable import ABPlayerKitControls
 
-@Suite("ABControlsTimeLabelFormatter formats elapsed/duration strings from plain seconds, no CMTime or UIView required", .timeLimit(.minutes(3)))
+@Suite("ABControlsTimeLabelFormatter formats elapsed/duration strings from plain seconds, no CMTime or UIView required", .timeLimit(abScaledMinutes(3)))
 struct ABControlsTimeLabelFormatterTests {
     // MARK: - .automatic × each TimeLabelLayout
 

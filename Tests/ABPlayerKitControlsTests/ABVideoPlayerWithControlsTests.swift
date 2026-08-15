@@ -1,10 +1,11 @@
 @preconcurrency import AVFoundation
 import ABPlayerKit
+import ABTestSupport
 import SwiftUI
 import Testing
 @testable import ABPlayerKitControls
 
-@Suite("SwiftUI convenience player composes video and controls", .timeLimit(.minutes(3)))
+@Suite("SwiftUI convenience player composes video and controls", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABVideoPlayerWithControlsTests {
     @Test("Given a player, the convenience view mounts a controls view carrying the requested style and configuration")

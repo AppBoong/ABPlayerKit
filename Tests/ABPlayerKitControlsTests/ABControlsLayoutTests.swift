@@ -1,8 +1,9 @@
+import ABTestSupport
 import Testing
 @testable import ABPlayerKitControls
 import UIKit
 
-@Suite("ABControlsLayout computes pure geometry from style + trait collection, no UIView required", .timeLimit(.minutes(3)))
+@Suite("ABControlsLayout computes pure geometry from style + trait collection, no UIView required", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABControlsLayoutTests {
     // MARK: - Characterization: literal values pinned pre-extraction (WP-A2),

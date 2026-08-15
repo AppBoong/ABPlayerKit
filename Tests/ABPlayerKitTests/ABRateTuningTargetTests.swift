@@ -1,3 +1,4 @@
+import ABTestSupport
 import Foundation
 import Testing
 @testable import ABPlayerKit
@@ -7,7 +8,7 @@ import Testing
 /// `AVPlayer.defaultRate` so a system-driven resume (not routed through
 /// this type's own `play()`) still honors the configured rate, and
 /// `audioTimePitchAlgorithm` reaches the attached `AVPlayerItem`.
-@Suite("ABAVPlaybackTarget mirrors rate and applies audioTimePitchAlgorithm", .timeLimit(.minutes(3)))
+@Suite("ABAVPlaybackTarget mirrors rate and applies audioTimePitchAlgorithm", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABRateTuningTargetTests {
     private func makeAttachedTarget(tuning: ABPlaybackTuning = .unrestricted) throws -> ABAVPlaybackTarget {

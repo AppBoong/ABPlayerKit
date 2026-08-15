@@ -281,7 +281,7 @@ private final class ABGatedHTTPFetcher: ABHTTPFetching, @unchecked Sendable {
     }
 }
 
-@Suite("ABCacheStore scenarios", .timeLimit(.minutes(3)))
+@Suite("ABCacheStore scenarios", .timeLimit(abScaledMinutes(3)))
 struct ABCacheStoreTests {
     @Test("Unknown content length bypasses caching and serves the raw range")
     func unknownLengthPassesThrough() async throws {

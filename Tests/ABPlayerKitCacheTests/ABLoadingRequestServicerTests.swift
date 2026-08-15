@@ -126,7 +126,7 @@ private final class ABServicerFakeFetcher: ABHTTPFetching, @unchecked Sendable {
     }
 }
 
-@Suite("ABLoadingRequestServicer", .timeLimit(.minutes(3)))
+@Suite("ABLoadingRequestServicer", .timeLimit(abScaledMinutes(3)))
 struct ABLoadingRequestServicerTests {
     @Test("A resolved contentInformation request receives type, length, and byte-range support")
     func populatesContentInformation() async throws {

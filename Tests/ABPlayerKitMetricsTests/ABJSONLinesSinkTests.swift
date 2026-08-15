@@ -1,4 +1,5 @@
 import ABPlayerKit
+import ABTestSupport
 import Foundation
 @preconcurrency import QuartzCore
 import Testing
@@ -23,7 +24,7 @@ private func readJSONObjects(at url: URL) -> [[String: Any]] {
     }
 }
 
-@Suite("ABJSONLinesMetricsSink", .timeLimit(.minutes(3)))
+@Suite("ABJSONLinesMetricsSink", .timeLimit(abScaledMinutes(3)))
 struct ABJSONLinesSinkTests {
     @Test("A v1 stall record is byte-identical to the v1 shape")
     func goldenStallEventIsByteIdentical() {

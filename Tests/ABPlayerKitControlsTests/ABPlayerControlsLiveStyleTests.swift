@@ -1,8 +1,9 @@
+import ABTestSupport
 import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("Controls apply style changes live without rebuilding views", .timeLimit(.minutes(3)))
+@Suite("Controls apply style changes live without rebuilding views", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerControlsLiveStyleTests {
     @Test("Given color-only changes, rendering updates without invalidating layout")

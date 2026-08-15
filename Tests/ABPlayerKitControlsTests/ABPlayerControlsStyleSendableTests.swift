@@ -1,3 +1,4 @@
+import ABTestSupport
 import Testing
 import UIKit
 @testable import ABPlayerKitControls
@@ -6,7 +7,7 @@ import UIKit
 /// a `Task.detached` boundary is a compile error, not a runtime failure.
 /// Each `#expect` below is just a sanity check that the value survived the
 /// crossing intact.
-@Suite("The five style types compile as Sendable, usable across an isolation boundary without @unchecked", .timeLimit(.minutes(3)))
+@Suite("The five style types compile as Sendable, usable across an isolation boundary without @unchecked", .timeLimit(abScaledMinutes(3)))
 struct ABPlayerControlsStyleSendableTests {
     @Test("ABPlayerControlsStyle crosses a Task.detached boundary")
     func styleCrossesIsolationBoundary() async {

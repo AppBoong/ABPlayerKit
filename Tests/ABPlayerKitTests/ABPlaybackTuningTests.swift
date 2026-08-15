@@ -1,10 +1,11 @@
 @preconcurrency import AVFoundation
+import ABTestSupport
 import CoreGraphics
 import Foundation
 import Testing
 @testable import ABPlayerKit
 
-@Suite("ABPlaybackTuning promote/demote round trip is symmetric", .timeLimit(.minutes(3)))
+@Suite("ABPlaybackTuning promote/demote round trip is symmetric", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlaybackTuningRoundTripTests {
     @Test("Promoting then demoting applies current and restores the exact preload tuning")

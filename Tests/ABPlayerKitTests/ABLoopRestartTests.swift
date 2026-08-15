@@ -7,7 +7,7 @@ import Testing
 /// Coverage for looping actually resuming playback: `actionAtItemEnd`
 /// defaults to `.pause`, so `isLooping`'s restart seek used to leave
 /// `rate == 0` at the head of the item forever.
-@Suite("ABAVPlaybackTarget resumes playback after a looped end-of-item", .timeLimit(.minutes(3)))
+@Suite("ABAVPlaybackTarget resumes playback after a looped end-of-item", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABLoopRestartTests {
     private func makeAttachedTarget() throws -> (ABAVPlaybackTarget, AVPlayerItem) {

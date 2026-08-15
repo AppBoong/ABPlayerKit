@@ -1,10 +1,11 @@
 @preconcurrency import AVFoundation
 import ABPlayerKit
+import ABTestSupport
 import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("Controls expose localized and stateful accessibility", .timeLimit(.minutes(3)))
+@Suite("Controls expose localized and stateful accessibility", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerControlsAccessibilityTests {
     @Test("Given bundled localizations, English and Korean control labels are available")

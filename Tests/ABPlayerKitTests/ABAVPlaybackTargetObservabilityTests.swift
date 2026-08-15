@@ -10,7 +10,7 @@ import Testing
 /// `tiny.mp4` fixture (this suite's existing convention), rather than
 /// `ABFakePlaybackTarget`, since the behavior under test is the KVO wiring
 /// itself.
-@Suite("ABAVPlaybackTarget observes buffering/duration/presentation-size signals", .timeLimit(.minutes(3)))
+@Suite("ABAVPlaybackTarget observes buffering/duration/presentation-size signals", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABAVPlaybackTargetObservabilityTests {
     private func makeAttachedTarget() throws -> ABAVPlaybackTarget {

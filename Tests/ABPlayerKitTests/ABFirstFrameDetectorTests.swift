@@ -1,8 +1,9 @@
+import ABTestSupport
 import Foundation
 import Testing
 @testable import ABPlayerKit
 
-@Suite("ABFirstFrameDetector.shouldReport truth table", .timeLimit(.minutes(3)))
+@Suite("ABFirstFrameDetector.shouldReport truth table", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABFirstFrameDetectorTests {
     // Retained for the struct's lifetime: an `ObjectIdentifier` is only

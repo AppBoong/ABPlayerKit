@@ -1,8 +1,9 @@
+import ABTestSupport
 import Foundation
 import Testing
 @testable import ABPlayerKitControls
 
-@Suite("ABRateFormatter renders locale-aware rate values, no UIView required", .timeLimit(.minutes(3)))
+@Suite("ABRateFormatter renders locale-aware rate values, no UIView required", .timeLimit(abScaledMinutes(3)))
 struct ABRateFormatterTests {
     @Test("Given en_US, whole numbers drop the decimal and fractional rates use a dot separator", arguments: [
         (Float(0.5), "0.5"),

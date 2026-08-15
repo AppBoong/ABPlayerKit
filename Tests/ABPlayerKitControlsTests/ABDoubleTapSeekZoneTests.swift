@@ -1,8 +1,9 @@
+import ABTestSupport
 import CoreGraphics
 import Testing
 @testable import ABPlayerKitControls
 
-@Suite("ABDoubleTapSeekZone computes pure horizontal bands, no gesture recognizer required", .timeLimit(.minutes(3)))
+@Suite("ABDoubleTapSeekZone computes pure horizontal bands, no gesture recognizer required", .timeLimit(abScaledMinutes(3)))
 struct ABDoubleTapSeekZoneTests {
     @Test("Given a 0.3 edge fraction, the left/right 30% bands are backward/forward and the middle 40% is neutral")
     func standardEdgeFraction() {

@@ -1,9 +1,10 @@
 import ABPlayerKit
+import ABTestSupport
 import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("Controls support menu, cycle, and hidden rate interactions", .timeLimit(.minutes(3)))
+@Suite("Controls support menu, cycle, and hidden rate interactions", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerControlsRateTests {
     @Test("Given menu interaction, every configured rate appears in the menu")

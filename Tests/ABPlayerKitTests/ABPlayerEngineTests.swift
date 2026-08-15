@@ -13,7 +13,7 @@ private final class WeakReference<Object: AnyObject> {
     }
 }
 
-@Suite("ABDefaultAssetFactory uses public AVFoundation API", .timeLimit(.minutes(3)))
+@Suite("ABDefaultAssetFactory uses public AVFoundation API", .timeLimit(abScaledMinutes(3)))
 struct ABDefaultAssetFactoryTests {
     @Test("Custom headers are threaded into the AVURLAsset initializer's options and remain stored on the source")
     func headersAreAppliedToTheAsset() {
@@ -47,7 +47,7 @@ struct ABDefaultAssetFactoryTests {
     }
 }
 
-@Suite("Every release path calls detachItem exactly once", .timeLimit(.minutes(3)))
+@Suite("Every release path calls detachItem exactly once", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerReleasePathTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)
@@ -123,7 +123,7 @@ struct ABPlayerReleasePathTests {
     }
 }
 
-@Suite("ABPlayer grade transitions broadcast the expected events", .timeLimit(.minutes(3)))
+@Suite("ABPlayer grade transitions broadcast the expected events", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerEventBroadcastTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)
@@ -394,7 +394,7 @@ struct ABPlayerEventBroadcastTests {
     }
 }
 
-@Suite("ABPlayerView follows player lifecycle", .timeLimit(.minutes(3)))
+@Suite("ABPlayerView follows player lifecycle", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerViewLifecycleTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)
@@ -459,7 +459,7 @@ struct ABPlayerViewLifecycleTests {
 /// update `lastError`). Driven directly via `ABFakePlaybackTarget.emit(_:)`
 /// rather than through a real grade transition, so each case is isolated
 /// from the rest of the target-event pipeline.
-@Suite("ABPlayer.handle(_:) broadcasts every ABTargetEvent case", .timeLimit(.minutes(3)))
+@Suite("ABPlayer.handle(_:) broadcasts every ABTargetEvent case", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerHandleTargetEventTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)
@@ -549,7 +549,7 @@ struct ABPlayerHandleTargetEventTests {
     }
 }
 
-@Suite("ABObservationToken lifecycle", .timeLimit(.minutes(3)))
+@Suite("ABObservationToken lifecycle", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABObservationTokenLifecycleTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)
@@ -647,7 +647,7 @@ struct ABObservationTokenLifecycleTests {
 /// Regression coverage for the deinit-vs-`NSInternalInconsistencyException`
 /// fix: dropping a still-attached player/target without calling `release()`
 /// must not crash, and must actually clean up (not merely "not crash").
-@Suite("Dropping a player/target without release() cleans up deterministically", .timeLimit(.minutes(3)))
+@Suite("Dropping a player/target without release() cleans up deterministically", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerDeinitCleanupTests {
     // A local, non-existent file URL — unlike an `https://` source, this

@@ -1,4 +1,5 @@
 import ABPlayerKit
+import ABTestSupport
 import Foundation
 import Testing
 @testable import ABPlayerKitControls
@@ -20,7 +21,7 @@ import Testing
 /// suite deliberately doesn't pin those, since the ordering they document
 /// here is about the promote-then-play interleaving, not an exhaustive
 /// enumeration of every event a tap can produce.
-@Suite("A play tap's reentrant event ordering is pinned before WP-A4b touches togglePlayback", .timeLimit(.minutes(3)))
+@Suite("A play tap's reentrant event ordering is pinned before WP-A4b touches togglePlayback", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABControlsPlayPauseReentrancyCharacterizationTests {
     /// Tracks just the event *kind* (case name), not full payloads — some

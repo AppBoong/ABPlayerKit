@@ -10,7 +10,7 @@ import Testing
 /// which need a `UIViewRepresentableContext` SwiftUI alone can construct.
 /// `dismantleUIView(_:coordinator:)` takes no such context and is called
 /// directly, exactly as SwiftUI itself would.
-@Suite("ABVideoPlayer's url:/source: initializers own their player for the view's SwiftUI identity", .timeLimit(.minutes(3)))
+@Suite("ABVideoPlayer's url:/source: initializers own their player for the view's SwiftUI identity", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABVideoPlayerOwnershipTests {
     private func tinyURL() throws -> URL {

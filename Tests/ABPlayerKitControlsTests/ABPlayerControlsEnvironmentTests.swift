@@ -1,4 +1,5 @@
 import ABPlayerKit
+import ABTestSupport
 import SwiftUI
 import Testing
 @testable import ABPlayerKitControls
@@ -9,7 +10,7 @@ import Testing
 /// `update(_:coordinator:environment:)` directly, without a real SwiftUI
 /// host — the same pattern `ABPlayerControlsSwiftUITests` already uses for
 /// non-environment update coverage.
-@Suite("ABPlayerControls resolves style/configuration from initializer argument, then Environment, then the type default", .timeLimit(.minutes(3)))
+@Suite("ABPlayerControls resolves style/configuration from initializer argument, then Environment, then the type default", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerControlsEnvironmentTests {
     private func player() -> ABPlayer {

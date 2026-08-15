@@ -42,6 +42,24 @@ public func abScaledTimeout(_ duration: Duration) -> Duration {
     duration * deadlineScale
 }
 
+/// Scales a `.timeLimit` trait by the same factor ``waitUntil`` applies to
+/// its own deadlines.
+///
+/// A suite's time limit is a hang detector, not a performance budget: it
+/// exists so a deadlocked test fails in minutes instead of holding the job
+/// open until the runner kills it. But Swift Testing runs tests in parallel,
+/// so on a three-core CI runner every in-flight test shares a wall clock that
+/// a ten-core development machine never stretches — and when the limit fires
+/// it fires on all of them at once, reporting a slow machine as hundreds of
+/// simultaneous product failures. Scaling keeps the detector while letting a
+/// legitimately slow run finish; the workflow's own `timeout-minutes` stays
+/// the outer bound.
+///
+/// Swift Testing accepts whole minutes only, so the scaled value rounds up.
+public func abScaledMinutes(_ minutes: Int) -> TimeLimitTrait.Duration {
+    .minutes(Int((Double(minutes) * deadlineScale).rounded(.up)))
+}
+
 /// Deterministic polling helper shared by every test target: waits for a
 /// predicate against a `ContinuousClock` deadline, polling on a fixed
 /// interval so the awaiting task never spins the scheduler.

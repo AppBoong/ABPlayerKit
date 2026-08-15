@@ -1,9 +1,10 @@
 import ABPlayerKit
+import ABTestSupport
 import Foundation
 import Testing
 @testable import ABPlayerKitMetrics
 
-@Suite("ABAccessLogFolder", .timeLimit(.minutes(3)))
+@Suite("ABAccessLogFolder", .timeLimit(abScaledMinutes(3)))
 struct ABAccessLogFolderTests {
     @Test("Folds totals, switches, and a duration-weighted average across entries")
     func foldsAcrossEntries() {
@@ -113,7 +114,7 @@ struct ABAccessLogFolderTests {
     }
 }
 
-@Suite("ABPlaybackStatistics.waited", .timeLimit(.minutes(3)))
+@Suite("ABPlaybackStatistics.waited", .timeLimit(abScaledMinutes(3)))
 struct ABPlaybackStatisticsWaitedTests {
     @Test("waited excludes .hit samples that the legacy distribution folds in as 0 ms")
     func waitedExcludesHits() {
@@ -133,7 +134,7 @@ struct ABPlaybackStatisticsWaitedTests {
     }
 }
 
-@Suite("ABQoESummary.aggregate", .timeLimit(.minutes(3)))
+@Suite("ABQoESummary.aggregate", .timeLimit(abScaledMinutes(3)))
 struct ABQoESummaryTests {
     @Test("Ignores every event that isn't .sessionSummary")
     func ignoresNonSessionSummaryEvents() {
@@ -191,7 +192,7 @@ struct ABQoESummaryTests {
     }
 }
 
-@Suite("Item-holding hazard (R-1)", .timeLimit(.minutes(3)))
+@Suite("Item-holding hazard (R-1)", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABItemHoldingHazardTests {
     @Test("player.avPlayerItem is already nil by the time .itemDetached reaches an observer")

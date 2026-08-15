@@ -1,3 +1,4 @@
+import ABTestSupport
 import Foundation
 import Testing
 @testable import ABPlayerKit
@@ -8,7 +9,7 @@ import UIKit
 /// before `didEnterBackground` can have already stopped decode, and
 /// foreground resume routing through `self.play()` (audio session
 /// reactivation) instead of a bare `target.play()`.
-@Suite("ABPlayer's background/foreground lifecycle captures and resumes correctly", .timeLimit(.minutes(3)))
+@Suite("ABPlayer's background/foreground lifecycle captures and resumes correctly", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABBackgroundLifecycleEngineTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)

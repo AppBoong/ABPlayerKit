@@ -1,9 +1,10 @@
 @preconcurrency import AVFoundation
 import ABPlayerKit
+import ABTestSupport
 import Testing
 @testable import ABPlayerKitControls
 
-@Suite("Controls replay from the start after playback ends", .timeLimit(.minutes(3)))
+@Suite("Controls replay from the start after playback ends", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerControlsReplayTests {
     @Test("Given playback reaches the end, a play tap still goes through the usual tap side effects (bounce, broadcast) — the replay command doesn't short-circuit them")

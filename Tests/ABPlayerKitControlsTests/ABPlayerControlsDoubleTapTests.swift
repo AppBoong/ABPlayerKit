@@ -1,10 +1,11 @@
 @preconcurrency import AVFoundation
 import ABPlayerKit
+import ABTestSupport
 import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("Controls install a double-tap seek gesture only when opted in, and route it through the skip path", .timeLimit(.minutes(3)))
+@Suite("Controls install a double-tap seek gesture only when opted in, and route it through the skip path", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerControlsDoubleTapTests {
     private func attachedView(configuration: ABPlayerControlsConfiguration = .init()) -> (view: ABPlayerControlsView, player: ABPlayer) {
@@ -210,7 +211,7 @@ struct ABPlayerControlsDoubleTapTests {
     }
 }
 
-@Suite("Controls touch passthrough only gives up on itself, never on a resolved descendant", .timeLimit(.minutes(3)))
+@Suite("Controls touch passthrough only gives up on itself, never on a resolved descendant", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerControlsTouchPassthroughTests {
     @Test("Given .never (default) with controls hidden, hit-testing empty space still resolves to the overlay itself — the existing interactiveControlHitTesting contract")

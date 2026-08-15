@@ -8,7 +8,7 @@ import Testing
 /// after release), and `.itemDetached` broadcasting only after the
 /// target has actually detached — so observers reading `avPlayerItem`
 /// inside the handler see `nil`, not the about-to-be-torn-down item.
-@Suite("ABPlayer resets first-frame bookkeeping and orders detach before broadcast", .timeLimit(.minutes(3)))
+@Suite("ABPlayer resets first-frame bookkeeping and orders detach before broadcast", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABDetachOrderingTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)

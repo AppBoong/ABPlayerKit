@@ -1,3 +1,4 @@
+import ABTestSupport
 import Foundation
 import Testing
 @testable import ABPlayerKit
@@ -6,7 +7,7 @@ import Testing
 /// Coverage for `lastFailure`/`lastDiagnostic`/`lastError` resetting on
 /// every attach, source change, detach, and release, instead of leaving a
 /// stale failure set forever.
-@Suite("ABPlayer resets failure/diagnostic state on attach/source-change/detach/release", .timeLimit(.minutes(3)))
+@Suite("ABPlayer resets failure/diagnostic state on attach/source-change/detach/release", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABFailureLifecycleTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)

@@ -1,7 +1,8 @@
+import ABTestSupport
 import Testing
 @testable import ABPlayerKitControls
 
-@Suite("Controls auto-hide follows playback and scrubbing state", .timeLimit(.minutes(3)))
+@Suite("Controls auto-hide follows playback and scrubbing state", .timeLimit(abScaledMinutes(3)))
 struct ABControlsVisibilityMachineTests {
     @Test("Given hidden playing controls, a tap shows, notifies, and schedules hiding")
     func hiddenTapShowsControls() {
@@ -161,7 +162,7 @@ struct ABControlsVisibilityMachineTests {
     }
 }
 
-@Suite("Controls suppress auto-hide while buffering, without forcing visibility", .timeLimit(.minutes(3)))
+@Suite("Controls suppress auto-hide while buffering, without forcing visibility", .timeLimit(abScaledMinutes(3)))
 struct ABControlsVisibilityMachineBufferingTests {
     @Test("Given visible playing controls, buffering cancels any scheduled auto-hide without hiding or showing")
     func bufferingCancelsAutoHide() {
