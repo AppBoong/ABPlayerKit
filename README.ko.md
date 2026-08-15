@@ -16,6 +16,11 @@
 ABVideoPlayerWithControls(url: url)
 ```
 
+<p align="center">
+<img src="docs/assets/demo-controls.gif" width="380" alt="탭으로 나타난 컨트롤 오버레이, 1.5×를 선택하는 배속 메뉴, 저절로 사라지는 오버레이, HLS 스트림의 70% 지점으로의 스크럽"><br>
+<sub>위 한 줄이 실제로 동작하는 모습. 탭하면 오버레이가 나타나고, 배속을 고르고, 스크럽하고 — 그리고 저절로 비켜섭니다.</sub>
+</p>
+
 ### 주요 기능
 
 - **한 줄 재생.** 표준 컨트롤 오버레이를 그대로 쓰거나, 직접 만든 UI를 얹을 수 있습니다.
@@ -49,7 +54,7 @@ ABVideoPlayerWithControls(url: url)
 </tr>
 </table>
 
-스크린샷은 `Examples/ABPlayerKitDemo` 앱에서 Apple HLS bipbop 테스트 스트림을 재생한 화면입니다.
+위 애니메이션과 아래 스크린샷은 `Examples/ABPlayerKitDemo` 앱에서 Apple HLS bipbop 테스트 스트림을 재생한 화면입니다.
 
 ## 왜 ABPlayerKit인가
 
