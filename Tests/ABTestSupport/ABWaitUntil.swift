@@ -56,9 +56,25 @@ public func abScaledTimeout(_ duration: Duration) -> Duration {
 /// the outer bound.
 ///
 /// Swift Testing accepts whole minutes only, so the scaled value rounds up.
+///
+/// The result is capped at ``abMaximumScaledMinutes``. The scale exists to
+/// size *deadlines*, which are seconds, and a factor large enough for those
+/// would push a limit whose base is already minutes past the workflow's own
+/// `timeout-minutes` — at which point the job's timeout fires first and the
+/// per-test limit stops being a hang detector at all. The cap keeps the two
+/// bounds ordered no matter how far the scale is raised.
 public func abScaledMinutes(_ minutes: Int) -> TimeLimitTrait.Duration {
-    .minutes(Int((Double(minutes) * deadlineScale).rounded(.up)))
+    let scaled = Int((Double(minutes) * deadlineScale).rounded(.up))
+    return .minutes(min(scaled, Swift.max(minutes, abMaximumScaledMinutes)))
 }
+
+/// The ceiling ``abScaledMinutes(_:)`` applies.
+///
+/// Fifteen minutes against the workflow's 45-minute `timeout-minutes`: tests
+/// run in parallel, so one hung test costs this much wall clock once, leaving
+/// the job room to check out, build, boot a simulator, and still report the
+/// hang itself rather than being killed mid-run.
+public let abMaximumScaledMinutes = 15
 
 /// Deterministic polling helper shared by every test target: waits for a
 /// predicate against a `ContinuousClock` deadline, polling on a fixed
