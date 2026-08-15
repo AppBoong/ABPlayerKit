@@ -4,6 +4,8 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-15
+
 ### Fixed
 
 - `Package.swift` no longer declares `.macOS(.v13)`. Nothing in this package could build for macOS — the core imports `UIKit` and `AVKit` directly — so the declaration only made package tooling advertise a platform that does not work. Consuming the package from an iOS app in Xcode is unaffected; Xcode resolved the iOS platform before and does now. A build for any other platform stops on a single explanatory diagnostic naming the `xcodebuild` invocation to use instead, rather than opening with dozens of `no such module 'UIKit'` errors that read like the package is broken.
@@ -208,6 +210,7 @@ If you need to keep passing raw `UIView`s, wrap each in `UIViewRepresentable` fi
 
 - Initial release with the four-grade playback state machine, UIKit and SwiftUI rendering, TTFF metrics, progressive media caching, and explicit HLS prefetch.
 
+[0.4.1]: https://github.com/AppBoong/ABPlayerKit/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/AppBoong/ABPlayerKit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/AppBoong/ABPlayerKit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AppBoong/ABPlayerKit/compare/v0.1.0...v0.2.0
