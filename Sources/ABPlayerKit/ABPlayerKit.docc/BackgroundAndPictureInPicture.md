@@ -10,6 +10,38 @@ How ``ABBackgroundPolicy`` and ``ABPictureInPictureSession`` interact.
 
 The suppression covers only automatic side effects — a background policy reacting to `willResignActive`/`didEnterBackground`/`willEnterForeground`. It does not cover anything the consumer does explicitly.
 
+## What Each Policy Does
+
+``ABPlayerConfiguration/backgroundPolicy`` controls what happens to a `.current` player when the app leaves the foreground. The default is `.pause` — this library installs app-state observers and acts on them unless you choose `.ignore`.
+
+| Policy | On background entry | On foreground return |
+|---|---|---|
+| `.ignore` | Nothing | Nothing (besides re-marking the audio session for reactivation) |
+| `.pause` (default) | Pauses if `.current` | Resumes if it was playing |
+| `.pauseAndDetachLayer` | Pauses if `.current`; detaches `AVPlayerLayer.player` (releases the decoder) | Re-attaches the layer; resumes if it was playing |
+| `.demoteToInstance` | Demotes to `.instanceOnly` (drops the item; blocks network entirely) | Restores the prior grade |
+| `.continueAudioOnly` | Detaches `AVPlayerLayer.player` only — playback keeps running | Re-attaches the layer; resumes only if the system suspended playback anyway, never overriding an explicit `pause()` |
+
+That table describes a player with no active PiP session. When one *is* active, the matrix in the next section takes over.
+
+`ABBackgroundPolicy` is non-exhaustive — a `switch` over it outside this package should include a `default` branch.
+
+### Who Wins While Backgrounded
+
+`.continueAudioOnly` is the only policy where playback keeps running while backgrounded, so it is the only one where the user can pause it there — from the lock screen, Now Playing, or a controls overlay.
+
+An explicit ``ABPlayer/pause()`` while backgrounded is authoritative: playback stays paused on the return to foreground. The resume in the table above is a safety net for the system suspending playback on its own, and it does not fire when a `pause()` came in between.
+
+### Prerequisites for `.continueAudioOnly`
+
+Without all three, it silently degrades to `.pause`-like behavior. There is no runtime warning.
+
+| # | Condition | Who sets it |
+|---|---|---|
+| 1 | `UIBackgroundModes` includes `audio` | The host app's `Info.plist` — this library cannot do it for you |
+| 2 | ``ABPlayerConfiguration/audioSessionPolicy`` is `.playback(mixWithOthers:)` or `.ambient` | The app |
+| 3 | ``ABPlayerConfiguration/backgroundPolicy`` is `.continueAudioOnly` | The app |
+
 ## Policy × Picture in Picture Matrix
 
 | Policy | PiP inactive | PiP active |
@@ -21,6 +53,34 @@ The suppression covers only automatic side effects — a background policy react
 | `.continueAudioOnly` | Detaches the layer only, keeps playing | **Layer stays attached too** — PiP needs the video, not only the audio |
 
 When PiP is inactive, every policy's behavior is byte-identical to before this suppression existed.
+
+## Binding a Session
+
+Bind an ``ABPictureInPictureSession`` to an ``ABPlayerView``, or pass one to ``ABVideoPlayer``'s explicit-ownership initializer:
+
+```swift
+import ABPlayerKit
+import SwiftUI
+
+struct VideoScreen: View {
+    let player: ABPlayer
+    @State private var pictureInPicture = ABPictureInPictureSession()
+
+    var body: some View {
+        ABVideoPlayer(player: player, pictureInPicture: pictureInPicture)
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .overlay(alignment: .topTrailing) {
+                if pictureInPicture.isPossible {
+                    Button(pictureInPicture.isActive ? "Stop PiP" : "Start PiP") {
+                        pictureInPicture.isActive ? pictureInPicture.stop() : pictureInPicture.start()
+                    }
+                }
+            }
+    }
+}
+```
+
+``ABPictureInPictureSession/isPossible`` gates the button because the layer has to be ready for display before PiP can start; ``ABPictureInPictureSession/isSupported`` is the device-level check, and is usually `false` in the simulator.
 
 ## What Isn't Suppressed
 

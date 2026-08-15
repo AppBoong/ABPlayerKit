@@ -8,7 +8,38 @@ Use ``ABMediaCache/makeAssetFactory(hlsPrefetcher:)`` as an `ABPlayerKit/ABAsset
 
 Progressive caching fills a linear prefix from byte 0 forward, not sparse ranges. A request whose offset sits ``ABCacheConfiguration/passthroughGapThreshold`` (default 2MB) or more ahead of that prefix skips waiting for the fill and is served directly over the network instead, streamed back in ≤1MB chunks. The background fill is unaffected — this is a one-off fallback for that request, bounding worst-case latency for a distant seek against a non-faststart file.
 
-HLS remains explicit: ``ABHLSPrefetcher`` downloads complete assets with `AVAssetDownloadURLSession`, and only completed downloads are eligible for local playback. Transparent HLS segment caching is intentionally outside this product's scope because it requires a playlist-rewriting reverse proxy.
+HLS remains explicit: ``ABHLSPrefetcher`` downloads complete assets with `AVAssetDownloadURLSession`, and only completed downloads are eligible for local playback.
+
+### Wiring the factory
+
+```swift
+import ABPlayerKitCache
+
+let cache = try ABMediaCache()
+let hlsPrefetcher = ABHLSPrefetcher()
+
+// Build and retain this factory. Release the current item before replacing it.
+let assetFactory = cache.makeAssetFactory(hlsPrefetcher: hlsPrefetcher)
+player.release()
+var configuration = player.configuration
+configuration.assetFactory = assetFactory
+player.configuration = configuration
+
+let handle = hlsPrefetcher.prefetch(hlsSource)
+if await handle.result == .completed {
+    player.set(source: hlsSource, grade: .current)
+    player.play() // the factory resolves the completed local HLS asset
+}
+```
+
+Two things in that snippet are easy to lose and expensive to rediscover:
+
+- **Retain the factory.** `AVAssetResourceLoader.setDelegate(_:queue:)` does not retain its delegate, so the factory is what keeps each one alive. Drop the factory and interception stops without an error — playback simply goes to the network.
+- **Release before replacing.** `assetFactory` is read at attach time only, so an item already attached keeps the old factory. Releasing first is what makes the next attach pick up the new one.
+
+### Why transparent HLS caching is out of scope
+
+`AVAssetResourceLoader` cannot intercept ordinary HTTP(S) HLS master or media playlists. Doing it transparently would mean running a local reverse proxy that rewrites playlists and then handles relative URLs, encryption keys, and background lifetime on its own. That is a substantially larger failure surface than the progressive path, so it is kept separate deliberately rather than left unimplemented by accident. The reasoning is recorded in [DESIGN-OPEN-QUESTIONS Q1](https://github.com/AppBoong/ABPlayerKit/blob/main/docs/DESIGN-OPEN-QUESTIONS.md) and [DESIGN-ABPlayerKit §9](https://github.com/AppBoong/ABPlayerKit/blob/main/docs/DESIGN-ABPlayerKit.md).
 
 ## Known constraints
 
