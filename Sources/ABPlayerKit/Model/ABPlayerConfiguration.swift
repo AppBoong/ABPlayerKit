@@ -6,6 +6,15 @@ import Foundation
 public struct ABPlayerConfiguration: Sendable, Equatable {
     public var preloadTuning: ABPlaybackTuning
     public var currentTuning: ABPlaybackTuning
+    /// Restarts the item at its end instead of stopping.
+    ///
+    /// Loop boundaries are still visible on the event stream, and read as
+    /// end-of-playback:
+    /// ``ABPlayerEvent/playedToEnd`` fires on *every* iteration, before the
+    /// internal restart seek. That restart deliberately emits no
+    /// ``ABPlayerEvent/seekCompleted(to:)``, so a UI driven by
+    /// `.playedToEnd` needs to check this flag rather than assume playback
+    /// has stopped.
     public var isLooping: Bool
     public var isMuted: Bool
     /// The desired playback rate. Values are clamped by ``ABPlayer``.
@@ -19,6 +28,18 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
     public var prerollTimeout: TimeInterval
     /// `true` seeks to `.zero` on demotion.
     public var rewindOnDemotion: Bool
+    /// What happens to playback when the app backgrounds.
+    ///
+    /// Defaults to ``ABBackgroundPolicy/pause``, not to doing nothing: an
+    /// `ABPlayer` installs `NotificationCenter` app-state observers at init
+    /// and pauses on background entry without being asked. Choose
+    /// ``ABBackgroundPolicy/ignore`` to opt out entirely.
+    ///
+    /// ``ABBackgroundPolicy/continueAudioOnly`` degrades silently to
+    /// `.pause`-like behavior unless the host app declares the `audio`
+    /// background mode *and* `audioSessionPolicy` is something other than
+    /// `.unmanaged`. There is no runtime warning when a prerequisite is
+    /// missing.
     public var backgroundPolicy: ABBackgroundPolicy
     public var audioSessionPolicy: ABAudioSessionPolicy
     /// Opt-in `AVAudioSession` interruption handling.
@@ -35,6 +56,17 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
     /// interruption handling is controlled separately via
     /// `interruptionPolicy`.
     public var pausesOnRouteChangeDeviceUnavailable: Bool
+    /// How the layer fits video into its bounds.
+    ///
+    /// ``ABPlayer`` never reads this — ``ABPlayerView`` does, when a player is
+    /// assigned to it. Changing it on a live player therefore does nothing
+    /// until the next assignment; set ``ABPlayerView/videoGravity`` to change
+    /// it in place. `ABVideoPlayer` overwrites it from its own `videoGravity`
+    /// parameter, and ``ABPlayerView/adaptsGravityToAspectRatio`` overrides it
+    /// again from the item's presentation size once that is known.
+    ///
+    /// The default is `.resizeAspectFill`, not `AVPlayerLayer`'s own
+    /// `.resizeAspect`.
     public var videoGravity: AVLayerVideoGravity
     /// `AVPlayer.allowsExternalPlayback`. Default `true` — matches
     /// `AVPlayer`'s own default, so existing consumers see no behavior
@@ -47,6 +79,12 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
     /// `AVPlayer.externalPlaybackVideoGravity`. Default `.resizeAspect`,
     /// matching `AVPlayer`'s own default.
     public var externalPlaybackVideoGravity: AVLayerVideoGravity
+    /// Builds the `AVAsset` for a source — the seam `ABPlayerKitCache` uses to
+    /// insert its resource loader.
+    ///
+    /// Read only at attach time, so swapping it on a live player has no effect
+    /// until the next attach. It is also the one property excluded from `==`,
+    /// so two configurations differing only in asset factory compare equal.
     public var assetFactory: any ABAssetFactory
 
     public init(
@@ -91,6 +129,13 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
         self.assetFactory = assetFactory
     }
 
+    /// Compares every stored property **except** ``assetFactory``, which is
+    /// an existential with no `Equatable` requirement.
+    ///
+    /// The consequence is worth knowing before building change detection on
+    /// this: switching between the default factory and `ABPlayerKitCache`'s
+    /// leaves two configurations comparing equal, so a diff keyed on `==`
+    /// will not see it.
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.preloadTuning == rhs.preloadTuning
             && lhs.currentTuning == rhs.currentTuning

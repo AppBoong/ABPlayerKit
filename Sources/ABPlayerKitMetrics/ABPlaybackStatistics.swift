@@ -9,7 +9,11 @@ public struct ABPlaybackStatistics: Sendable, Equatable {
     /// of preload hits collapses this distribution's lower percentiles
     /// toward zero.
     public let p50: Double
+    /// Part of the same legacy distribution as ``p50``, with `.hit` folded in
+    /// as `0` ms. Prefer ``waited``.
     public let p95: Double
+    /// Part of the same legacy distribution as ``p50``, with `.hit` folded in
+    /// as `0` ms. Prefer ``waited``.
     public let max: Double
     /// The `.waited` samples only, `.hit` excluded — the distribution that
     /// actually reflects how long a viewer waited when they did wait.
@@ -33,11 +37,20 @@ public struct ABPlaybackStatistics: Sendable, Equatable {
         self.waited = waited
     }
 
+    /// `hitCount / sampleCount` — where the denominator **includes abandoned
+    /// samples**.
+    ///
+    /// An abandoned TTFF is never silently discarded, so a rise in viewers
+    /// bailing before the first frame lowers this rate even when preloading
+    /// did not get worse. Divide by `sampleCount - abandonedCount` instead
+    /// for a preload-only view.
     public var hitRate: Double {
         guard sampleCount > 0 else { return 0 }
         return Double(hitCount) / Double(sampleCount)
     }
 
+    /// `abandonedCount / sampleCount`, over the same denominator as
+    /// ``hitRate`` — abandoned samples are counted, not dropped.
     public var abandonRate: Double {
         guard sampleCount > 0 else { return 0 }
         return Double(abandonedCount) / Double(sampleCount)

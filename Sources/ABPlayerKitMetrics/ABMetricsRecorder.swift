@@ -21,6 +21,15 @@ public final class ABMetricsRecorder {
     /// `player.avPlayerItem`.
     private var heldItems: [ABPlayerID: AVPlayerItem] = [:]
 
+    /// - Parameters:
+    ///   - sink: Where records go.
+    ///   - clock: The monotonic timeline sessions are measured on.
+    ///   - includesSourceURL: Whether `.sessionStarted`/`.sessionSummary`
+    ///     carry the media URL, for joining against server-side logs.
+    ///     **Defaults to `true`**, so a signed or tokenized URL — a
+    ///     credential — is recorded verbatim unless this is `false`. This
+    ///     package applies no masking policy of its own; mask in a custom
+    ///     ``ABMetricsSink`` if the URL is needed in a redacted form.
     public init(
         sink: any ABMetricsSink,
         clock: any ABClock = ABMonotonicClock(),
@@ -31,6 +40,14 @@ public final class ABMetricsRecorder {
         self.includesSourceURL = includesSourceURL
     }
 
+    /// Starts recording `player`'s events.
+    ///
+    /// The returned token stops observation, but the recorder has no hook on
+    /// its cancellation — dropping or cancelling it produces **no** final
+    /// `.sessionSummary`, and the open session is simply abandoned. Call
+    /// ``endSession(for:)`` first when a summary is wanted. Since the token
+    /// also cancels from its own `deinit`, that includes letting it go out of
+    /// scope.
     public func attach(to player: ABPlayer) -> ABObservationToken {
         player.addObserver { [weak self, weak player] event in
             guard let self, let player else { return }
@@ -38,6 +55,13 @@ public final class ABMetricsRecorder {
         }
     }
 
+    /// Opens a time-to-first-frame measurement for `player`.
+    ///
+    /// If the player has *already* displayed its first frame, nothing is
+    /// opened: a `.hit` sample is recorded synchronously and the call
+    /// returns. A caller waiting for the paired `.firstFrameDisplayed` will
+    /// wait forever — check `player.hasDisplayedFirstFrame`, or handle
+    /// `.ttff` itself, rather than assuming a later event is coming.
     public func beginTTFF(
         for player: ABPlayer,
         at time: CFTimeInterval? = nil,

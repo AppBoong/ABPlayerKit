@@ -224,6 +224,19 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         observerRegistry.add(handler)
     }
 
+    /// Resolves touches by an explicit priority order, not by UIKit's usual
+    /// back-to-front search.
+    ///
+    /// Small, specific targets are tested first — play/pause, the skip
+    /// buttons, the rate button, then accessory slots — and the full-width
+    /// seek bar last. On a short overlay those 44pt touch rows overlap
+    /// vertically, and this order is what makes the more specific control win
+    /// rather than the seek bar swallowing the touch.
+    ///
+    /// ``ABPlayerControlsConfiguration/touchPassthrough`` is applied only
+    /// after that: it can give up a touch that resolved to the overlay
+    /// itself, never one that resolved to a descendant, so it cannot disturb
+    /// the order above.
     public override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard isUserInteractionEnabled,
               !isHidden,

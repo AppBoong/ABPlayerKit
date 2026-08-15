@@ -41,11 +41,26 @@ public enum ABMetricEvent: Sendable, Equatable {
     case sessionSummary(ABSessionSummary)
 }
 
+/// A reduction of `AVPlayerItemAccessLog` taken at detach.
+///
+/// The five original fields read the log's **last entry only**; every field
+/// added afterward folds the *entire* log. Both shapes are kept because the
+/// originals are part of the v1 surface — check each field's own note rather
+/// than assuming the struct is uniform.
 public struct ABAccessSnapshot: Sendable, Equatable {
+    /// The **last** access-log entry's value. For the whole-log sum, use
+    /// ``totalBytesTransferred``.
     public let numberOfBytesTransferred: Int64
+    /// The **last** access-log entry's value, not an average over the log.
     public let indicatedBitrate: Double
+    /// The **last** access-log entry's value. For a duration-weighted mean
+    /// across the log, use ``observedBitrateAverage``.
     public let observedBitrate: Double
+    /// The **last** access-log entry's value. For the log's first real
+    /// startup measurement, use ``initialStartupTimeSeconds``.
     public let startupTime: Double
+    /// The **last** access-log entry's value. For the whole-log sum, use
+    /// ``totalStallCount``.
     public let stallCount: Int
     /// Sum of `numberOfBytesTransferred` across every access-log entry
     /// (unlike ``numberOfBytesTransferred``, which is the last entry only).

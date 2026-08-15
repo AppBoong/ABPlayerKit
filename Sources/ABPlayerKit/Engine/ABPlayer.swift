@@ -21,10 +21,29 @@ import Observation
 public final class ABPlayer {
     public let id = ABPlayerID()
 
+    /// Assigning applies the difference immediately — this is not a bag of
+    /// values read later.
+    ///
+    /// A write re-applies tuning, mute, looping, rate, and external-playback
+    /// settings to a live item, installs or removes the app-state and audio
+    /// interruption observers, and can apply *or restore* the process-global
+    /// audio session. `playbackRate` is silently rewritten to its clamped
+    /// value, so reading the property back may not return what was assigned.
+    ///
+    /// Two exceptions read only at attach time: ``ABPlayerConfiguration``'s
+    /// `assetFactory`, and `videoGravity`, which only ``ABPlayerView`` reads.
     public var configuration: ABPlayerConfiguration {
         didSet { applyConfigurationChange(from: oldValue) }
     }
 
+    /// The current grade — which may not be the grade last requested.
+    ///
+    /// Two paths change it without an API call. Requesting an item-holding
+    /// grade with no source clamps to `.instanceOnly` and broadcasts
+    /// ``ABPlayerEvent/invalidGradeForSource(requested:)``. A background
+    /// policy can demote to `.instanceOnly` when the app backgrounds and
+    /// restore the previous grade on return. Read this rather than
+    /// remembering what was asked for.
     public private(set) var grade: ABPlaybackGrade = .released
     public private(set) var source: ABMediaSource?
     /// The most recent terminal failure, or `nil` once it's been reset by a
@@ -54,6 +73,14 @@ public final class ABPlayer {
     /// fallback. Grade-related state must still
     /// go through `set(source:grade:)`/`promote(to:)`/`release()`.
     public var avPlayer: AVPlayer? { target.avPlayer }
+    /// Non-`nil` only from `.preloaded` up — and a *different* instance after
+    /// every attach.
+    ///
+    /// State set directly on the item does not survive a source change,
+    /// demotion, or release, because the next attach builds a new
+    /// `AVPlayerItem` rather than reusing this one. Media selection (subtitle
+    /// and audio track choice) is the case that bites: it lives on the item,
+    /// so it must be re-applied after each attach.
     public var avPlayerItem: AVPlayerItem? { target.avPlayerItem }
 
     /// A recompute-from-target mirror, not an independent state machine —
@@ -360,6 +387,13 @@ public final class ABPlayer {
         refreshPlaybackMirrors()
     }
 
+    /// Moves to `grade` in either direction, despite the name.
+    ///
+    /// Nothing rejects a grade below the current one — passing a lower grade
+    /// performs a full demotion, which pauses, detaches the item, swaps the
+    /// tuning role, and clears any play intent. Demoting below `.current`
+    /// also ends an active Picture in Picture session. Use it deliberately
+    /// for both directions rather than assuming it is a one-way door.
     public func promote(to grade: ABPlaybackGrade) {
         set(source: source, grade: grade)
     }
@@ -372,6 +406,16 @@ public final class ABPlayer {
 
     // MARK: - Playback control (valid only at `.current`)
 
+    /// Starts playback — but only at `.current`.
+    ///
+    /// At any other grade this returns without playing and without throwing;
+    /// the only signal is a broadcast ``ABPlayerEvent/playbackRejected`` and
+    /// ``ABPlayerEvent/callRejected(_:grade:)``. A player that "does nothing"
+    /// is almost always one that was never promoted.
+    ///
+    /// This is also an audio-session trigger: it activates the process-global
+    /// `AVAudioSession` for the configured policy, so it can affect audio the
+    /// host app is already playing.
     public func play() {
         guard grade == .current else {
             rejectCall(.play)
@@ -390,6 +434,16 @@ public final class ABPlayer {
         refreshPlaybackMirrors()
     }
 
+    /// Pauses playback — subject to the same `.current` gate as ``play()``,
+    /// rejected the same silent way at any other grade.
+    ///
+    /// It also retires the background capture: under
+    /// ``ABBackgroundPolicy/continueAudioOnly``, pausing while backgrounded
+    /// (from the lock screen or Now Playing) means playback stays paused on
+    /// the return to foreground instead of auto-resuming. That is deliberate
+    /// — an explicit pause should outrank a capture taken before it. The
+    /// policy machine's own pausing does not go through this method, so it
+    /// leaves the capture intact.
     public func pause() {
         guard grade == .current else {
             rejectCall(.pause)
@@ -537,11 +591,25 @@ public final class ABPlayer {
 
     // MARK: - Preload control
 
+    /// Warms the decoder at `.preloaded` by briefly running at
+    /// ``ABPlayerConfiguration/prerollRate``.
+    ///
+    /// A no-op unless the grade is exactly `.preloaded` **and** `prerollRate`
+    /// is non-`nil`. Unlike ``play()`` it broadcasts nothing when it declines,
+    /// so a caller gets no feedback at all — check both conditions rather
+    /// than waiting for an event.
     public func startPreroll() {
         guard grade == .preloaded, let rate = configuration.prerollRate else { return }
         armPreroll(rate: rate)
     }
 
+    /// Cancels an outstanding ``startPreroll()`` — and nothing else.
+    ///
+    /// Despite the name it does not undo a preload: the attached item, the
+    /// grade, and any buffering it is doing are all untouched. To give the
+    /// resources back, demote with ``promote(to:)`` or ``release()``.
+    /// ``ABPlayerEvent/preloadCancelled`` is broadcast only when a preroll
+    /// task was actually live.
     public func cancelPreload() {
         guard let prerollTask else { return }
         prerollTask.cancel()
@@ -551,6 +619,13 @@ public final class ABPlayer {
 
     // MARK: - Observation
 
+    /// Subscribes `observer` to this player's events.
+    ///
+    /// Two independent ways to stop receiving events by accident: the player
+    /// holds `observer` **weakly**, and the returned token cancels the
+    /// subscription from its own `deinit`. Discarding the token — including
+    /// with `_ =` — unsubscribes immediately. Store it for as long as the
+    /// observation should live.
     public func addObserver(_ observer: some ABPlayerObserver) -> ABObservationToken {
         observerRegistry.add { [weak self, weak observer] event in
             guard let self else { return }
@@ -558,6 +633,12 @@ public final class ABPlayer {
         }
     }
 
+    /// Subscribes a closure to this player's events.
+    ///
+    /// The returned token cancels from its own `deinit`, so discarding it
+    /// unsubscribes immediately — the same trap as the `ABPlayerObserver`
+    /// overload. Unlike that overload, the player holds `handler` strongly,
+    /// so capture `self` weakly to avoid a retain cycle.
     public func addObserver(
         _ handler: @escaping @MainActor @Sendable (ABPlayerEvent) -> Void
     ) -> ABObservationToken {

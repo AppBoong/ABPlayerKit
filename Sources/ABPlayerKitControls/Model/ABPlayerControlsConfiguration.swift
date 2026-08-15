@@ -89,15 +89,65 @@ public struct ABPlayerControlsConfiguration: Sendable, Equatable {
         let stepped = (value / skipIntervalStep).rounded() * skipIntervalStep
         return min(max(stepped, skipIntervalRange.lowerBound), skipIntervalRange.upperBound)
     }
+    /// Derives the skip glyph's badged number from ``skipInterval``, so a
+    /// 30-second skip renders `gobackward.30`.
+    ///
+    /// `false` does **not** fall back to a neutral arrow — it hard-codes
+    /// `gobackward.10`/`goforward.10`, so a 30-second interval then shows a
+    /// glyph that reads "10". To get an unnumbered arrow, set an explicit
+    /// icon on ``ABPlayerControlsStyle/skipBackwardIcon``/`skipForwardIcon`
+    /// instead.
     public var synchronizesSkipIconWithInterval = true
+    /// The rates offered by the rate control.
+    ///
+    /// An empty array hides the rate button entirely, whatever
+    /// ``rateInteraction`` says. Values outside `ABPlaybackRate`'s supported
+    /// range are clamped when applied, so an out-of-range entry displays one
+    /// rate and takes effect as another — keep the array inside the range.
     public var rateOptions: [Float] = ABPlaybackRate.common
     public var rateInteraction: RateInteraction = .menu
+    /// How long the overlay stays up before hiding itself.
+    ///
+    /// `nil` means **never auto-hide**, not "hide immediately". Even a
+    /// non-`nil` delay is suppressed while VoiceOver is running, while
+    /// buffering, while scrubbing, and — under ``staysVisibleWhilePaused`` —
+    /// while paused.
+    ///
+    /// Setting this alongside `handlesBackgroundTap = false` can leave the
+    /// overlay unrecoverable; see ``handlesBackgroundTap``.
     public var autoHideDelay: TimeInterval? = 3
+    /// Suppresses auto-hide while playback is paused.
+    ///
+    /// It gates the hide rather than forcing the overlay visible, and it
+    /// applies to an already-scheduled hide as well as a future one —
+    /// pausing before the timer fires cancels its effect. Changing it at
+    /// runtime cancels and reschedules the timer.
     public var staysVisibleWhilePaused = true
+    /// How often the overlay refreshes its elapsed time and scrubber.
+    ///
+    /// Not a controls-local setting: attaching a player **overwrites**
+    /// `ABPlayerConfiguration.periodicTimeInterval` with this value, taking a
+    /// lease that restores the app's own value when the controls detach or
+    /// deallocate. An app that sets its own interval for other reasons will
+    /// see it replaced for as long as controls are attached.
     public var periodicTimeInterval: TimeInterval? = 0.25
     public var showsBufferedProgress = true
     public var showsTimeLabels = true
+    /// Which fields the time label shows.
+    ///
+    /// Ignored entirely when ``timeFormat`` is `.custom`, which produces the
+    /// whole string itself. Under `.elapsedAndTotal`, an item with no known
+    /// duration shows a localized `LIVE` marker in place of the total rather
+    /// than a time.
     public var timeLabelLayout: TimeLabelLayout = .elapsedAndTotal
+    /// How a time is rendered.
+    ///
+    /// The default is `.fixedHours`, which is always zero-padded `HH:MM:SS`
+    /// including a zero hours field — a 90-second clip reads `00:01:30`. Use
+    /// `.automatic` for the minimal `M:SS` form that most media players show.
+    ///
+    /// VoiceOver ignores this: it always hears spoken elapsed and duration,
+    /// including under `.custom`, which replaces only the on-screen text.
     public var timeFormat: TimeLabelFormat = .fixedHours
     public var showsSkipButtons = true
     /// Whether the play/pause button is shown. `false` hides it the same
@@ -105,8 +155,29 @@ public struct ABPlayerControlsConfiguration: Sendable, Equatable {
     public var showsPlayPauseButton = true
     /// Whether the seek bar is shown. `false` collapses the row it occupies.
     public var showsSeekBar = true
+    /// Whether a tap on the overlay's background toggles the controls.
+    ///
+    /// This is the only gesture that can bring hidden controls back, so
+    /// `false` combined with a non-`nil` ``autoHideDelay`` leaves the overlay
+    /// unreachable until something calls `setControlsVisible(true)`. Even
+    /// when `true`, taps landing on a `UIControl` are not treated as
+    /// background taps.
     public var handlesBackgroundTap = true
+    /// Whether tapping anywhere on the seek bar's track jumps to that
+    /// position.
+    ///
+    /// `false` does more than disable the jump: scrubbing then starts only
+    /// when the touch lands within the thumb, inflated on both axes by
+    /// ``ABPlayerControlsStyle/thumbTouchInflation``. That style property has
+    /// no effect at all while this stays `true`, so the two are coupled
+    /// across the style/configuration boundary.
     public var allowsTrackTapToSeek = true
+    /// Whether the overlay starts visible or hidden.
+    ///
+    /// Applied on every player assignment, not only the first — swapping the
+    /// player snaps the overlay back to this value and discards whatever the
+    /// user's taps or `setControlsVisible(_:)` had established. Changing it
+    /// alone does nothing until the next attach.
     public var initialVisibility: InitialVisibility = .visible
 
     /// Whether tapping the play/pause button while the player has a source but
