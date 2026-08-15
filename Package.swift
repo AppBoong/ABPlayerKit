@@ -4,9 +4,12 @@ import PackageDescription
 let package = Package(
     name: "ABPlayerKit",
     defaultLocalization: "en",
+    // iOS only. The core reaches UIKit and AVKit directly, so there is no
+    // second platform this can build for; declaring one only made package
+    // tooling advertise support that does not exist. A build for anything
+    // else is explained by `Sources/ABPlayerKit/PlatformSupport.swift`.
     platforms: [
-        .iOS(.v17),
-        .macOS(.v13)
+        .iOS(.v17)
     ],
     products: [
         .library(name: "ABPlayerKit", targets: ["ABPlayerKit"]),

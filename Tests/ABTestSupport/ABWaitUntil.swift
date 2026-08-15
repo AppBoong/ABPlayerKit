@@ -1,3 +1,11 @@
+// Test-only helpers, shared by every test target.
+//
+// Wrapped in `#if os(iOS)` because this package builds for iOS only. These
+// helpers use `Duration`, which needs a macOS 13 deployment target the
+// package deliberately no longer declares — so on a host build this target
+// compiles to nothing, leaving the explanation in
+// `Sources/ABPlayerKit/PlatformSupport.swift` to stand on its own.
+#if os(iOS)
 import Foundation
 import Testing
 
@@ -66,3 +74,4 @@ public func waitUntil(
 public struct ABWaitUntilTimedOut: Error {
     public init() {}
 }
+#endif

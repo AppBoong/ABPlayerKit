@@ -98,6 +98,17 @@ ABVideoPlayerWithControls(url: url)
 - Swift 6 언어 모드
 - Xcode 16+
 
+**iOS 전용입니다.** 코어가 UIKit과 AVKit을 직접 사용하므로 빌드 가능한 다른 플랫폼이 없습니다. Xcode에서 iOS 앱에 패키지를 추가할 때는 따로 할 일이 없습니다 — Xcode가 플랫폼을 알아서 해석합니다. 다만 체크아웃해서 패키지 자체를 빌드할 때는 `swift build`가 호스트(macOS)를 대상으로 하므로 다릅니다:
+
+```bash
+# 이건 안 됩니다 — macOS를 대상으로 잡고, 이유를 설명하며 멈춥니다
+swift build
+
+# 이렇게 하세요
+xcodebuild -scheme ABPlayerKit-Package -destination 'generic/platform=iOS' build
+xcodebuild -scheme ABPlayerKit-Package -destination 'platform=iOS Simulator,name=iPhone 16 Pro' test
+```
+
 ## 설치
 
 Xcode에서 **File → Add Package Dependencies**를 선택하고 다음 주소를 추가합니다.
