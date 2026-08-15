@@ -12,6 +12,23 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Forwarded into the test runner with the TEST_RUNNER_ prefix stripped, and
+# read by `abScaledTimeout`/`waitUntil` in Tests/ABTestSupport. A handful of
+# tests race real work against a wall-clock deadline; on a shared 3-core
+# runner that work is slower, not stuck, and an unscaled deadline reports the
+# slowdown as a deadlock.
+#
+# Declared once at workflow level on purpose. It used to be set only on the
+# ThreadSanitizer job, on the theory that sanitizer instrumentation was the
+# thing that needed absorbing. Runner contention alone is enough: in run
+# 31854690881 the whole cache suite ran at 17.0s against 4.2s on the same
+# code a few hours earlier, with individual tests at 15.9s that normally
+# finish in well under a second, and the one test whose deadline was still
+# 2s failed. Six covers what has actually been observed, and the per-suite
+# `.timeLimit(.minutes(3))` remains the backstop against a genuine hang.
+env:
+  TEST_RUNNER_ABPLAYERKIT_WAIT_SCALE: "6"
+
 jobs:
   build-and-test:
     runs-on: macos-15
@@ -187,12 +204,6 @@ jobs:
         run: bash .github/scripts/prepare-simulator.sh
 
       - name: Run core and cache tests under ThreadSanitizer
-        env:
-          # Forwarded into the test runner with the TEST_RUNNER_ prefix
-          # stripped. Sanitizer instrumentation on a 3-core runner makes the
-          # real work slower, not stuck; without this the wait helper reports
-          # timeouts that read like deadlocks.
-          TEST_RUNNER_ABPLAYERKIT_WAIT_SCALE: "6"
         run: >-
           xcodebuild
           -scheme ABPlayerKit-Package
