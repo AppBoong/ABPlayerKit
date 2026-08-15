@@ -227,7 +227,7 @@ struct VideoScreen: View {
 }
 ```
 
-Picture in Picture requires this path — see [Picture in Picture](#picture-in-picture).
+Picture in Picture requires this path — see [Background Policy and Picture in Picture](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/backgroundandpictureinpicture/).
 
 ### UIKit with `ABPlayerView`
 
@@ -287,7 +287,7 @@ player.set(source: source, grade: .instanceOnly)
 
 - Every release path that holds an item routes through `detachItem`.
 - Moving between `.preloaded` and `.current` reapplies the matching tuning role, so demotion is the exact inverse of promotion.
-- Playback control calls are accepted only at `.current` — see [Rejected calls](#failures-diagnostics-and-rejected-calls).
+- Playback control calls are accepted only at `.current` — see [Failures, Diagnostics, and Rejected Calls](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/failuresanddiagnostics/).
 - `ABMediaSource`'s `kind:` is inferred from the URL's extension (`.m3u8` → `.hls`, anything else → `.progressive`). Pass it explicitly only for a signed or extensionless URL where that inference would guess wrong.
 
 ## Usage by Target
@@ -306,9 +306,7 @@ Full API reference for all five targets is published at **[appboong.github.io/AB
 
 The core target owns the playback state machine, UIKit view, SwiftUI wrapper, tuning, background/audio policies, and token-based events. Grades are covered in [Advanced — Grades and Preloading](#advanced--grades-and-preloading).
 
-#### Events
-
-Events support multiple independent consumers:
+Events support multiple independent consumers. The returned token is what keeps the subscription alive — discard it and observation stops:
 
 ```swift
 let token = player.addObserver { event in
@@ -321,27 +319,6 @@ let token = player.addObserver { event in
 token.cancel()
 ```
 
-Treat `ABPlayerEvent` as non-exhaustive. Minor releases may add cases, so consumer switches must include a `default` branch.
-
-#### Failures, Diagnostics, and Rejected Calls
-
-Failures are split across two properties so a routine diagnostic can never masquerade as a real failure:
-
-| Property | Holds | Cleared on |
-|---|---|---|
-| `lastFailure` | The most recent **terminal** failure | Next attach, source change, detach, or release |
-| `lastDiagnostic` | The one **non-terminal** case, `.itemErrorLogEntry` | Same |
-| `lastError` | Computed projection of `lastFailure?.kind`, for code written before `lastFailure` existed | Same |
-
-- An `ABPlayerFailure` is the existing `ABPlayerError` classification plus an optional `ABErrorOrigin` — the underlying `NSError`'s `domain`/`code`, when known — for cases where the classification alone doesn't say enough.
-- A stream that's still loading or still playing routinely surfaces an `.itemErrorLogEntry` and recovers on its own, which is why it's kept off `lastFailure`.
-- **Branch on `ABPlayerError.isTerminal`** (projected as `ABPlayerFailure.isTerminal`) rather than matching cases by hand, so a future release can classify a new case without breaking your handling.
-- Both channels broadcast through the event stream: `.failureReported(ABPlayerFailure)` alongside the legacy `.failed(ABPlayerError)`, at the same site. New code should prefer `.failureReported` for the provenance.
-
-A playback control call (`play`/`pause`/`seek`/`skip`/scrubbing) made while `grade != .current` is **ignored, not thrown**. `.playbackRejected` stays the legacy signal; `.callRejected(ABRejectedCall, grade:)` identifies which call was ignored and at what grade, broadcast alongside it at the same site.
-
-#### Audio Session and Interruptions
-
 `ABPlayer` never touches the process-global `AVAudioSession` unless you opt in — both policies are off by default:
 
 ```swift
@@ -351,285 +328,28 @@ configuration.interruptionPolicy = .pauseAndResume
 player.configuration = configuration
 ```
 
-**`audioSessionPolicy`** (default `.unmanaged`)
+Two things that catch people before anything else does:
 
-- When set to `.playback` or `.ambient`, the category is applied the moment this player becomes `.current` (or `play()` starts), and restored automatically.
-- Concurrent players (a feed of `.preloaded`/`.current` cells) share one process-wide `ABAudioSessionCoordinator`. The category is captured before the *first* participating player applies it and restored only once the *last* one releases, so one player's `release()` never disrupts a sibling still relying on the session.
-- **Caveat**: if the host app had already activated `AVAudioSession` itself before this player's first participant applied a policy, restoring on the last release can still deactivate the session out from under the host. `AVAudioSession` exposes no public getter for "was already active," so this can't be distinguished from "we activated it" — plan the app's own session handling accordingly.
+- **`ABBackgroundPolicy.continueAudioOnly` needs all three of**: the `audio` background mode in the host app's `Info.plist`, an `audioSessionPolicy` other than `.unmanaged`, and the policy itself. Missing any one, it silently behaves like `.pause` with no runtime warning.
+- **Subtitle and audio track selection UI is not provided.** Reach `AVMediaSelectionGroup` through `player.avPlayerItem` yourself — and re-apply the selection after every attach, since each one builds a new item.
 
-**`interruptionPolicy`** (default `.ignore`)
-
-- Set to `.pauseAndResume` to pause automatically when a phone call, Siri, or another app interrupts playback, and resume once it ends.
-- Resumption happens only if the system reports `AVAudioSessionInterruptionOptionKey.shouldResume` **and** this player was actually playing beforehand.
-- Resuming reactivates the audio session through the same coordinator `audioSessionPolicy` uses, so the two compose automatically.
-
-**`pausesOnRouteChangeDeviceUnavailable`** (default `true`, independent of `interruptionPolicy`) pauses when the current output device disappears — headphones unplugged, for example — matching platform HIG expectations. Set it to `false` to opt out.
-
-All three broadcast through the same `ABPlayerEvent` stream: `.audioInterruptionBegan`, `.audioInterruptionEnded(resumed:)`, and `.audioRouteChangedDeviceUnavailable`.
-
-#### Background Policy
-
-`ABPlayerConfiguration.backgroundPolicy` controls what happens to a `.current` player when the app leaves the foreground. Default is `.pause`.
-
-| Policy | On background entry | On foreground return |
-|---|---|---|
-| `.ignore` | Nothing | Nothing (besides re-marking the audio session for reactivation) |
-| `.pause` (default) | Pauses if `.current` | Resumes if it was playing |
-| `.pauseAndDetachLayer` | Pauses if `.current`; detaches `AVPlayerLayer.player` (releases the decoder) | Re-attaches the layer; resumes if it was playing |
-| `.demoteToInstance` | Demotes to `.instanceOnly` (drops the item; blocks network entirely) | Restores the prior grade |
-| `.continueAudioOnly` | Detaches `AVPlayerLayer.player` only — playback keeps running | Re-attaches the layer; resumes only if the system suspended playback anyway, never overriding an explicit `pause()` |
-
-`.continueAudioOnly` is the only policy where playback keeps running while backgrounded, so it's the only one where a user can pause it there — from the lock screen, Now Playing Center, or Controls. An explicit `pause()` while backgrounded is authoritative and stays paused on foreground return; the safety-net resume above only covers the system suspending playback on its own, with no `pause()` in between.
-
-It needs **all three** of the following, or it silently behaves like `.pause`:
-
-| # | Condition | Who sets it |
-|---|---|---|
-| 1 | `UIBackgroundModes` includes `audio` | The host app's `Info.plist` — this library cannot do it for you |
-| 2 | `configuration.audioSessionPolicy = .playback(mixWithOthers: false)` (or `.ambient`) | The app, via `ABPlayerConfiguration` |
-| 3 | `configuration.backgroundPolicy = .continueAudioOnly` | The app, via `ABPlayerConfiguration` |
-
-`ABBackgroundPolicy` is non-exhaustive — a `switch` over it outside this package should include a `default` branch.
-
-#### Picture in Picture
-
-Bind an `ABPictureInPictureSession` to an `ABPlayerView`, or pass one to `ABVideoPlayer`'s **explicit-ownership** initializer:
-
-```swift
-import ABPlayerKit
-import SwiftUI
-
-struct VideoScreen: View {
-    let player: ABPlayer
-    @State private var pictureInPicture = ABPictureInPictureSession()
-
-    var body: some View {
-        ABVideoPlayer(player: player, pictureInPicture: pictureInPicture)
-            .aspectRatio(16 / 9, contentMode: .fit)
-            .overlay(alignment: .topTrailing) {
-                if pictureInPicture.isPossible {
-                    Button(pictureInPicture.isActive ? "Stop PiP" : "Start PiP") {
-                        pictureInPicture.isActive ? pictureInPicture.stop() : pictureInPicture.start()
-                    }
-                }
-            }
-    }
-}
-```
-
-While a session is active, every `ABBackgroundPolicy`'s automatic background/foreground side effects are suppressed for that player — PiP keeps rendering and playing instead of being paused or detached out from under itself. The suppression covers only the *automatic* side effects; explicit calls like `release()` still end PiP.
-
-| Prerequisite | Who provides it |
-|---|---|
-| `UIBackgroundModes` includes `audio` (if PiP should survive backgrounding) | The host app's `Info.plist` — this library cannot do it for you |
-| `configuration.audioSessionPolicy != .unmanaged` | The app, via `ABPlayerConfiguration` |
-| Device/OS supports Picture in Picture | Check `ABPictureInPictureSession.isSupported` — usually `false` in the simulator |
-| The bound layer is ready for display | Reflected in `session.isPossible` |
-
-**Picture in Picture is supported only on the explicit-ownership path** (`player:` initializers). The `url:`/`source:` convenience initializers release their owned player when the SwiftUI identity is discarded, which would cut PiP short — so they don't accept a `pictureInPicture:` parameter.
-
-#### AirPlay
-
-Three `ABPlayerConfiguration` properties pass straight through to the matching `AVPlayer` properties, all defaulting to `AVPlayer`'s own defaults (so existing consumers see no behavior change):
-
-```swift
-var configuration = ABPlayerConfiguration()
-configuration.allowsExternalPlayback = true                          // default
-configuration.usesExternalPlaybackWhileExternalScreenIsActive = false // default
-configuration.externalPlaybackVideoGravity = .resizeAspect            // default
-```
-
-Check whether AirPlay is currently active with `player.isExternalPlaybackActive` — a plain computed property, not `@Observable`-tracked, since it re-reads `AVPlayer` on every access. For a reactive signal, KVO `player.avPlayer` directly, or use `AVRoutePickerView`'s own state:
-
-```swift
-import AVKit
-import SwiftUI
-
-struct AirPlayButton: UIViewRepresentable {
-    func makeUIView(context: Context) -> AVRoutePickerView { AVRoutePickerView() }
-    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
-}
-```
-
-A screen with several simultaneously-live players (a feed) should set `allowsExternalPlayback = false` on every instance except the current one.
-
-#### Subtitles and Audio Tracks
-
-Subtitle/audio track selection UI and state management are **not provided** by this library. Reach `AVMediaSelectionGroup` directly through the escape hatch — `loadMediaSelectionGroup(for:)` is `async`, so this needs an async context:
-
-```swift
-if let item = player.avPlayerItem,
-   let group = try? await item.asset.loadMediaSelectionGroup(for: .audible) {
-    let options = group.options
-    // Present `options`, then:
-    item.select(options[0], in: group)
-}
-```
-
-Three constraints apply:
-
-1. `player.avPlayerItem` is non-`nil` only from `.preloaded` upward (`ABPlaybackGrade.holdsItem`).
-2. A source change, demotion, or `release()` creates a **new** item (`ABAVPlaybackTarget` re-attaches from scratch) — a selection made on a previous item does not carry over. Re-apply on every `.itemAttached(source:)` event.
-3. This library remembers no selection state across attaches; that responsibility is entirely the consumer's.
+Reference: [Audio Session and Interruptions](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/audiosessionandinterruptions/) · [Background Policy and Picture in Picture](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/backgroundandpictureinpicture/) · [Failures, Diagnostics, and Rejected Calls](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/failuresanddiagnostics/) · [AirPlay and External Playback](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/airplayandexternalplayback/) · [Subtitles and Audio Tracks](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/subtitlesandaudiotracks/)
 
 ### `ABPlayerKitControls` — Playback Controls
 
-UIKit applications place `ABPlayerControlsView` over `ABPlayerView` and attach the same player:
-
-```swift
-import ABPlayerKit
-import ABPlayerKitControls
-
-let videoView = ABPlayerView()
-videoView.player = player
-
-let controlsView = ABPlayerControlsView()
-controlsView.player = player
-```
-
-SwiftUI applications can use the ready-made composition:
-
-```swift
-ABVideoPlayerWithControls(player: player, videoGravity: .resizeAspect) {}
-    .aspectRatio(16 / 9, contentMode: .fit)
-```
-
-The standard overlay keeps skip-backward, play/pause, and skip-forward centered over the video. Its seek bar hugs the bottom; `HH:mm:ss/HH:mm:ss` elapsed/total time sits directly below the seek bar's visible track at the left, and playback rate sits at the bottom-right. The default white/grey controls use a low-opacity dark scrim so the video remains clearly visible.
-
-#### Style
-
-Style changes apply live to the existing controls. Track, played progress, thumb appearance, and icons are independent:
-
-```swift
-var style = ABPlayerControlsStyle.default
-style.trackColor = .white.withAlphaComponent(0.2)
-style.progressColor = .systemPink
-style.thumbColor = .systemPink
-style.thumbSize = CGSize(width: 14, height: 14)
-style.playIcon = .system("play.circle.fill")
-style.pauseIcon = .system("pause.circle.fill")
-
-controlsView.style = style
-```
-
-A seek streak's cumulative feedback badge (`"+20s"`/`"-10s"`) is styled with `seekFeedbackTextColor`/`seekFeedbackBackgroundColor`/`seekFeedbackFont`, and the buffering spinner with `bufferingIndicatorColor` (default `nil`, follows `tintColor`).
-
-#### Behavior
-
-```swift
-var configuration = ABPlayerControlsConfiguration()
-configuration.showsBufferingIndicator = true
-configuration.touchPassthrough = .whenControlsHidden
-configuration.doubleTapSeek = .edges(edgeWidthFraction: 0.3)
-configuration.providesHapticFeedback = true
-configuration.rateLabelFormat = .automatic
-configuration.timeLabelSeparator = "/"
-
-controlsView.configuration = configuration
-```
-
-| Property | Default | Effect |
-|---|---|---|
-| `touchPassthrough`<br/>(`ABControlsTouchPassthrough`) | `.never` | Whether touches that miss every control pass through to what sits behind the overlay. Also `.whenControlsHidden`, `.always`. Never overrides the existing hit-test priority order; applies only once nothing else has claimed the touch. |
-| `doubleTapSeek`<br/>(`ABDoubleTapSeek`) | `.disabled` | `.edges(edgeWidthFraction:)` makes a double tap on the leading/trailing edge band seek by `skipInterval`. The fraction is each band's width relative to the overlay, clamped `0.1...0.5`. Disabled by default so the single-tap recognizer never waits out a double-tap timeout for consumers who don't opt in. |
-| `providesHapticFeedback` | `true` | A light haptic on an accepted double-tap seek. |
-| `rateLabelFormat`<br/>(`ABPlayerControlsConfiguration.RateLabelFormat`) | `.automatic` | `.automatic` formats the rate with a locale-aware `NumberFormatter` (`"1.5"` in `en`, `"1,5"` in `de`); `.custom { rate in ... }` supplies the entire label. |
-| `timeLabelSeparator` | `"/"` | The string between a time label's elapsed and secondary fields. |
-| `showsPlayPauseButton` / `showsSeekBar` | `true` | Hide either control without touching layout code, the same way `showsSkipButtons` works. Hiding the seek bar collapses the row it occupies. |
-| `showsBufferingIndicator` | `true` | Overlays a spinner on the play/pause glyph while `ABPlayer.isBuffering`. The button stays enabled and hit-testable throughout, since a stall can still be paused. Auto-hide is suppressed while buffering, without forcing controls visible. |
-
-Other defaults: the periodic UI update interval is 0.25 seconds, skip icons synchronize with supported intervals, and rate selection supports menu, cycle, and hidden modes. VoiceOver suppresses auto-hide; Reduce Motion removes fades. Tapping play after playback has reached the end seeks to zero before playing (replay-from-start), instead of a bare `play()` that would do nothing at the end of an item.
-
-A skip/double-tap/VoiceOver-adjustment seek streak shows a cumulative feedback badge while it's outstanding, driven entirely by the core's `pendingSeekTime`/`seekTargetChanged` — Controls never accumulates the delta itself.
-
-#### Accessory Slots
-
-`ABControlsSlot` (`.topTrailing`, `.transportTrailing`, `.bottomTrailing`) lets consumer views land at additional overlay positions via `ABPlayerControlsView.accessoryViews(in:)`/`setAccessoryViews(_:in:)`. The existing `accessoryViews` property is an alias for `.bottomTrailing`, with identical behavior:
-
-```swift
-controlsView.setAccessoryViews([captionsButton], in: .topTrailing)
-controlsView.setAccessoryViews([fullscreenButton], in: .transportTrailing)
-```
+`ABPlayerControlsView` is the standard overlay: transport buttons centered over the video, seek bar along the bottom, elapsed/total time and playback rate beneath it. In UIKit, place it over an `ABPlayerView` and give both the same player; in SwiftUI, `ABVideoPlayerWithControls` composes the two for you.
 
 The controls remain a separate product because many feeds and background players provide their own gestures or no UI at all. Those consumers link only the small core, while standard-player screens opt into UIKit controls and their SwiftUI wrapper with one additional import.
+
+Reference: [Customizing Controls](https://appboong.github.io/ABPlayerKit/documentation/abplayerkitcontrols/customizingcontrols/) — style, behavior, accessory slots, and the environment modifiers.
 
 ### `ABPlayerKitMetrics` — TTFF and QoE
 
 Metrics code is absent from an app unless the `ABPlayerKitMetrics` product is linked. `ABMetricsRecorder` attaches through an observation token, and sinks decide where events go: memory, JSON Lines on an internal serial queue, or OSLog.
 
-```swift
-import ABPlayerKit
-import ABPlayerKitMetrics
+**`includesSourceURL` defaults to `true`**, so a signed or tokenized media URL is recorded verbatim unless you pass `false` to `ABMetricsRecorder.init(sink:clock:includesSourceURL:)` or mask the field in a custom `ABMetricsSink`.
 
-@MainActor
-final class PlaybackSession {
-    let player = ABPlayer()
-
-    private let sink: ABInMemoryMetricsSink
-    private let recorder: ABMetricsRecorder
-    private var tokens: Set<ABObservationToken> = []
-
-    init() {
-        let sink = ABInMemoryMetricsSink()
-        self.sink = sink
-        self.recorder = ABMetricsRecorder(sink: sink)
-
-        recorder.attach(to: player).store(in: &tokens)
-        player.addObserver { [weak self] event in
-            guard case .firstFrameDisplayed = event else { return }
-            Task { @MainActor [weak self] in
-                self?.refreshStatistics()
-            }
-        }.store(in: &tokens)
-    }
-
-    func play(_ source: ABMediaSource) {
-        let startedAt = ABMonotonicClock().now
-        player.set(source: source, grade: .current)
-        recorder.beginTTFF(for: player, at: startedAt)
-        player.play()
-    }
-
-    private func refreshStatistics() {
-        let samples = sink.events.compactMap { event -> ABMetricSample? in
-            guard case .ttff(let sample) = event else { return nil }
-            return sample
-        }
-        let statistics = ABPlaybackStatistics.aggregate(samples)
-        print(statistics.p50, statistics.p95, statistics.hitRate)
-    }
-}
-```
-
-Store `PlaybackSession` as a property of the screen or coordinator for the entire measurement — the sink, recorder, and observation tokens must all outlive the asynchronous first-frame event. An abandoned TTFF sample remains in the denominator of `hitRate` and `abandonRate`; it is never silently discarded.
-
-#### QoE Sessions
-
-The same `attach(to:)` also tracks whole playback sessions, not just TTFF — keyed by `(playerID, sessionStartedAt)`, since there's no separate session identifier. A session opens on `.itemAttached(source:)` and closes on `.itemDetached(reason:)`, emitting `ABMetricEvent.sessionStarted(_:)` and `.sessionSummary(_:)`:
-
-```swift
-recorder.attach(to: player).store(in: &tokens)
-
-// Before cancelling the token, if a final summary is needed:
-recorder.endSession(for: player)
-
-// Or read a live, still-open summary at any point:
-let inProgress = recorder.snapshot(for: player)
-```
-
-- `attach(to:)`'s returned token has no cancellation hook the recorder can observe, so cancelling it alone produces **no** final `.sessionSummary`. Call `endSession(for:)` first if you want one.
-- `snapshot(for:)` returns a live, unsunk `ABSessionSummary` for a session that's still open.
-- `rebufferRatio` is `rebufferMilliseconds / (rebufferMilliseconds + watchedMilliseconds)`, `nil` when both are `0`. Buffering before the first frame counts toward `startupBufferMilliseconds`, not `rebufferMilliseconds` — TTFF already measures that wait, so counting it twice would double-count the same stall.
-- `completionRatio`'s precision improves when `ABPlayerConfiguration.periodicTimeInterval` is set. `watchedMilliseconds` stays accurate regardless, since it's derived from `.timeControlStatusChanged(_:)` transitions rather than periodic position samples.
-- `ABSessionAnchor.sourceURL`/`ABSessionSummary.sourceURL` carry the media URL for joining against server-side logs. **A signed or tokenized URL should either pass `includesSourceURL: false` to `ABMetricsRecorder.init(sink:clock:includesSourceURL:)` or be masked in a custom `ABMetricsSink`** — this package bakes in no masking policy of its own. Where a record lands still matters after that: `ABJSONLinesMetricsSink` writes inside your app's container, but `ABOSLogMetricsSink` writes to the device-wide unified log, which a sysdiagnose collects. That sink therefore logs only the event's kind unredacted and leaves the payload under `OSLog`'s default `.private`, so its Console output reads `sessionStarted <private>` unless a logging profile is installed.
-
-Supporting types: `ABSessionAnchor` (session identity), `ABBufferingInterval`/`ABFailureRecord` (raw per-session records), `ABSessionSummary` (one session's rollup), `ABQoESummary` (aggregate across sessions), and `ABLatencyDistribution` (p50/p95/max/waited). `ABPlaybackStatistics.waited` is the same shape over `.waited` TTFF samples only, alongside the legacy `p50`/`p95`/`max`, which keep folding `.hit` in as `0` ms.
-
-`ABMetricEvent` is non-exhaustive, the same convention as `ABPlayerEvent` — a `switch` outside this package should include a `default` branch.
-
-`ABAccessSnapshot` folds fields across the *entire* access log, not only its last entry: `totalBytesTransferred`, `totalStallCount`, `droppedVideoFrameCount`, `bitrateSwitchCount`, `mediaRequestCount`, `durationWatchedSeconds`, `observedBitrateAverage`, `initialStartupTimeSeconds`, and `entryCount`. `segmentsDownloadedCount` always reads `0` — `AVPlayerItemAccessLogEvent.numberOfSegmentsDownloaded` has been API-unavailable in Swift since iOS 7, and the field is kept in the schema for forward compatibility. `ABClock.wallClockEpoch` (default `Date().timeIntervalSince1970`) maps a session's monotonic timeline onto a wall-clock instant once, at session open.
-
-`ABJSONLinesMetricsSink.flush()` is `public`. Pass `init(fileURL:maxFileSizeBytes:maxRotatedFiles:)` to rotate the file once it crosses `maxFileSizeBytes`, keeping `maxRotatedFiles` rotated copies (`.1`, `.2`, …). A persistent write failure does not fail silently — check `writeFailureCount`/`lastWriteErrorDescription`.
+Reference: [ABPlayerKitMetrics](https://appboong.github.io/ABPlayerKit/documentation/abplayerkitmetrics/) — TTFF and QoE samples, what each rate's denominator includes, and where each sink writes.
 
 ### `ABPlayerKitCache` — Cache and HLS Prefetch
 
@@ -640,85 +360,14 @@ The cache target deliberately has two different scopes:
 | Progressive MP4 | Transparent `AVAssetResourceLoader` interception using a custom scheme, HTTP range handling, sequential disk fill, and LRU eviction |
 | HLS | Explicit full-asset prefetch through `AVAssetDownloadURLSession`; only completed downloads are used for local playback |
 
-```swift
-import ABPlayerKitCache
-
-let cache = try ABMediaCache()
-let hlsPrefetcher = ABHLSPrefetcher()
-
-// Build and retain this factory. Release the current item before replacing it.
-let assetFactory = cache.makeAssetFactory(hlsPrefetcher: hlsPrefetcher)
-player.release()
-var configuration = player.configuration
-configuration.assetFactory = assetFactory
-player.configuration = configuration
-
-let handle = hlsPrefetcher.prefetch(hlsSource)
-if await handle.result == .completed {
-    player.set(source: hlsSource, grade: .current)
-    player.play() // the factory resolves the completed local HLS asset
-}
-```
-
-**Transparent HLS segment caching is intentionally out of scope.** `AVAssetResourceLoader` cannot intercept ordinary HTTP(S) HLS master/media playlists; transparent caching would require a local reverse proxy that rewrites playlists and handles relative URLs, encryption keys, and background lifetime. That has a different and much larger failure surface, so the accepted [Q1 design decision](docs/DESIGN-OPEN-QUESTIONS.md) keeps it separate. See also [DESIGN-ABPlayerKit §9](docs/DESIGN-ABPlayerKit.md).
-
-**Progressive MP4 caching is a linear prefix, not sparse ranges.** A single sequential fill grows the cached file from byte 0 forward, and `load(_:range:)` normally waits for that fill to reach a requested offset — so a distant seek in a non-faststart file would otherwise wait for the fill to crawl there. To bound that, a request whose offset sits `ABCacheConfiguration.passthroughGapThreshold` (default 2 MB) or more ahead of the current fill prefix skips waiting entirely and is served by a direct network passthrough, capped to ≤1 MB per round trip so it streams back in bounded chunks rather than buffering the whole gap in memory. The background fill keeps crawling forward untouched; this is a one-off fallback for that request, not a jump-start of the cache itself.
+Reference: [ABPlayerKitCache](https://appboong.github.io/ABPlayerKit/documentation/abplayerkitcache/) — wiring the asset factory, why transparent HLS caching is out of scope, and the known constraints.
 
 ### `ABPlayerKitNowPlaying` — Lock Screen and Remote Commands
 
 This target bridges `ABPlayer` to `MPNowPlayingInfoCenter` and `MPRemoteCommandCenter`. Like `audioSessionPolicy`, it is a process-wide resource this library never touches until you opt in — nothing is read or written until the first `attach` call.
 
-```swift
-import ABPlayerKit
-import ABPlayerKitNowPlaying
+Reference: [Remote Commands](https://appboong.github.io/ABPlayerKit/documentation/abplayerkitnowplaying/remotecommands/) — the activation table, ownership rules, and what each command additionally requires.
 
-let token = ABNowPlayingCenter.shared.attach(
-    player,
-    metadata: ABNowPlayingMetadata(title: "Episode 12", artist: "My Show"),
-    configuration: ABNowPlayingConfiguration(skipInterval: 15),
-    artwork: ABStaticArtworkProvider(image: episodeArtwork)
-)
-
-// Retain `token` for as long as this player should be eligible to own
-// Now Playing. Cancelling it (or letting it deinitialize) detaches.
-```
-
-Ownership is exclusive and automatic, following one rule: **only a player at `.current` may own the surface, and the most recently promoted eligible player wins** (last-eligible-wins, LIFO). This matters for feeds with multiple `ABPlayer` instances:
-
-- A player becomes eligible the moment it reaches `.current`, and loses eligibility the moment it leaves.
-- If two players are simultaneously `.current`, the one that became `.current` more recently owns Now Playing; the other waits on a stack.
-- When the current owner loses eligibility — or its token is cancelled, or the instance is deallocated — the next-most-recent eligible player takes over automatically.
-- When the last eligible player relinquishes, whatever state existed before the first `attach` is restored exactly. This library leaves no trace once nobody is using it.
-
-A remote command reaches the lock screen only when **both** hold: (a) it's included in `ABNowPlayingConfiguration.commands` (an `ABRemoteCommandSet`), and (b) the action it maps to actually exists — a lock-screen button that does nothing is worse than no button.
-
-| Command | In `.default`? | Also requires |
-|---|---|---|
-| Play / Pause / Toggle Play-Pause | Yes | Nothing further — always enabled |
-| Skip Forward / Backward | Yes | Nothing further — interval from `ABNowPlayingConfiguration.skipInterval` |
-| Change Playback Position | Yes | The current item's duration to be finite |
-| Change Playback Rate | **No** | `commands` must include `.changePlaybackRate`, **and** `supportedPlaybackRates` must be non-empty |
-| Next / Previous Track | **No** | `commands` must include `.nextTrack`/`.previousTrack`, **and** a handler must be installed via `setTrackNavigationHandlers(next:previous:for:)` |
-
-`commands` defaults to `[.play, .pause, .togglePlayPause, .skipForward, .skipBackward, .changePlaybackPosition]`. Passing `ABNowPlayingConfiguration()` unchanged, plus a handler or a rates list, is **not** enough to enable the last two rows — `commands` has to be expanded explicitly:
-
-```swift
-var configuration = ABNowPlayingConfiguration()
-configuration.commands = .default.union([.nextTrack, .previousTrack, .changePlaybackRate])
-configuration.supportedPlaybackRates = [1, 1.5, 2] // still required, see the table above
-
-let token = ABNowPlayingCenter.shared.attach(player, metadata: metadata, configuration: configuration)
-ABNowPlayingCenter.shared.setTrackNavigationHandlers(
-    // This library has no queue or playlist concept — these bodies are yours
-    // to fill in, typically by advancing your own queue and attaching the
-    // next player.
-    next: { /* advance your queue */ },
-    previous: { /* step back in your queue */ },
-    for: player
-)
-```
-
-Update metadata (e.g. on a track change) with `ABNowPlayingCenter.shared.update(_:for:)` — it republishes immediately if the player currently owns Now Playing, or takes effect the next time it acquires ownership.
 
 ## Tuning
 
@@ -758,10 +407,10 @@ Playback control calls are ignored — not thrown — while `grade != .current`.
 `audioSessionPolicy` defaults to `.unmanaged`, meaning this library never touches `AVAudioSession`. Set `configuration.audioSessionPolicy = .playback(mixWithOthers: false)` for playback that ignores the silent switch.
 
 **The host app's own audio stops when a player is released.**
-If the app had already activated `AVAudioSession` before the first managed player applied a policy, the restore on last release can deactivate it. `AVAudioSession` has no public "was already active" getter, so this can't be detected — see [Audio Session and Interruptions](#audio-session-and-interruptions).
+If the app had already activated `AVAudioSession` before the first managed player applied a policy, the restore on last release can deactivate it. `AVAudioSession` has no public "was already active" getter, so this can't be detected — see [Audio Session and Interruptions](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/audiosessionandinterruptions/).
 
 **Background audio stops as soon as the app backgrounds.**
-`.continueAudioOnly` needs all three conditions in [Background Policy](#background-policy), including `UIBackgroundModes` containing `audio` in the **host app's** `Info.plist`. Missing any one makes it silently behave like `.pause`.
+`.continueAudioOnly` needs all three conditions in [Background Policy and Picture in Picture](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/backgroundandpictureinpicture/), including `UIBackgroundModes` containing `audio` in the **host app's** `Info.plist`. Missing any one makes it silently behave like `.pause`.
 
 **Playback stays paused after returning from the background.**
 That's intended if `pause()` was called while backgrounded — an explicit pause is authoritative. The automatic resume only covers the system suspending playback on its own.
