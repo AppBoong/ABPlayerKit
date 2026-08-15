@@ -1,8 +1,9 @@
+import ABTestSupport
 import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("Controls backgrounds replace their rendered content cleanly", .timeLimit(.minutes(3)))
+@Suite("Controls backgrounds replace their rendered content cleanly", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABControlsBackgroundViewTests {
     @Test("Given no background, the view remains transparent and empty")

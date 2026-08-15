@@ -1,9 +1,10 @@
+import ABTestSupport
 import SwiftUI
 import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("ABAccessoryHostingBox owns a UIHostingController safely, handling every Q6 failure mode explicitly", .timeLimit(.minutes(3)))
+@Suite("ABAccessoryHostingBox owns a UIHostingController safely, handling every Q6 failure mode explicitly", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABAccessoryHostingBoxTests {
     @Test("Given a box, its view stays addable and retained once inserted into a hierarchy")

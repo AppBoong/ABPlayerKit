@@ -1,3 +1,4 @@
+import ABTestSupport
 import Foundation
 import Testing
 @testable import ABPlayerKit
@@ -6,7 +7,7 @@ import Testing
 /// Coverage for `preferredMaximumResolution`'s sentinel resolving against
 /// the size `ABPlayerView` reports, not the device screen — a feed cell's
 /// correct cap is the cell's own size.
-@Suite("ABPlayer resolves displaySizeSentinel from reported display size", .timeLimit(.minutes(3)))
+@Suite("ABPlayer resolves displaySizeSentinel from reported display size", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABDisplaySizeTuningTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)

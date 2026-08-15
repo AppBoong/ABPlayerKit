@@ -1,8 +1,9 @@
+import ABTestSupport
 import Foundation
 import Testing
 @testable import ABPlayerKit
 
-@Suite("ABGradePlanner covers every (from, to, sourceChanged) transition", .timeLimit(.minutes(3)))
+@Suite("ABGradePlanner covers every (from, to, sourceChanged) transition", .timeLimit(abScaledMinutes(3)))
 struct ABGradePlannerTransitionTests {
     private let planner = ABGradePlanner()
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)

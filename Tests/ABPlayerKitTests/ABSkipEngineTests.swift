@@ -1,9 +1,10 @@
 @preconcurrency import AVFoundation
+import ABTestSupport
 import Foundation
 import Testing
 @testable import ABPlayerKit
 
-@Suite("Skip clamps to the playable range", .timeLimit(.minutes(3)))
+@Suite("Skip clamps to the playable range", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABSkipEngineTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/skip.mp4")!)

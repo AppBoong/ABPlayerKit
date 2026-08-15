@@ -1,10 +1,11 @@
 @preconcurrency import AVFoundation
 import ABPlayerKit
+import ABTestSupport
 import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("Controls show a buffering spinner and suppress the play/pause glyph without disabling it", .timeLimit(.minutes(3)))
+@Suite("Controls show a buffering spinner and suppress the play/pause glyph without disabling it", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerControlsBufferingTests {
     @Test("Given bufferingChanged(true), the spinner animates, the glyph is suppressed, but the button stays enabled and hit-testable at its own center")

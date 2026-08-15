@@ -1,8 +1,9 @@
+import ABTestSupport
 import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("ABPlayerControlsStyle's facet registry is the single, exhaustive source of change-impact classification", .timeLimit(.minutes(3)))
+@Suite("ABPlayerControlsStyle's facet registry is the single, exhaustive source of change-impact classification", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerControlsStyleFacetsTests {
     @Test("Every stored property of ABPlayerControlsStyle is registered as exactly one facet — adding a property without registering it fails this test")

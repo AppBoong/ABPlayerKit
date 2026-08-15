@@ -1,9 +1,10 @@
 @preconcurrency import AVFoundation
 import ABPlayerKit
+import ABTestSupport
 import Testing
 @testable import ABPlayerKitControls
 
-@Suite("ABControlsPresenter maps player-driven state into view-update effects, no UIView or ABPlayer required", .timeLimit(.minutes(3)))
+@Suite("ABControlsPresenter maps player-driven state into view-update effects, no UIView or ABPlayer required", .timeLimit(abScaledMinutes(3)))
 struct ABControlsPresenterTests {
     // MARK: - attached / detached
 
@@ -334,7 +335,7 @@ struct ABControlsPresenterTests {
     }
 }
 
-@Suite("ABControlsPresenter combines isPlaying/isBuffering into showsPauseIcon", .timeLimit(.minutes(3)))
+@Suite("ABControlsPresenter combines isPlaying/isBuffering into showsPauseIcon", .timeLimit(abScaledMinutes(3)))
 struct ABControlsPresenterBufferingTests {
     @Test("Given isPlaying and isBuffering combinations arriving timeControlStatus-first, showsPauseIcon is their logical OR", arguments: [
         (false, false, false),
@@ -413,7 +414,7 @@ struct ABControlsPresenterBufferingTests {
     }
 }
 
-@Suite("ABControlsPresenter replays from the start after playedToEnd", .timeLimit(.minutes(3)))
+@Suite("ABControlsPresenter replays from the start after playedToEnd", .timeLimit(abScaledMinutes(3)))
 struct ABControlsPresenterReplayTests {
     @Test("Given playedToEnd then a play tap with no promotion needed, the command is restartFromStart alone")
     func playedToEndThenTapRestartsWithoutPromotion() {

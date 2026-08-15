@@ -1,5 +1,6 @@
 import ABPlayerKit
 @preconcurrency import AVFoundation
+import ABTestSupport
 import Foundation
 import Testing
 @testable import ABPlayerKitCache
@@ -66,7 +67,7 @@ private final class ABFakeHLSDownloadSession: @unchecked Sendable {
     }
 }
 
-@Suite("ABMediaCache asset interception", .timeLimit(.minutes(3)))
+@Suite("ABMediaCache asset interception", .timeLimit(abScaledMinutes(3)))
 struct ABMediaCacheTests {
     @Test("Asset factory intercepts progressive sources and passes HLS through")
     func interceptsOnlyProgressiveSources() throws {
@@ -97,7 +98,7 @@ struct ABMediaCacheTests {
     }
 }
 
-@Suite("ABHLSPrefetcher bookkeeping", .timeLimit(.minutes(3)))
+@Suite("ABHLSPrefetcher bookkeeping", .timeLimit(abScaledMinutes(3)))
 struct ABHLSPrefetcherTests {
     @Test("Handle cancellation removes and cancels its fake download")
     func handleCancellation() async {

@@ -1,3 +1,4 @@
+import ABTestSupport
 import Foundation
 import Testing
 @testable import ABPlayerKit
@@ -31,7 +32,7 @@ private actor ABAsyncGate {
 /// `ReadyWaitState`/`ReadyWaitResult` were promoted from `private` to
 /// internal (no production behavior change) specifically so this suite can
 /// reach them via `@testable import`.
-@Suite("ABAVPlaybackTarget.ReadyWaitState resolves exactly once under concurrent contention", .timeLimit(.minutes(3)))
+@Suite("ABAVPlaybackTarget.ReadyWaitState resolves exactly once under concurrent contention", .timeLimit(abScaledMinutes(3)))
 struct ABReadyWaitStateConcurrencyTests {
     @Test("Concurrently resolving from many tasks yields exactly one winning result")
     func concurrentResolveYieldsSingleWinner() async {
@@ -200,7 +201,7 @@ struct ABReadyWaitStateConcurrencyTests {
 /// against a real `AVPlayerItem` on the simulator — exercising the actual
 /// KVO/timeout/failure paths this type coordinates in production, not just
 /// the isolated `ReadyWaitState` lock logic above.
-@Suite("ABAVPlaybackTarget.waitUntilReady against a real AVPlayerItem", .timeLimit(.minutes(3)))
+@Suite("ABAVPlaybackTarget.waitUntilReady against a real AVPlayerItem", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABAVPlaybackTargetWaitUntilReadyTests {
     @Test("A valid bundled asset reaches .ready")

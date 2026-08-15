@@ -1,10 +1,11 @@
 @preconcurrency import AVFoundation
 import ABPlayerKit
+import ABTestSupport
 import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("Controls show a cumulative seek badge driven only by seekTargetChanged, never accumulating deltas themselves", .timeLimit(.minutes(3)))
+@Suite("Controls show a cumulative seek badge driven only by seekTargetChanged, never accumulating deltas themselves", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerControlsSeekFeedbackTests {
     private func baselinedView(currentSeconds: Double = 30, durationSeconds: Double = 120) -> ABPlayerControlsView {

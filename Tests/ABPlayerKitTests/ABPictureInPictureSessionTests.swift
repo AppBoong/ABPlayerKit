@@ -11,7 +11,7 @@ import Testing
 /// which the simulator generally lacks. Real start/stop/render behavior is
 /// out of scope here and can only be confirmed by manual on-device
 /// verification.
-@Suite("ABPictureInPictureSession binds to at most one view and mirrors state without redundant notifications", .timeLimit(.minutes(3)))
+@Suite("ABPictureInPictureSession binds to at most one view and mirrors state without redundant notifications", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPictureInPictureSessionTests {
     @Test("An unbound session's start() is a safe no-op")

@@ -8,7 +8,7 @@ import Testing
 /// + generation guard, `skip(by:)` accumulating against `pendingSeekTime`
 /// instead of live `currentTime`, and `seek(to:)` clamping to the playable
 /// range.
-@Suite("ABPlayer unifies its seek entry points and accumulates skips", .timeLimit(.minutes(3)))
+@Suite("ABPlayer unifies its seek entry points and accumulates skips", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABSeekUnificationTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/seek.mp4")!)

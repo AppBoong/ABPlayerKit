@@ -6,7 +6,7 @@ import Testing
 
 /// Coverage for `ABOwnedPlayerBox`, which backs `ABVideoPlayerWithControls`'s
 /// `url:`/`source:` initializers' ownership.
-@Suite("ABOwnedPlayerBox backs ABVideoPlayerWithControls's url:/source: initializers", .timeLimit(.minutes(3)))
+@Suite("ABOwnedPlayerBox backs ABVideoPlayerWithControls's url:/source: initializers", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABOwnedPlayerBoxTests {
     // A nonexistent *local* file, not a remote host: `AVPlayer.play()` sets

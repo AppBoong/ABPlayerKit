@@ -1,3 +1,4 @@
+import ABTestSupport
 import Foundation
 import Testing
 @testable import ABPlayerKit
@@ -9,7 +10,7 @@ import UIKit
 /// `detachesLayerInBackground` generalization re-attaches on a mid-background
 /// policy switch away from a detaching policy, and the policy behaves as a
 /// safe `.pause`-like fallback when its preconditions aren't met.
-@Suite("ABPlayer's .continueAudioOnly keeps playing and detaches only the layer", .timeLimit(.minutes(3)))
+@Suite("ABPlayer's .continueAudioOnly keeps playing and detaches only the layer", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABContinueAudioOnlyTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)

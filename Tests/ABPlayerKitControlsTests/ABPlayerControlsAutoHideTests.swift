@@ -2,7 +2,7 @@ import ABTestSupport
 import Testing
 @testable import ABPlayerKitControls
 
-@Suite("Controls view integrates auto-hide and scrubbing visibility", .timeLimit(.minutes(3)))
+@Suite("Controls view integrates auto-hide and scrubbing visibility", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerControlsAutoHideTests {
     @Test("Given playing controls, playback state arms and fires auto-hide")

@@ -1,10 +1,11 @@
 @preconcurrency import AVFoundation
 import ABPlayerKit
+import ABTestSupport
 import Testing
 import UIKit
 @testable import ABPlayerKitControls
 
-@Suite("Controls place accessory views in named slots without disturbing the release geometry", .timeLimit(.minutes(3)))
+@Suite("Controls place accessory views in named slots without disturbing the release geometry", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABPlayerControlsSlotTests {
     @Test("accessoryViews and accessoryViews(in: .bottomTrailing) are the same slot, in both directions")

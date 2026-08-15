@@ -1,9 +1,10 @@
 import ABPlayerKit
+import ABTestSupport
 import Foundation
 import Testing
 @testable import ABPlayerKitCache
 
-@Suite("ABCacheKey derivation", .timeLimit(.minutes(3)))
+@Suite("ABCacheKey derivation", .timeLimit(abScaledMinutes(3)))
 struct ABCacheKeyTests {
     @Test("Normalizes host, default port, query order, fragments, and transient tokens")
     func normalizesURLs() {
@@ -26,7 +27,7 @@ struct ABCacheKeyTests {
     }
 }
 
-@Suite("ABByteRange parsing", .timeLimit(.minutes(3)))
+@Suite("ABByteRange parsing", .timeLimit(abScaledMinutes(3)))
 struct ABByteRangeTests {
     @Test("Parses bounded and open-ended single ranges")
     func parsesRanges() {
@@ -46,7 +47,7 @@ struct ABByteRangeTests {
 
 }
 
-@Suite("ABContentRange parsing", .timeLimit(.minutes(3)))
+@Suite("ABContentRange parsing", .timeLimit(abScaledMinutes(3)))
 struct ABContentRangeTests {
     @Test("Parses a fully-specified Content-Range header")
     func parsesFullyKnownRange() {
@@ -75,7 +76,7 @@ struct ABContentRangeTests {
     }
 }
 
-@Suite("ABCacheIndex LRU and persistence", .timeLimit(.minutes(3)))
+@Suite("ABCacheIndex LRU and persistence", .timeLimit(abScaledMinutes(3)))
 struct ABCacheIndexTests {
     @Test("Evicts least-recently-used entries until under the limit")
     func evictsLRU() {

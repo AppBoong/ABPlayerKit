@@ -1,8 +1,9 @@
 import ABPlayerKit
+import ABTestSupport
 import Testing
 @testable import ABPlayerKitControls
 
-@Suite("Controls configuration starts with documented behavior", .timeLimit(.minutes(3)))
+@Suite("Controls configuration starts with documented behavior", .timeLimit(abScaledMinutes(3)))
 struct ABPlayerControlsConfigurationTests {
     @Test("Given a fresh configuration, playback interactions use v0.2 defaults")
     func defaultSnapshot() {

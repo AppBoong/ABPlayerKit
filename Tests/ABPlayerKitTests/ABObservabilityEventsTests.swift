@@ -1,3 +1,4 @@
+import ABTestSupport
 import Foundation
 import Testing
 @testable import ABPlayerKit
@@ -7,7 +8,7 @@ import Testing
 /// driven through `ABFakePlaybackTarget` so buffering/duration/
 /// presentation-size transitions are exercised without a real
 /// `AVPlayerItem`.
-@Suite("ABPlayer's new event surface and observable mirrors", .timeLimit(.minutes(3)))
+@Suite("ABPlayer's new event surface and observable mirrors", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABObservabilityEventsTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/a.mp4")!)

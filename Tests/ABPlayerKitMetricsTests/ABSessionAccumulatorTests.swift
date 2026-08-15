@@ -1,4 +1,5 @@
 import ABPlayerKit
+import ABTestSupport
 import Foundation
 @preconcurrency import QuartzCore
 import Testing
@@ -84,7 +85,7 @@ private let bufferingCases: [BufferingCase] = {
     return cases
 }()
 
-@Suite("ABPlaybackSessionAccumulator", .timeLimit(.minutes(3)))
+@Suite("ABPlaybackSessionAccumulator", .timeLimit(abScaledMinutes(3)))
 struct ABSessionAccumulatorTests {
     @Test("Session open emits sessionStarted with the anchor")
     func opensSessionWithAnchor() {
@@ -323,7 +324,7 @@ struct ABSessionAccumulatorTests {
     }
 }
 
-@Suite("ABJSONLinesMetricsSink.kindName", .timeLimit(.minutes(3)))
+@Suite("ABJSONLinesMetricsSink.kindName", .timeLimit(abScaledMinutes(3)))
 struct ABKindNameTests {
     @Test("kindName maps every current ABPlayerError case to a stable string")
     func kindNameCoversEveryCase() {
@@ -337,7 +338,7 @@ struct ABKindNameTests {
     }
 }
 
-@Suite("ABMetricsRecorder session integration", .timeLimit(.minutes(3)))
+@Suite("ABMetricsRecorder session integration", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABMetricsRecorderSessionTests {
     private let source = ABMediaSource(url: URL(string: "https://example.com/video.mp4")!)
