@@ -273,6 +273,8 @@ actor ABCacheStore {
 
     private let metadataCacheLimit = 32
 
+    // MARK: - Lifecycle
+
     init(
         configuration: ABCacheConfiguration,
         fileManager: FileManager = .default,
@@ -332,6 +334,8 @@ actor ABCacheStore {
         progressWaiters.resolveEverything()
     }
 
+    // MARK: - Introspection
+
     func totalSize() -> Int64 {
         index.totalSize
     }
@@ -369,6 +373,8 @@ actor ABCacheStore {
     func fillHandleCount() -> Int {
         fillHandles.count
     }
+
+    // MARK: - Session and purge
 
     /// Marks `source`'s cache key as owing a one-time conditional
     /// revalidation the next time its metadata is resolved. Called
@@ -426,6 +432,8 @@ actor ABCacheStore {
         markIndexDirty()
         try flushIndexNow()
     }
+
+    // MARK: - Reads
 
     func metadata(for source: ABMediaSource) async throws -> ABCachedMetadata {
         let key = ABCacheKey.derive(from: source)
@@ -536,6 +544,8 @@ actor ABCacheStore {
             try Task.checkCancellation()
         }
     }
+
+    // MARK: - Metadata resolution
 
     private func resolvedMetadata(for source: ABMediaSource, key: String) async throws -> RemoteMetadata {
         // A session-start revalidation claim must be
@@ -665,6 +675,8 @@ actor ABCacheStore {
             pendingMetadataRequests[key] = nil
         }
     }
+
+    // MARK: - Fill lifecycle
 
     private func startFillIfNeeded(
         _ source: ABMediaSource,
@@ -899,6 +911,8 @@ actor ABCacheStore {
         try handle.truncate(atOffset: 0)
     }
 
+    // MARK: - Network reads
+
     private func passthrough(
         _ source: ABMediaSource,
         range: ABByteRange,
@@ -1080,6 +1094,8 @@ actor ABCacheStore {
         return (collected, response)
     }
 
+    // MARK: - Disk reads and requests
+
     private func resource(
         from entry: ABCacheIndex.Entry,
         range: ABByteRange,
@@ -1133,6 +1149,8 @@ actor ABCacheStore {
         return request
     }
 
+    // MARK: - Waiters and cancellation
+
     /// Suspends until either fill progress lands for `key` (the normal
     /// path, resolved via `resumeWaiters(for:)`) or the awaiting `Task` is
     /// cancelled. On cancellation, `onCancel` resumes this specific waiter
@@ -1172,6 +1190,8 @@ actor ABCacheStore {
         fillErrors[key] = nil
         resumeWaiters(for: key)
     }
+
+    // MARK: - Index and LRU maintenance
 
     private func removeCachedEntry(for key: String) {
         guard let entry = index.remove(key: key) else { return }
@@ -1259,6 +1279,8 @@ actor ABCacheStore {
         return (attributes?[.size] as? NSNumber)?.int64Value ?? 0
     }
 
+    // MARK: - Limits
+
     private var cacheableEntryLimit: Int64 {
         Swift.max(0, Swift.min(configuration.maximumEntrySize, configuration.maximumDiskSize))
     }
@@ -1273,6 +1295,8 @@ actor ABCacheStore {
     /// the metadata GET probe) — bounds peak memory the same way
     /// `passthroughChunkSize` bounds a length-bounded passthrough.
     private var unboundedPassthroughLimit: Int64 { 8 * 1_024 * 1_024 }
+
+    // MARK: - Response parsing
 
     private static func metadata(
         from response: ABHTTPResponse,

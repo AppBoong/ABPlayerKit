@@ -179,7 +179,7 @@ struct ABAudioSessionPolicyTests {
         #expect(audioSession.calls == [
             .snapshotCurrentCategory,
             .activate(policy),
-            .restore(audioSession.priorSnapshot, deactivate: true),
+            .restore(audioSession.priorSnapshot, deactivate: true)
         ])
     }
 
@@ -194,7 +194,7 @@ struct ABAudioSessionPolicyTests {
         #expect(audioSession.calls == [
             .snapshotCurrentCategory,
             .activate(policy),
-            .restore(audioSession.priorSnapshot, deactivate: true),
+            .restore(audioSession.priorSnapshot, deactivate: true)
         ])
 
         // A later release() must not restore a second time.
@@ -212,7 +212,7 @@ struct ABAudioSessionPolicyTests {
         #expect(audioSession.calls == [
             .snapshotCurrentCategory,
             .activate(.ambient),
-            .activate(.playback(mixWithOthers: true)),
+            .activate(.playback(mixWithOthers: true))
         ])
     }
 
@@ -242,7 +242,7 @@ struct ABAudioSessionPolicyTests {
         #expect(audioSession.calls == [
             .snapshotCurrentCategory,
             .activate(policy),
-            .restore(audioSession.priorSnapshot, deactivate: false),
+            .restore(audioSession.priorSnapshot, deactivate: false)
         ])
     }
 
@@ -280,7 +280,7 @@ struct ABAudioSessionPolicyTests {
         #expect(audioSession.calls == [
             .snapshotCurrentCategory,
             .activate(.ambient),
-            .activate(.playback(mixWithOthers: true)),
+            .activate(.playback(mixWithOthers: true))
         ])
 
         playerA.release()
@@ -293,7 +293,7 @@ struct ABAudioSessionPolicyTests {
             .snapshotCurrentCategory,
             .activate(.ambient),
             .activate(.playback(mixWithOthers: true)),
-            .restore(audioSession.priorSnapshot, deactivate: true),
+            .restore(audioSession.priorSnapshot, deactivate: true)
         ])
     }
 
@@ -349,7 +349,7 @@ struct ABAudioSessionPolicyTests {
         #expect(audioSession.calls == [
             .snapshotCurrentCategory,
             .activate(policy),
-            .restore(audioSession.priorSnapshot, deactivate: true),
+            .restore(audioSession.priorSnapshot, deactivate: true)
         ])
     }
 }

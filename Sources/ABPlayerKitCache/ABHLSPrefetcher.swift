@@ -20,7 +20,7 @@ public enum ABHLSPrefetchResult: Sendable, Equatable {
     case failed
 }
 
-fileprivate final class ABHLSPrefetchResultState: @unchecked Sendable {
+private final class ABHLSPrefetchResultState: @unchecked Sendable {
     private let lock = NSLock()
     private var resolvedResult: ABHLSPrefetchResult?
     private var continuations: [CheckedContinuation<ABHLSPrefetchResult, Never>] = []

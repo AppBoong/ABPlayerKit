@@ -22,6 +22,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
 
     public private(set) var isControlsVisible: Bool
 
+    // MARK: - Accessory slots
+
     /// Alias for ``accessoryViews(in:)``/``setAccessoryViews(_:in:)`` at
     /// ``ABControlsSlot/bottomTrailing`` — the slot this property named
     /// before ``ABControlsSlot`` existed. Behavior is unchanged.
@@ -54,6 +56,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         case .bottomTrailing: accessoryStack
         }
     }
+
+    // MARK: - Subviews and state
 
     let playPauseButton = ABControlButton(type: .custom)
     let skipBackwardButton = ABControlButton(type: .custom)
@@ -125,6 +129,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
     private var rateHeightConstraint: NSLayoutConstraint?
     private var elapsedMinimumWidthConstraint: NSLayoutConstraint?
 
+    // MARK: - Test introspection
+
     var displayedPlayPauseImage: UIImage? { playPauseButton.image(for: .normal) }
     var displayedRateText: String? { rateButton.title(for: .normal) }
     var displayedElapsedText: String? { elapsedLabel.text }
@@ -165,6 +171,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         return renderedRateButtonFrame
     }
 
+    // MARK: - Lifecycle
+
     public init(
         style: ABPlayerControlsStyle = .default,
         configuration: ABPlayerControlsConfiguration = .init()
@@ -198,6 +206,13 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         applyConfiguration(previous: nil)
         resetTimeline()
     }
+
+    deinit {
+        hideTask?.cancel()
+        playerObservationToken?.cancel()
+    }
+
+    // MARK: - Public API
 
     public func setControlsVisible(_ visible: Bool, animated: Bool = true) {
         handleVisibility(.setVisible(visible), animated: animated)
@@ -262,10 +277,7 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         }
     }
 
-    deinit {
-        hideTask?.cancel()
-        playerObservationToken?.cancel()
-    }
+    // MARK: - View construction
 
     /// `ABControlsLayout.rootStackSpacing` depends on `scaledTimeLabelFont`,
     /// which varies with the Dynamic Type trait — recomputed on `style`/`configuration`
@@ -442,6 +454,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         }
     }
 
+    // MARK: - Player attachment
+
     private func replacePlayer() {
         handleVisibility(.detached, animated: false)
         playerObservationToken?.cancel()
@@ -557,6 +571,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         }
     }
 
+    // MARK: - Player events
+
     func handlePlayerEvent(_ event: ABPlayerEvent) {
         applyPresenterEffects(presenter.handle(.playerEvent(event)))
         switch event {
@@ -636,6 +652,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             duration: style.visibilityAnimationDuration
         )
     }
+
+    // MARK: - Style and configuration
 
     private func applyStyle(previous: ABPlayerControlsStyle?) {
         let replacedBackground = controlsBackgroundView.apply(style.backgroundStyle)
@@ -740,6 +758,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         elapsedMinimumWidthConstraint.constant = layout.timeLabelMinimumWidth(using: font)
         elapsedMinimumWidthConstraint.isActive = true
     }
+
+    // MARK: - Control rendering
 
     private func updatePlaybackIcon() {
         let showsPauseIcon = presenter.showsPauseIcon
@@ -931,6 +951,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         seekBar.isSeekEnabled = enabled && presenter.currentPlaybackTime.duration != nil
     }
 
+    // MARK: - Control actions
+
     private func togglePlayback() {
         guard let player else { return }
         applyPresenterEffects(
@@ -1089,6 +1111,8 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         observerRegistry.broadcast(.seekCommitted(to: newTime.currentTime))
     }
 
+    // MARK: - Gestures
+
     @objc private func backgroundTapped() {
         handleVisibility(.tapped)
     }
@@ -1177,6 +1201,29 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
         backgroundTapped()
     }
 
+    public func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldReceive touch: UITouch
+    ) -> Bool {
+        guard gestureRecognizer === backgroundTapRecognizer else { return true }
+        return Self.backgroundTapShouldReceiveTouch(on: touch.view, upTo: self)
+    }
+
+    /// `true` unless `view` (or an ancestor strictly between it and `root`) is a
+    /// `UIControl` — real button/seek-bar touches must never also recognize the
+    /// whole-overlay background tap. Factored out of the delegate callback so it's
+    /// testable without a real `UITouch` (UIKit gives no public initializer for one).
+    static func backgroundTapShouldReceiveTouch(on view: UIView?, upTo root: UIView) -> Bool {
+        var current = view
+        while let node = current, node !== root {
+            if node is UIControl { return false }
+            current = node.superview
+        }
+        return true
+    }
+
+    // MARK: - Visibility
+
     func handleVisibility(
         _ input: ABControlsVisibilityMachine.Input,
         animated: Bool = true
@@ -1244,26 +1291,5 @@ public final class ABPlayerControlsView: UIView, UIGestureRecognizerDelegate {
             guard !self.isVoiceOverRunningProvider() else { return }
             self.handleVisibility(.autoHideFired)
         }
-    }
-
-    public func gestureRecognizer(
-        _ gestureRecognizer: UIGestureRecognizer,
-        shouldReceive touch: UITouch
-    ) -> Bool {
-        guard gestureRecognizer === backgroundTapRecognizer else { return true }
-        return Self.backgroundTapShouldReceiveTouch(on: touch.view, upTo: self)
-    }
-
-    /// `true` unless `view` (or an ancestor strictly between it and `root`) is a
-    /// `UIControl` — real button/seek-bar touches must never also recognize the
-    /// whole-overlay background tap. Factored out of the delegate callback so it's
-    /// testable without a real `UITouch` (UIKit gives no public initializer for one).
-    static func backgroundTapShouldReceiveTouch(on view: UIView?, upTo root: UIView) -> Bool {
-        var current = view
-        while let node = current, node !== root {
-            if node is UIControl { return false }
-            current = node.superview
-        }
-        return true
     }
 }

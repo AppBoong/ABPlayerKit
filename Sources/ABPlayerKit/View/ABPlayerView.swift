@@ -5,7 +5,7 @@ import UIKit
 /// detection for whichever `ABPlayer` is currently attached.
 @MainActor
 public final class ABPlayerView: UIView {
-    public override class var layerClass: AnyClass { AVPlayerLayer.self }
+    public override static var layerClass: AnyClass { AVPlayerLayer.self }
 
     private var playerLayer: AVPlayerLayer {
         // Safe force-unwrap: `layerClass` guarantees this view's backing

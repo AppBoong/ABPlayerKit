@@ -16,35 +16,36 @@ excluded:
   - "**/DerivedData"
 
 disabled_rules:
-  # 96 hits at the default 120-column limit, concentrated in @Suite/@Test
-  # description strings and long call chains.
+  # 268 hits across 62 files at the default 120-column limit, concentrated
+  # in @Suite/@Test description strings and long call chains.
   - line_length
-  # 24 hits from short loop/tuple-destructure identifiers (i, x, y, ...)
+  # 33 hits from short loop/tuple-destructure identifiers (i, x, y, ...)
   # and a few long descriptive names in test scenarios.
   - identifier_name
-  # 9 files exceed the default line-count ceiling (engine/store/controls
+  # 12 files exceed the default line-count ceiling (engine/store/controls
   # view types).
   - file_length
-  # 9 hits in state-machine/policy functions with wide switch coverage.
+  # 16 hits in state-machine/policy functions with wide switch coverage.
   - cyclomatic_complexity
-  # 6 hits in the same large types flagged by file_length.
+  # 8 hits in the same large types flagged by file_length.
   - type_body_length
-  # 6 hits, mostly test setup/scenario functions with many steps.
+  # 13 hits, mostly test setup/scenario functions with many steps.
   - function_body_length
-  # 7 hits from multi-line literals without a trailing comma.
-  - trailing_comma
   # 3 hits from call sites passing two trailing closures.
   - multiple_closures_with_trailing_closure
   # 3 hits from tuples wider than the default arity.
   - large_tuple
-  # 2 hits from type names shorter than the default minimum length.
-  - type_name
-  # 2 hits from duplicate resource imports across split extensions.
-  - duplicate_imports
-  # 1 hit.
-  - static_over_final_class
-  # 1 hit.
-  - private_over_fileprivate
+
+# The default 40-character ceiling is below what this repo's descriptive
+# test-suite names need: the three hits are all names LONGER than the
+# maximum (e.g. ABControlsPlayPauseReentrancyCharacterizationTests, 50),
+# and each one states precisely what the suite pins, so raising the
+# ceiling beats renaming. The rule stays on for its other checks — naming
+# convention and minimum length.
+type_name:
+  max_length:
+    warning: 50
+    error: 60
 
 custom_rules:
   no_main_actor_assume_isolated:
