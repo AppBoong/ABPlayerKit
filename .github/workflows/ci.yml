@@ -91,8 +91,18 @@ jobs:
           EXTRACT_APP_INTENTS_METADATA=NO
           build test
 
+      # `continue-on-error` because this bundle is evidence for investigating a
+      # failure, not a gate. Without it a transient upload error takes the job
+      # down after every test has already passed, and — because the steps below
+      # are ordered after it — skips the documentation and demo builds, which
+      # are real gates. That happened: `Failed to CreateArtifact: Unable to
+      # make request: ENOTFOUND` on a green 761-test run.
+      #
+      # The step still reports as failed, so a persistent upload problem stays
+      # visible instead of being swallowed.
       - name: Upload test result bundle
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ABPlayerKit.xcresult
@@ -134,6 +144,9 @@ jobs:
           printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' \
             "$percent" "$color" > "$RUNNER_TEMP/badge/coverage.json"
 
+      # Deliberately *not* `continue-on-error`, unlike the result bundles: the
+      # `coverage-badge` job downloads this artifact, so losing it would leave
+      # that job to fail further away from the cause.
       - name: Upload coverage badge data
         uses: actions/upload-artifact@v4
         with:
@@ -240,8 +253,11 @@ jobs:
           EXTRACT_APP_INTENTS_METADATA=NO
           test
 
+      # Evidence, not a gate — same reasoning as the build-and-test job's
+      # result bundle.
       - name: Upload TSan result bundle
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ABPlayerKit-TSan.xcresult
