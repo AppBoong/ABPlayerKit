@@ -98,6 +98,17 @@ This library deliberately stays thin. It does not abstract AVFoundation away, do
 - Swift 6 language mode
 - Xcode 16+
 
+**iOS only.** The core reaches UIKit and AVKit directly, so there is no other platform this builds for. Adding the package to an iOS app in Xcode needs nothing special — Xcode resolves the platform itself. Building the package on its own from a checkout does, because `swift build` targets the host:
+
+```bash
+# Not this — it targets macOS and stops with an explanation
+swift build
+
+# This
+xcodebuild -scheme ABPlayerKit-Package -destination 'generic/platform=iOS' build
+xcodebuild -scheme ABPlayerKit-Package -destination 'platform=iOS Simulator,name=iPhone 16 Pro' test
+```
+
 ## Installation
 
 Add the package in Xcode with **File → Add Package Dependencies**:
