@@ -45,7 +45,9 @@ designed:
 > repo code**. Mitigation: **manual device verification** in a demo satisfying the
 > three preconditions. If it fails, revisit the §6.5 'disable the video track'
 > alternative.")*
-> — `docs/briefs/DESIGN-round6-nowplaying.md:977`
+> — `DESIGN-round6-nowplaying.md:977`, a maintainer-facing design record no longer
+> carried in the tree. Verify with
+> `git show v0.4.0:docs/briefs/DESIGN-round6-nowplaying.md | sed -n '977p'`
 
 That entry is why [`docs/CHECKLIST-device-verification.md`](CHECKLIST-device-verification.md)
 exists: a six-item manual procedure, run by a person on real hardware before a tag.
@@ -422,7 +424,9 @@ specified the guard in one sentence:
 > 값이 실제로 바뀐 경우에만 재적용해 루프를 막는다.
 >
 > *("Re-apply only when the value actually changed, to block the loop.")*
-> — `docs/briefs/DESIGN-round6-core.md:504`
+> — `DESIGN-round6-core.md:504`, a maintainer-facing design record no longer carried
+> in the tree. Verify with
+> `git show v0.4.0:docs/briefs/DESIGN-round6-core.md | sed -n '504p'`
 
 The implementation is a faithful, literal realization of that sentence. The test is a
 faithful, literal test of that implementation. The doc comment restates the sentence
@@ -431,8 +435,10 @@ way** — none of them modeled the fact that on real hardware a view's size *cha
 between passes without *meaning* anything. Internal consistency is not a correctness
 argument; it is a shared assumption propagating unchallenged.
 
-That design line was never corrected, and remains a live trap for the next
-maintainer. This document is partly a substitute for correcting it.
+That design line was never corrected. The document carrying it has since been
+retired from the tree, which means this page is now the only place the mistake is
+written down — so it is worth being explicit: the sentence is wrong, and it was
+wrong in a way that three layers of faithful implementation could not detect.
 
 ### The fix, and what it does not promise
 
