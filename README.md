@@ -7,6 +7,7 @@
 ![MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 [![CI](https://github.com/AppBoong/ABPlayerKit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AppBoong/ABPlayerKit/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FAppBoong%2FABPlayerKit%2Fbadges%2Fcoverage.json)](https://github.com/AppBoong/ABPlayerKit/actions/workflows/ci.yml)
+[![Documentation](https://img.shields.io/badge/docs-DocC-blue)](https://appboong.github.io/ABPlayerKit/documentation/)
 
 **A thin, measurable wrapper around `AVPlayer` that makes playback resource ownership explicit.**
 
@@ -299,7 +300,7 @@ player.set(source: source, grade: .instanceOnly)
 | `ABPlayerKitCache` | Progressive caching and explicit HLS prefetch | The app owns offline/cache behavior |
 | `ABPlayerKitNowPlaying` | Lock screen / Control Center integration (`MPNowPlayingInfoCenter`, `MPRemoteCommandCenter`) | The app wants remote-command/lock-screen playback |
 
-Each target also ships a DocC catalog with full API reference — build it in Xcode with **Product → Build Documentation**.
+Full API reference for all five targets is published at **[appboong.github.io/ABPlayerKit](https://appboong.github.io/ABPlayerKit/documentation/)**, rebuilt from the DocC catalogs on every push to `main`. To read it offline, build it in Xcode with **Product → Build Documentation**.
 
 ### `ABPlayerKit` — Core
 
