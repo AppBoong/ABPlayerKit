@@ -43,7 +43,7 @@ Write the full design to `docs/DESIGN-v0.2-CONTROLS.md`:
 - Event flow diagrams for scrubbing and auto-hide
 - Style/theme struct full property list with defaults
 - Test plan (scenario list per suite)
-- Implementation task breakdown for Codex (ordered commits)
+- Implementation task breakdown (ordered commits)
 - Open questions section: anything requiring user decision, clearly listed with options and a recommendation
 
 When complete, write `docs/DESIGN-v0.2-VERDICT.md` containing the single line `DESIGN-COMPLETE` plus a 5-line summary.

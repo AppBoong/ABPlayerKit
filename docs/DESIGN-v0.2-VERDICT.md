@@ -4,7 +4,7 @@
 - 타겟: 컨트롤은 코어가 아닌 **신규 `ABPlayerKitControls`**(UIKit 코어 + SwiftUI 래퍼)로 분리 — 코어 설계서 §1의 비목표 선언과 숏폼 소비자의 링크 비용이 근거다.
 - 커스터마이징: 외형 `ABPlayerControlsStyle`(아이콘·트랙 앞/뒷편색·썸 크기/색·틴트 등 40여 필드, 프리셋 3종)과 동작 `ABPlayerControlsConfiguration`을 분리하고, 라이브 갱신 시 재적용 범위를 표로 확정했다.
 - 테스트: `ABSeekCoalescer` / `ABControlsVisibilityMachine` / `ABSeekBarGeometry` / `ABTimeFormatter`를 순수 타입으로 추출해 시간 의존 없는 `@Suite` 11개(코어 6 + 컨트롤 5)를 시나리오 단위로 설계했다.
-- 실행: Codex용 커밋 27개(A 엔진 9 · B 골격 4 · C 뷰 8 · D 문서/데모 6, 의존 관계 명시)와 미결 쟁점 Q9~Q15(각 선택지·추천 포함)를 남겼다.
+- 실행: 커밋 27개(A 엔진 9 · B 골격 4 · C 뷰 8 · D 문서/데모 6, 의존 관계 명시)와 미결 쟁점 Q9~Q15(각 선택지·추천 포함)를 남겼다.
 
 DESIGN-COMPLETE
 

@@ -17,10 +17,10 @@ Implementation brief. Repo: ABPlayerKit (this directory). Current HEAD: `ecfd779
 - English Conventional Commits, one logical change per commit. No push, no tag.
 
 ## Simulator rule (STRICT)
-Do NOT boot or create any simulator. Use ONLY the already-booted Orca-attached iPhone Air, UDID `65CDD0F3-DEE7-4132-B823-E86003329F5E`:
+Do NOT boot or create any simulator. Use ONLY the already-booted iPhone Air simulator, UDID `65CDD0F3-DEE7-4132-B823-E86003329F5E`:
 - build demo: `xcodebuild -project Examples/ABPlayerKitDemo/ABPlayerKitDemo.xcodeproj -scheme ABPlayerKitDemo -destination 'id=65CDD0F3-DEE7-4132-B823-E86003329F5E' build`
 - install/launch/screenshot via `xcrun simctl ... 65CDD0F3-DEE7-4132-B823-E86003329F5E ...` (bundle id `com.appboong.ABPlayerKitDemo`)
-- drive touches with `orca emulator tap x y --json` / `orca emulator gesture ...` (already attached to this device; coordinates normalized 0–1)
+- drive touches with the simulator UI-automation tooling already attached to this device (coordinates normalized 0–1)
 
 ## Visual verification checklist (screenshots required)
 - Compact bottom cluster; full-width seek bar with equal side padding
