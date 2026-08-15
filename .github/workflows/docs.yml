@@ -134,12 +134,20 @@ jobs:
             || { echo "::error::landing page was not rewritten for the hosting base path"; exit 1; }
           echo "site size: $(du -sh "$site" | cut -f1)"
 
-      # `enablement` turns the Pages site on the first time this runs, so the
-      # repository does not need the setting flipped by hand beforehand.
+      # Pages has to already exist for this repository, with its source set to
+      # GitHub Actions. `enablement: true` was tried first and does not work:
+      # creating a Pages site is outside what GITHUB_TOKEN can do even with
+      # `pages: write`, so the first run failed with "Create Pages site
+      # failed. Error: Resource not accessible by integration".
+      #
+      # It is a one-time setup step, done with an account that administers the
+      # repository:
+      #
+      #     gh api -X POST repos/<owner>/<repo>/pages -f build_type=workflow
+      #
+      # or Settings -> Pages -> Source -> GitHub Actions.
       - name: Configure Pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Upload the site
         uses: actions/upload-pages-artifact@v3
