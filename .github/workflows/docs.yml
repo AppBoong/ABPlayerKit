@@ -1,0 +1,159 @@
+name: Documentation
+
+# CI already builds the DocC catalogs on every pull request with
+# DOCC_WARNINGS_AS_ERRORS, and then throws the result away. This publishes it.
+#
+# Deployment is main-only on purpose: a pull request's documentation has
+# nowhere to go that wouldn't overwrite the released site, and CI's docbuild
+# step is already the gate that catches a broken catalog before merge.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race: a queued run supersedes an earlier one, but an
+# in-flight deploy is allowed to finish rather than leaving the site
+# half-written.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      PINNED_DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      # The published site lives at https://<owner>.github.io/<repo>/, so every
+      # asset URL DocC emits has to be rewritten to start with this.
+      HOSTING_BASE_PATH: ABPlayerKit
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve toolchain
+        run: |
+          if test -d "$PINNED_DEVELOPER_DIR"; then
+            resolved_developer_dir="$PINNED_DEVELOPER_DIR"
+          else
+            resolved_developer_dir="$(xcode-select -p)"
+          fi
+          echo "DEVELOPER_DIR=$resolved_developer_dir" >> "$GITHUB_ENV"
+
+      - name: Show toolchain
+        run: xcodebuild -version
+
+      # `generic/platform=iOS` rather than a simulator destination: building
+      # documentation needs a compiler, not a booted device, so this skips the
+      # simulator boot CI's own jobs have to do.
+      - name: Build documentation
+        run: >-
+          xcodebuild
+          -scheme ABPlayerKit-Package
+          -destination 'generic/platform=iOS'
+          -derivedDataPath "$RUNNER_TEMP/docs-derived-data"
+          SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+          GCC_TREAT_WARNINGS_AS_ERRORS=YES
+          DOCC_WARNINGS_AS_ERRORS=YES
+          EXTRACT_APP_INTENTS_METADATA=NO
+          docbuild
+
+      # One archive per target. Merging them gives a single site with one
+      # synthesized landing page listing all five, instead of five unrelated
+      # sites that could not link to each other.
+      - name: Merge the per-target archives
+        run: |
+          set -euo pipefail
+          products="$RUNNER_TEMP/docs-derived-data/Build/Products"
+          archives=()
+          while IFS= read -r archive; do
+            archives+=("$archive")
+          done < <(find "$products" -maxdepth 2 -name '*.doccarchive' | sort)
+
+          echo "Merging ${#archives[@]} archive(s):"
+          printf '  %s\n' "${archives[@]}"
+
+          # The catalog count is fixed and known. If a target stops emitting an
+          # archive the site would silently lose a module, so fail instead.
+          if test "${#archives[@]}" -ne 5; then
+            echo "::error::expected 5 .doccarchive bundles, found ${#archives[@]}"
+            exit 1
+          fi
+
+          xcrun docc merge "${archives[@]}" \
+            --synthesized-landing-page-name 'ABPlayerKit' \
+            --synthesized-landing-page-kind 'Swift Package' \
+            --output-path "$RUNNER_TEMP/ABPlayerKit.doccarchive"
+
+      - name: Transform for static hosting
+        run: >-
+          xcrun docc process-archive transform-for-static-hosting
+          "$RUNNER_TEMP/ABPlayerKit.doccarchive"
+          --hosting-base-path "$HOSTING_BASE_PATH"
+          --output-path "$RUNNER_TEMP/site"
+
+      # `transform-for-static-hosting` rewrites every nested page's asset URLs
+      # but leaves the archive's own root index.html pointing at `/js`, `/css`
+      # — absolute paths that 404 once the site is served from a subdirectory.
+      # Nobody wants that page anyway; send the site root at the real landing
+      # page instead.
+      - name: Redirect the site root at the documentation landing page
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/site/index.html" <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head>
+          <meta charset="utf-8">
+          <title>ABPlayerKit Documentation</title>
+          <meta http-equiv="refresh" content="0; url=documentation/">
+          <link rel="canonical" href="documentation/">
+          </head>
+          <body>
+          <p>Redirecting to the <a href="documentation/">ABPlayerKit documentation</a>.</p>
+          </body>
+          </html>
+          HTML
+
+      # Guards the two ways this can produce a page that loads but is empty:
+      # a module missing from the merged output, and the asset rewrite silently
+      # not happening.
+      - name: Verify the built site
+        run: |
+          set -euo pipefail
+          site="$RUNNER_TEMP/site"
+          for module in abplayerkit abplayerkitcache abplayerkitcontrols abplayerkitmetrics abplayerkitnowplaying; do
+            test -f "$site/documentation/$module/index.html" \
+              || { echo "::error::missing documentation/$module"; exit 1; }
+          done
+          grep -q "/$HOSTING_BASE_PATH/" "$site/documentation/index.html" \
+            || { echo "::error::landing page was not rewritten for the hosting base path"; exit 1; }
+          echo "site size: $(du -sh "$site" | cut -f1)"
+
+      # `enablement` turns the Pages site on the first time this runs, so the
+      # repository does not need the setting flipped by hand beforehand.
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

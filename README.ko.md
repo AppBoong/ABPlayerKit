@@ -7,6 +7,7 @@
 ![MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 [![CI](https://github.com/AppBoong/ABPlayerKit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AppBoong/ABPlayerKit/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FAppBoong%2FABPlayerKit%2Fbadges%2Fcoverage.json)](https://github.com/AppBoong/ABPlayerKit/actions/workflows/ci.yml)
+[![Documentation](https://img.shields.io/badge/docs-DocC-blue)](https://appboong.github.io/ABPlayerKit/documentation/)
 
 **`AVPlayer`를 얇게 감싸면서 재생 자원의 소유권을 명시하는, 측정 가능한 래퍼입니다.**
 
@@ -299,7 +300,7 @@ player.set(source: source, grade: .instanceOnly)
 | `ABPlayerKitCache` | 프로그레시브 캐시와 명시적 HLS 프리페치 | 오프라인/캐시 동작을 소유할 때 |
 | `ABPlayerKitNowPlaying` | 잠금화면/제어 센터 연동(`MPNowPlayingInfoCenter`, `MPRemoteCommandCenter`) | 원격 커맨드/잠금화면 재생을 원할 때 |
 
-각 타겟은 전체 API 레퍼런스를 담은 DocC 카탈로그도 함께 제공합니다 — Xcode의 **Product → Build Documentation**으로 빌드하세요.
+다섯 타겟의 전체 API 레퍼런스는 **[appboong.github.io/ABPlayerKit](https://appboong.github.io/ABPlayerKit/documentation/)** 에 공개되어 있으며, `main`에 푸시될 때마다 DocC 카탈로그에서 다시 빌드됩니다. 오프라인으로 보려면 Xcode의 **Product → Build Documentation**으로 빌드하세요.
 
 ### `ABPlayerKit` — 코어
 
