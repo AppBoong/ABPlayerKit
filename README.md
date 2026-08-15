@@ -16,6 +16,11 @@ Play a video in one line, or drive a feed that preloads media before it scrolls 
 ABVideoPlayerWithControls(url: url)
 ```
 
+<p align="center">
+<img src="docs/assets/demo-controls.gif" width="380" alt="The controls overlay revealed by a tap, a playback-rate menu selecting 1.5×, the overlay auto-hiding, and a scrub to 70% of an HLS stream"><br>
+<sub>That one line, running. Tap to reveal the overlay, pick a rate, scrub — and it gets out of the way on its own.</sub>
+</p>
+
 ### Features
 
 - **One-line playback** with a standard controls overlay, or bring your own UI.
@@ -51,7 +56,7 @@ ABVideoPlayerWithControls(url: url)
 </tr>
 </table>
 
-Screenshots are from the `Examples/ABPlayerKitDemo` app running the Apple HLS bipbop test stream.
+The animation above and these screenshots are from the `Examples/ABPlayerKitDemo` app running the Apple HLS bipbop test stream.
 
 ## Why ABPlayerKit?
 

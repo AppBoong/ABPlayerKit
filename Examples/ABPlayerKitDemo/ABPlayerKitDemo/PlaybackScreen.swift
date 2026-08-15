@@ -229,6 +229,9 @@ struct PlaybackScreen: View {
         configuration.skipInterval = 20
         configuration.rateOptions = [0.5, 1, 1.5, 2]
         configuration.rateInteraction = .menu
+        // Off by default in the library, so the demo has to opt in for the
+        // gesture recognizer to be installed at all.
+        configuration.doubleTapSeek = .edges(edgeWidthFraction: 0.3)
         return configuration
     }
 }
