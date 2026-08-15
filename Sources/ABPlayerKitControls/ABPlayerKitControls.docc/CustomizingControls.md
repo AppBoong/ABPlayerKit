@@ -92,6 +92,8 @@ controls.configuration = configuration
 
 ``ABPlayerControlsConfiguration/timeFormat`` controls how time labels render: `.fixedHours` (the default) always shows `HH:MM:SS`, `.automatic` drops the hours field under one hour, and `.custom` takes a `(seconds, referenceDurationSeconds) -> String` closure — every label in a render pass (elapsed, total, remaining) receives the same `referenceDurationSeconds` so a custom formatter can keep field widths consistent.
 
+``ABPlayerControlsConfiguration/rateInteraction`` picks how the rate control behaves: `.menu` (the default) presents ``ABPlayerControlsConfiguration/rateOptions`` as a `UIMenu`, `.cycle` advances through the same list on each tap and wraps around, and `.hidden` removes the control. An empty `rateOptions` hides the control whichever mode is set.
+
 Set ``ABPlayerControlsConfiguration/periodicTimeInterval`` to tune UI update frequency. The default is 0.25 seconds. The controls suppress auto-hide while VoiceOver is running and honor Reduce Motion when ``ABPlayerControlsStyle/respectsReduceMotion`` is enabled.
 
 ## Show Buffering and Seek Feedback

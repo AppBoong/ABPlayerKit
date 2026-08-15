@@ -14,6 +14,8 @@ A stall shows a spinner over the play/pause glyph (``ABPlayerControlsConfigurati
 
 Create an `ABPlayerKit/ABPlayer`, assign it to ``ABPlayerControlsView`` in UIKit, or compose it with ``ABVideoPlayerWithControls`` in SwiftUI. The controls install periodic time observation while attached and restore the player's previous interval when detached.
 
+``ABPlayerControlsView`` renders nothing but the overlay. In UIKit, place it **over** an `ABPlayerKit/ABPlayerView` and give both the same player — the two are separate views by design, so an app can keep the video and replace the controls.
+
 ```swift
 import ABPlayerKit
 import ABPlayerKitControls
