@@ -14,9 +14,20 @@ public struct ABSessionSummary: Sendable, Equatable {
 
     public let playerID: ABPlayerID
     public let startedAt: CFTimeInterval
+    /// Seconds since the Unix epoch, captured once at session **open** — not
+    /// at close, and on a different timeline from ``startedAt``/``endedAt``,
+    /// which are monotonic. Anchor the session to wall-clock through this,
+    /// then use the monotonic pair for durations.
     public let wallClockEpoch: TimeInterval
     public let endedAt: CFTimeInterval
     public let endReason: EndReason
+    /// Whether the recorder opened this session mid-playback because it
+    /// started observing after the item had already attached.
+    ///
+    /// A partial session has a `nil` ``sourceURL`` and a `startedAt` that is
+    /// when observation began, not when playback did — so its startup and
+    /// watch-time figures understate reality. It is still counted in
+    /// ``ABQoESummary/sessionCount``.
     public let isPartial: Bool
     public let sourceURL: String?
 

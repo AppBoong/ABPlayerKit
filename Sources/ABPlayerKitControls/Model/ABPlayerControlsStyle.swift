@@ -25,7 +25,21 @@ public enum ABRateLabelStyle: Sendable, Equatable {
 public struct ABPlayerControlsStyle: Sendable, Equatable {
     public var playIcon: ABControlIcon = .system("play.fill")
     public var pauseIcon: ABControlIcon = .system("pause.fill")
+    /// An explicit skip-backward glyph, or `nil` to derive one.
+    ///
+    /// `nil` does not mean "no icon" — it is the sentinel that turns
+    /// derivation on, producing `gobackward.N` from
+    /// ``ABPlayerControlsConfiguration/skipInterval`` (or a generic arrow
+    /// badged with the number, for intervals SF Symbols has no variant for).
+    /// Because the type is `ABControlIcon?`, writing `.none` resolves to
+    /// `Optional.none` and re-enables derivation rather than hiding anything;
+    /// hide the buttons with
+    /// ``ABPlayerControlsConfiguration/showsSkipButtons`` instead.
+    ///
+    /// An explicit icon always wins and is never badged.
     public var skipBackwardIcon: ABControlIcon?
+    /// An explicit skip-forward glyph, or `nil` to derive `goforward.N` —
+    /// same sentinel behavior as ``skipBackwardIcon``.
     public var skipForwardIcon: ABControlIcon?
     public var iconPointSize: CGFloat = 22
     public var iconWeight: UIImage.SymbolWeight = .semibold

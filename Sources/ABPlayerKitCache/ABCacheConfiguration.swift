@@ -2,7 +2,19 @@ import Foundation
 
 public struct ABCacheConfiguration: Sendable, Equatable {
     public var directory: URL
+    /// The size the LRU evicts *toward* — a target, not a hard ceiling.
+    ///
+    /// Entries pinned by an active reader or an in-flight fill are excluded
+    /// from eviction, so the cache can legitimately sit above this value
+    /// while media is being read or written. Each pass that ends still over
+    /// the limit increments ``ABMediaCache/evictionShortfallCount()``.
     public var maximumDiskSize: Int64
+    /// The largest response that will be cached.
+    ///
+    /// The effective cap is `min(maximumEntrySize, maximumDiskSize)`, so
+    /// raising this alone does nothing once it passes the disk size. A
+    /// response over the cap is not truncated or partially stored — the whole
+    /// asset passes through to the network uncached.
     public var maximumEntrySize: Int64
     /// How far ahead of the cache's linear fill prefix a requested offset
     /// may sit before `ABCacheStore.load` gives up waiting for the fill to

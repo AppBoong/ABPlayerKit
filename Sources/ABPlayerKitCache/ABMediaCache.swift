@@ -15,18 +15,45 @@ public final class ABMediaCache: Sendable {
         ABCacheAssetFactory(store: store, hlsPrefetcher: hlsPrefetcher)
     }
 
+    /// The cache's size as the index accounts for it — the sum of every
+    /// entry's recorded length, partial fills included.
+    ///
+    /// Not a measurement of the directory, so it can drift from the real
+    /// on-disk footprint. Measure the directory itself if that exact number
+    /// is what matters.
     public func totalSize() async -> Int64 {
         await store.totalSize()
     }
 
+    /// How many eviction passes finished still over
+    /// ``ABCacheConfiguration/maximumDiskSize``.
+    ///
+    /// Not a count of evicted entries. It rises when everything left is
+    /// pinned by an active reader or an in-flight fill, so a persistently
+    /// non-zero value means the working set genuinely does not fit rather
+    /// than that eviction is broken. ``removeAll()`` resets it to zero.
     public func evictionShortfallCount() async -> Int {
         await store.evictionShortfallCount()
     }
 
+    /// Deletes the cached entry for `source`.
+    ///
+    /// Errors are swallowed — a failed delete is indistinguishable from a
+    /// successful one here. A read already in flight for this key is not
+    /// failed: it continues over the network for the rest of that read. The
+    /// invalidation is also store-wide rather than per-key, so removing one
+    /// source can push an unrelated concurrently-filling source through the
+    /// network for one read.
     public func remove(_ source: ABMediaSource) async {
         try? await store.remove(source)
     }
 
+    /// Deletes every cached entry and resets
+    /// ``evictionShortfallCount()``.
+    ///
+    /// Errors are swallowed, and reads already in flight keep going over the
+    /// network rather than failing — same delete semantics as
+    /// ``remove(_:)``.
     public func removeAll() async {
         try? await store.removeAll()
     }

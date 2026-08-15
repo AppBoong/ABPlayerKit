@@ -4,6 +4,14 @@ import Foundation
 /// every other ``ABMetricEvent`` case is ignored.
 public struct ABQoESummary: Sendable, Equatable {
     public let sessionCount: Int
+    /// How many of ``sessionCount`` were opened mid-playback rather than at
+    /// the item's attach.
+    ///
+    /// A partial session is one the recorder synthesized because it started
+    /// observing a player that was already playing, so it never saw
+    /// `.itemAttached`. Those carry a `nil` `sourceURL` and a start time that
+    /// is not the real one — and they are **included** in `sessionCount`, so
+    /// subtract this before treating startup metrics as complete.
     public let partialSessionCount: Int
     public let firstFrameSessionCount: Int
     public let completedSessionCount: Int
@@ -52,6 +60,13 @@ public struct ABQoESummary: Sendable, Equatable {
         return Double(completedSessionCount) / Double(firstFrameSessionCount)
     }
 
+    /// Sessions that ended in a terminal failure, over **all** sessions.
+    ///
+    /// A different denominator from its neighbor ``completionRate``, which
+    /// divides by `firstFrameSessionCount`. A failure can happen before the
+    /// first frame — that is exactly the case worth counting — so this one
+    /// includes sessions abandoned or failed before playback ever started.
+    /// The two rates are not complements of each other.
     public var terminalFailureRate: Double? {
         guard sessionCount > 0 else { return nil }
         return Double(failedSessionCount) / Double(sessionCount)
@@ -63,6 +78,14 @@ public struct ABQoESummary: Sendable, Equatable {
         return Double(rebufferCount) / hoursWatched
     }
 
+    /// Folds `.sessionSummary` events into one rollup.
+    ///
+    /// Two kinds of input are skipped without comment: every event that is
+    /// not `.sessionSummary`, and any summary whose `endReason` is `.active`
+    /// — the live, still-open shape ``ABMetricsRecorder/snapshot(for:)``
+    /// returns. So feeding in a mixed log yields a `sessionCount` lower than
+    /// `events.count`, by design; a snapshot must not be counted as a session
+    /// that ended.
     public static func aggregate(_ events: [ABMetricEvent]) -> ABQoESummary {
         var sessionCount = 0
         var partialSessionCount = 0
