@@ -24,10 +24,33 @@ concurrency:
 # 31854690881 the whole cache suite ran at 17.0s against 4.2s on the same
 # code a few hours earlier, with individual tests at 15.9s that normally
 # finish in well under a second, and the one test whose deadline was still
-# 2s failed. Six covers what has actually been observed, and the per-suite
-# `.timeLimit(.minutes(3))` remains the backstop against a genuine hang.
+# 2s failed.
+#
+# Six was set from that one observation and turned out to be far short of the
+# real spread. Measuring the ThreadSanitizer job's 281-test core suite against
+# the same commit run locally under the same sanitizer:
+#
+#     local                      1.1s
+#     CI, passing (451c425)     32.3s     29x
+#     CI, passing (adf6e3b)     54.8s     50x
+#     CI, passing (d2d3e61)     65.3s     59x
+#     CI, failing               55.4s     52x
+#     CI, failing              216.6s    203x
+#
+# A *passing* run at 54.8s and a failing one at 55.4s are the same run, so at
+# six the deadlines sat inside the noise and which tests failed was a coin
+# toss — a different one each time, always a `waitUntil` timeout, never a
+# data race. Twenty-four covers the passing spread with headroom and most of
+# the excursion; it raises a threshold rather than fixing the shape, and the
+# real answer stays signal-based waiting instead of racing a duration.
+#
+# The scale sizes deadlines measured in seconds, so it must not be applied
+# unbounded to the per-suite `.timeLimit`, whose base is already minutes:
+# `abScaledMinutes` caps its result at 15 minutes so the limit always fires
+# before this job's own `timeout-minutes` and keeps working as a hang
+# detector. Raising the scale further does not change that ceiling.
 env:
-  TEST_RUNNER_ABPLAYERKIT_WAIT_SCALE: "6"
+  TEST_RUNNER_ABPLAYERKIT_WAIT_SCALE: "24"
 
 jobs:
   build-and-test:

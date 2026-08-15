@@ -33,6 +33,25 @@ struct ABTestSupportScalingTests {
         }
     }
 
+    @Test("A scaled limit never outgrows the cap, however large the scale")
+    func scaledLimitStaysUnderTheCap() {
+        // The cap is what keeps the per-test limit inside the workflow's own
+        // timeout-minutes. Without it, a scale sized for second-scale
+        // deadlines turns a 3-minute limit into something the job timeout
+        // beats to the punch, and the hang detector stops detecting.
+        for minutes in 1...5 {
+            let trait: TimeLimitTrait = .timeLimit(abScaledMinutes(minutes))
+            #expect(trait.timeLimit <= .seconds(abMaximumScaledMinutes * 60))
+        }
+    }
+
+    @Test("A base already past the cap is not shrunk by it")
+    func capNeverShrinksABaseAboveIt() {
+        let base = abMaximumScaledMinutes + 5
+        let trait: TimeLimitTrait = .timeLimit(abScaledMinutes(base))
+        #expect(trait.timeLimit >= .seconds(base * 60))
+    }
+
     @Test("A scaled ad-hoc timeout tracks the same scale")
     func scaledTimeoutTracksTheSameScale() {
         let scaled = abScaledTimeout(.seconds(2))
