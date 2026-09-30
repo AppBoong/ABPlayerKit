@@ -9,7 +9,6 @@ private final class ABFakeHLSDownloadSession: @unchecked Sendable {
     private let lock = NSLock()
     private var completions: [UUID: @Sendable (ABHLSDownloadResult) -> Void] = [:]
     private(set) var cancellationCount = 0
-    private(set) var invalidationCount = 0
 
     func start(
         id: UUID,
@@ -45,17 +44,6 @@ private final class ABFakeHLSDownloadSession: @unchecked Sendable {
         completions[entry.key] = nil
         lock.unlock()
         entry.value(.failure)
-    }
-
-    func invalidate() {
-        lock.lock()
-        invalidationCount += 1
-        let completions = Array(self.completions.values)
-        self.completions.removeAll()
-        lock.unlock()
-        for completion in completions {
-            completion(.failure)
-        }
     }
 
     private func cancel(id: UUID) {
@@ -179,32 +167,28 @@ struct ABHLSPrefetcherTests {
         #expect(fakeSession.cancellationCount == 2)
     }
 
-    @Test("Invalidation cancels active work and invalidates the download session")
-    func invalidatesSession() {
+    @Test("Invalidation cancels this instance's work and retires it")
+    func invalidationRetiresInstance() async {
         let fakeSession = ABFakeHLSDownloadSession()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let prefetcher = ABHLSPrefetcher(
-            configuration: .init(directory: directory),
-            startDownload: {
-                fakeSession.start(id: $0, source: $1, bitrate: $2, completion: $3)
-            },
-            invalidateDownload: {
-                fakeSession.invalidate()
-            }
-        )
-        prefetcher.prefetch(ABMediaSource(url: URL(string: "https://example.com/a.m3u8")!))
+        let prefetcher = ABHLSPrefetcher(configuration: .init(directory: directory)) {
+            fakeSession.start(id: $0, source: $1, bitrate: $2, completion: $3)
+        }
+        let active = prefetcher.prefetch(ABMediaSource(url: URL(string: "https://example.com/a.m3u8")!))
 
         prefetcher.invalidate()
+        let late = prefetcher.prefetch(ABMediaSource(url: URL(string: "https://example.com/b.m3u8")!))
 
+        #expect(await active.result == .cancelled)
+        #expect(await late.result == .failed)
         #expect(prefetcher.activeTaskCount == 0)
         #expect(fakeSession.cancellationCount == 1)
-        #expect(fakeSession.invalidationCount == 1)
     }
 
-    @Test("Shared session invalidation completes other prefetchers' jobs")
-    func invalidationCompletesSharedJobs() {
+    @Test("Invalidating one prefetcher leaves another instance's downloads running")
+    func invalidationIsScopedToInstance() async throws {
         let fakeSession = ABFakeHLSDownloadSession()
         let firstDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -214,27 +198,24 @@ struct ABHLSPrefetcherTests {
             try? FileManager.default.removeItem(at: firstDirectory)
             try? FileManager.default.removeItem(at: secondDirectory)
         }
+        let localURL = secondDirectory.appendingPathComponent("b.movpkg", isDirectory: true)
+        try FileManager.default.createDirectory(at: localURL, withIntermediateDirectories: true)
         let startDownload: ABHLSDownloadStart = {
             fakeSession.start(id: $0, source: $1, bitrate: $2, completion: $3)
         }
-        let first = ABHLSPrefetcher(
-            configuration: .init(directory: firstDirectory),
-            startDownload: startDownload,
-            invalidateDownload: { fakeSession.invalidate() }
-        )
-        let second = ABHLSPrefetcher(
-            configuration: .init(directory: secondDirectory),
-            startDownload: startDownload,
-            invalidateDownload: { fakeSession.invalidate() }
-        )
+        let first = ABHLSPrefetcher(configuration: .init(directory: firstDirectory), startDownload: startDownload)
+        let second = ABHLSPrefetcher(configuration: .init(directory: secondDirectory), startDownload: startDownload)
         first.prefetch(ABMediaSource(url: URL(string: "https://example.com/a.m3u8")!))
-        second.prefetch(ABMediaSource(url: URL(string: "https://example.com/b.m3u8")!))
+        let secondSource = ABMediaSource(url: URL(string: "https://example.com/b.m3u8")!)
+        let secondHandle = second.prefetch(secondSource)
 
         first.invalidate()
 
         #expect(first.activeTaskCount == 0)
-        #expect(second.activeTaskCount == 0)
-        #expect(fakeSession.invalidationCount == 1)
+        #expect(second.activeTaskCount == 1)
+        fakeSession.completeFirst(at: localURL)
+        #expect(await secondHandle.result == .completed)
+        #expect(second.localAsset(for: secondSource)?.url == localURL)
     }
 
     @Test("Persisted HLS locations are home-relative and survive reconstruction")

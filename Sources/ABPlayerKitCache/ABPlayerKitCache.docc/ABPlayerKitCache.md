@@ -37,6 +37,10 @@ Two things in that snippet are easy to lose and expensive to rediscover:
 - **Retain the factory.** `AVAssetResourceLoader.setDelegate(_:queue:)` does not retain its delegate, so the factory is what keeps each one alive. Drop the factory and interception stops without an error — playback simply goes to the network.
 - **Release before replacing.** `assetFactory` is read at attach time only, so an item already attached keeps the old factory. Releasing first is what makes the next attach pick up the new one.
 
+### One download session per process
+
+A background `URLSession` identifier can be bound to only one live session per process, so every ``ABHLSPrefetcher`` shares a single `AVAssetDownloadURLSession`. Instance APIs stay scoped to their own work: ``ABHLSPrefetcher/invalidate()`` cancels that instance's downloads and retires it, and leaves other screens' prefetches running — safe to call from `onDisappear`. Tearing down the shared session is the separate, explicitly process-wide ``ABHLSPrefetcher/invalidateSharedSession()``.
+
 ### Why transparent HLS caching is out of scope
 
 `AVAssetResourceLoader` cannot intercept ordinary HTTP(S) HLS master or media playlists. Doing it transparently would mean running a local reverse proxy that rewrites playlists and then handles relative URLs, encryption keys, and background lifetime on its own. That is a substantially larger failure surface than the progressive path, so it is kept separate deliberately rather than left unimplemented by accident. The reasoning is recorded in [DESIGN-OPEN-QUESTIONS Q1](https://github.com/AppBoong/ABPlayerKit/blob/main/docs/DESIGN-OPEN-QUESTIONS.md) and [DESIGN-ABPlayerKit §9](https://github.com/AppBoong/ABPlayerKit/blob/main/docs/DESIGN-ABPlayerKit.md).

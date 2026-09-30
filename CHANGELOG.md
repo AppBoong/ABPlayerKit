@@ -4,6 +4,14 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added `ABHLSPrefetcher.invalidateSharedSession()` — the explicit, process-wide teardown of the one `AVAssetDownloadURLSession` every prefetcher shares (a background session identifier can be bound to only one live session per process). This is what `invalidate()` used to do implicitly.
+
+### Fixed
+
+- `ABHLSPrefetcher.invalidate()` no longer tears down the download session shared by every instance. It used to call `finishTasksAndInvalidate()` on that session, so one screen invalidating its own prefetcher in `onDisappear` failed every other screen's in-flight HLS downloads. It now cancels only that instance's downloads and retires the instance (later `prefetch` calls resolve `.failed`); completed downloads stay available through `localAsset(for:)`. Code that relied on the old process-wide effect should call `ABHLSPrefetcher.invalidateSharedSession()`.
+
 ## [0.4.1] - 2026-08-15
 
 ### Fixed
