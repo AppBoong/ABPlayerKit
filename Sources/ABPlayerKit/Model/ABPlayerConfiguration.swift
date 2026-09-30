@@ -22,7 +22,19 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
     /// The tolerance used for intermediate interactive scrubbing seeks.
     public var scrubTolerance: ABSeekTolerance
     /// `nil` disables periodic playback-time events.
+    ///
+    /// While ``ABPlayer/position`` is in use, the underlying
+    /// `AVPlayer` periodic observer runs at the finer of this and
+    /// ``positionUpdateInterval``, so `.periodicTime` events can arrive more
+    /// often than this value.
     public var periodicTimeInterval: TimeInterval?
+    /// How often ``ABPlayer/position`` refreshes during playback, in
+    /// seconds. Has no cost until `position` is first read.
+    ///
+    /// Controls the cadence of SwiftUI re-renders for any view reading
+    /// `position` — lower it for a smooth custom scrubber, raise it for a
+    /// time label that only needs whole seconds.
+    public var positionUpdateInterval: TimeInterval
     /// `nil` means "do not preroll".
     public var prerollRate: Float?
     public var prerollTimeout: TimeInterval
@@ -106,7 +118,8 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
         allowsExternalPlayback: Bool = true,
         usesExternalPlaybackWhileExternalScreenIsActive: Bool = false,
         externalPlaybackVideoGravity: AVLayerVideoGravity = .resizeAspect,
-        assetFactory: any ABAssetFactory = ABDefaultAssetFactory()
+        assetFactory: any ABAssetFactory = ABDefaultAssetFactory(),
+        positionUpdateInterval: TimeInterval = 0.25
     ) {
         self.preloadTuning = preloadTuning
         self.currentTuning = currentTuning
@@ -127,6 +140,7 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
         self.usesExternalPlaybackWhileExternalScreenIsActive = usesExternalPlaybackWhileExternalScreenIsActive
         self.externalPlaybackVideoGravity = externalPlaybackVideoGravity
         self.assetFactory = assetFactory
+        self.positionUpdateInterval = positionUpdateInterval
     }
 
     /// Compares every stored property **except** ``assetFactory``, which is
@@ -144,6 +158,7 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
             && lhs.playbackRate == rhs.playbackRate
             && lhs.scrubTolerance == rhs.scrubTolerance
             && lhs.periodicTimeInterval == rhs.periodicTimeInterval
+            && lhs.positionUpdateInterval == rhs.positionUpdateInterval
             && lhs.prerollRate == rhs.prerollRate
             && lhs.prerollTimeout == rhs.prerollTimeout
             && lhs.rewindOnDemotion == rhs.rewindOnDemotion

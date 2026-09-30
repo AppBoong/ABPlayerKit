@@ -361,6 +361,19 @@ public final class ABObservationToken: Sendable {
 
 **결정 — delegate가 아니라 다중 옵저버 + 토큰.** 메트릭 타겟이 소비자의 delegate 슬롯을 뺏지 않고 붙을 수 있어야 한다. `AsyncStream`은 이벤트 순서/역압 문제와 `for await` 수명 관리 부담이 있어 v1에서는 제외하되, 필요하면 `events` 프로퍼티를 추가하는 것은 소스 호환 변경이다. (→ OPEN-QUESTIONS Q3)
 
+### 5.4a 재생 위치 — `ABPlaybackPosition` (v0.5.0 추가)
+
+**문제.** `currentTime`/`playbackTime`은 매 접근마다 `AVPlayer`에서 다시 읽는 계산 프로퍼티라 `@Observable`이 추적하지 못한다. SwiftUI로 시간 라벨이나 스크러버를 만들려면 `periodicTimeInterval`을 켜고, 토큰을 모델 객체에 보관하고, 쓰로틀을 직접 해야 했다.
+
+**결정 — 별도 `@Observable` 객체를 `player.position`으로 노출한다.**
+
+- **플레이어 프로퍼티로 두지 않는 이유.** Observation은 객체·프로퍼티 단위로 추적한다. 위치를 `ABPlayer`에 두면 초당 4회 틱마다 `ABPlayer`의 레지스트라가 움직이고, 위치를 읽지 않는 뷰까지 같은 객체를 보고 있다는 이유로 설계가 흐려진다. 별도 객체면 틱이 **위치를 읽은 뷰만** 무효화한다(`ABPlaybackPositionTests`가 `withObservationTracking`으로 이것을 증명한다).
+- **`AsyncStream`이 아닌 이유.** 5.4의 결정과 같다. 버퍼·드롭 정책과 `for await` 수명 관리를 소비자에게 떠넘기지 않는다. SwiftUI가 이미 가진 관찰 수단을 그대로 쓴다.
+- **첫 접근 시 생성.** 생성 전에는 주기 옵저버를 달지 않는다 — 위치를 아무도 읽지 않는 플레이어(피드의 프리로드 셀)는 비용이 0이다.
+- **옵저버 하나를 공유.** `.periodicTime` 이벤트와 위치는 `AVPlayer` 주기 옵저버 하나를 두 간격 중 더 촘촘한 쪽으로 공유한다. 그래서 위치를 쓰는 동안에는 이벤트가 `periodicTimeInterval`보다 자주 올 수 있다(문서화함).
+- **같은 값이면 대입하지 않는다.** 일시정지 중 틱이 와도 뷰가 다시 그려지지 않는다.
+- **스크러빙 중에는 갱신하지 않는다.** `.periodicTime`과 같은 규칙이다.
+
 ### 5.5 뷰
 
 ```swift

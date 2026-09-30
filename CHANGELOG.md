@@ -6,12 +6,14 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ### Added
 
+- Added `ABPlayer.position` — an `@Observable` `ABPlaybackPosition` whose `time: ABPlaybackTime` SwiftUI can read directly for a time label, progress bar, or custom scrubber. `currentTime`/`playbackTime` are re-read from `AVPlayer` on every access and can't be observed. It is a separate object so that playback ticks invalidate only the views that read the position, never views reading `isPlaying`/`grade`/`isBuffering`. Created on first access; until then no periodic observer runs. Refresh cadence is the new `ABPlayerConfiguration.positionUpdateInterval` (default `0.25`, added at the end of the initializer's parameter list).
 - Added `ABPlayer.load(_:autoplay:)` — `set(source:grade: .current)` plus `play()`, and a no-op for the source already loaded at `.current`. It is the one line an explicit-ownership SwiftUI screen needs in `.task`: re-appearing neither restarts the item nor resumes a player the user paused, and the grade ladder stays out of the way until a feed actually needs it. It deliberately isn't an initializer argument — a `@State` initial value is re-evaluated on every reconstruction of the view value, so attaching there would build throwaway `AVPlayerItem`s.
 - Added `ABVideoPlayerWithControls.init(player:videoGravity:style:configuration:)` and `ABPlayerControls.init(player:style:configuration:onEvent:)` — the no-accessories form, with no trailing closure. `ABVideoPlayerWithControls(player: player)` now compiles warning-free; the `{}` that 0.3.0's migration notes asked for is no longer needed (it still compiles, to the same current initializer).
 - Added `ABHLSPrefetcher.invalidateSharedSession()` — the explicit, process-wide teardown of the one `AVAssetDownloadURLSession` every prefetcher shares (a background session identifier can be bound to only one live session per process). This is what `invalidate()` used to do implicitly.
 
 ### Changed
 
+- While `ABPlayer.position` is in use, `.periodicTime` events and the position share one `AVPlayer` periodic observer running at the finer of `periodicTimeInterval` and `positionUpdateInterval`, so `.periodicTime` can arrive more often than `periodicTimeInterval`. A player that never reads `position` is unaffected.
 - The deprecated `accessoryViews:` initializers of `ABPlayerControls` and `ABVideoPlayerWithControls` no longer default `accessoryViews` to `[]`. That default is what made a bare `(player:)` call resolve to them and warn. Calls that pass `accessoryViews:` explicitly are unaffected; calls that relied on the default now resolve to the new no-accessories initializer, without a warning.
 
 ### Fixed
