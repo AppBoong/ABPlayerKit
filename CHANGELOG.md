@@ -6,7 +6,12 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ### Added
 
+- Added `ABVideoPlayerWithControls.init(player:videoGravity:style:configuration:)` and `ABPlayerControls.init(player:style:configuration:onEvent:)` — the no-accessories form, with no trailing closure. `ABVideoPlayerWithControls(player: player)` now compiles warning-free; the `{}` that 0.3.0's migration notes asked for is no longer needed (it still compiles, to the same current initializer).
 - Added `ABHLSPrefetcher.invalidateSharedSession()` — the explicit, process-wide teardown of the one `AVAssetDownloadURLSession` every prefetcher shares (a background session identifier can be bound to only one live session per process). This is what `invalidate()` used to do implicitly.
+
+### Changed
+
+- The deprecated `accessoryViews:` initializers of `ABPlayerControls` and `ABVideoPlayerWithControls` no longer default `accessoryViews` to `[]`. That default is what made a bare `(player:)` call resolve to them and warn. Calls that pass `accessoryViews:` explicitly are unaffected; calls that relied on the default now resolve to the new no-accessories initializer, without a warning.
 
 ### Fixed
 

@@ -174,9 +174,6 @@ import SwiftUI
 ABVideoPlayer(url: url, videoGravity: .resizeAspect)
 ```
 
-> **왜 어떤 예제 끝에는 `{}`가 붙나요?**
-> 위의 `url:`/`source:` 이니셜라이저는 트레일링 클로저를 받지 않습니다. 반면 `player:` 이니셜라이저는 받습니다 — `ABVideoPlayerWithControls(player: player) {}` 처럼요. 배열 기반의 구형 `accessoryViews:` 이니셜라이저가 아직 deprecated 상태로 남아 있어서, 클로저 없이 호출하면 그쪽으로 해석되어 경고가 나기 때문입니다. 빈 중괄호는 현재 이니셜라이저를 고르게 합니다. `{}` 자리에 실제 뷰를 넣으면 직접 만든 컨트롤을 오버레이할 수 있습니다. [API 안정성](#api-안정성)을 참고하세요.
-
 ### 커스터마이징
 
 컨트롤의 외형과 동작은 view modifier로 설정하므로, modifier 하나로 화면 전체의 플레이어를 한 번에 다룰 수 있습니다.
@@ -215,7 +212,7 @@ struct VideoScreen: View {
     @State private var player = ABPlayer()
 
     var body: some View {
-        ABVideoPlayerWithControls(player: player, videoGravity: .resizeAspect) {}
+        ABVideoPlayerWithControls(player: player, videoGravity: .resizeAspect)
             .aspectRatio(16 / 9, contentMode: .fit)
             .task {
                 // 화면이 나타날 때마다 실행됩니다. 첫 번째에만 붙이고 재생해야
@@ -427,9 +424,6 @@ player.set(source: source, grade: .preloaded) // preloadTuning 복원
 **잠금화면 컨트롤이 안 뜨거나 일부 버튼이 없습니다.**
 `ABPlayerKitNowPlaying`을 링크하고 `attach`를 호출한 뒤 반환된 토큰을 보관해야 합니다. `.current` 플레이어만 자격이 있습니다. 배속 변경과 다음/이전 트랙은 `ABRemoteCommandSet.default`에 **포함되지 않아** 명시적 옵트인이 필요합니다 — 위의 커맨드 표를 참고하세요.
 
-**`ABVideoPlayerWithControls(player:)` 호출에서 deprecated 이니셜라이저 경고가 납니다.**
-빈 트레일링 클로저를 붙이세요: `ABVideoPlayerWithControls(player: player) {}`. [API 안정성](#api-안정성)을 참고하세요.
-
 **업데이트 후 `ABPlayerEvent`·`ABMetricEvent`·`ABBackgroundPolicy`에 대한 `switch`가 컴파일되지 않습니다.**
 이 타입들은 정책상 비전수(non-exhaustive)이며 마이너 릴리스에서 케이스가 추가될 수 있습니다. `default` 분기를 추가하세요.
 
@@ -504,8 +498,6 @@ ABPlayerKit은 의도적으로 얇은 AVFoundation 래퍼입니다. 대체가 �
 ## API 안정성
 
 이 패키지가 `0.x`인 동안 대체 API는 항상 additive로 먼저 추가되고, 같은 마이너 릴리스에서 deprecate됩니다(조용히 제거하지 않음). 제거 전 최소 한 개 마이너의 중첩 기간을 보장하며, `1.0.0` 이전에는 아무것도 제거하지 않습니다. `ABPlayerEvent`/`ABPlayerError`가 비전수(non-exhaustive) `enum`으로 남아 있는 것도 같은 이유입니다 — 소비자의 `switch`는 `default` 분기를 포함해야 합니다. 전체 정책은 [POLICY-api-stability](docs/POLICY-api-stability.md)에 있고, 모든 릴리스는 [CHANGELOG](CHANGELOG.md)에 기록됩니다.
-
-> **deprecated된 `accessoryViews:` 이니셜라이저.** `ABPlayerControls(player: player)` / `ABVideoPlayerWithControls(player: player)` 그대로의 호출은 배열 기반의 deprecated 이니셜라이저로 해석되어 경고가 납니다. 빈 트레일링 클로저 `ABPlayerControls(player: player) {}`를 추가해 현재의 `@ViewBuilder accessories:` 쪽으로 이관하세요. 이걸 피할 기본값이 없는 이유는 CHANGELOG의 [`[0.3.0]` Migration notes](CHANGELOG.md#030---2026-08-05)를 참고하세요.
 
 ## 기여하기
 

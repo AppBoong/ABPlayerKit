@@ -174,9 +174,6 @@ import SwiftUI
 ABVideoPlayer(url: url, videoGravity: .resizeAspect)
 ```
 
-> **Why do some examples end in `{}`?**
-> The `url:`/`source:` initializers above take no trailing closure. The `player:` initializers do — `ABVideoPlayerWithControls(player: player) {}` — because an older array-based `accessoryViews:` initializer is still present and deprecated, and a call with no closure at all resolves to that one and warns. The empty braces pick the current initializer. Pass real views instead of `{}` to overlay your own controls. See [API Stability](#api-stability).
-
 ### Customizing
 
 Controls appearance and behavior are set with view modifiers, so one modifier can cover a whole screen of players:
@@ -215,7 +212,7 @@ struct VideoScreen: View {
     @State private var player = ABPlayer()
 
     var body: some View {
-        ABVideoPlayerWithControls(player: player, videoGravity: .resizeAspect) {}
+        ABVideoPlayerWithControls(player: player, videoGravity: .resizeAspect)
             .aspectRatio(16 / 9, contentMode: .fit)
             .task {
                 // Runs on every appearance. Attach and autoplay only the first time,
@@ -427,9 +424,6 @@ Check `ABPictureInPictureSession.isSupported` (usually `false` in the simulator 
 **Lock screen controls don't appear, or some buttons are missing.**
 Link `ABPlayerKitNowPlaying` and call `attach`, retaining the returned token. Only a `.current` player is eligible. Change-rate and next/previous-track are **not** in `ABRemoteCommandSet.default` and need explicit opt-in — see the command table above.
 
-**A bare `ABVideoPlayerWithControls(player:)` warns about a deprecated initializer.**
-Add an empty trailing closure: `ABVideoPlayerWithControls(player: player) {}`. See [API Stability](#api-stability).
-
 **A `switch` over `ABPlayerEvent`, `ABMetricEvent`, or `ABBackgroundPolicy` stopped compiling after an update.**
 These are non-exhaustive by policy; minor releases may add cases. Add a `default` branch.
 
@@ -504,8 +498,6 @@ The complete rationale is recorded in [DESIGN-ABPlayerKit](docs/DESIGN-ABPlayerK
 ## API Stability
 
 While this package is `0.x`, replacement APIs are always added additively and deprecated (never silently removed) in the same minor release, with at least one minor release of overlap before removal — nothing is removed before `1.0.0`. `ABPlayerEvent`/`ABPlayerError` stay non-exhaustive `enum`s for the same reason: consumer `switch` statements should include a `default` branch. The full policy is in [POLICY-api-stability](docs/POLICY-api-stability.md), and every release is recorded in the [CHANGELOG](CHANGELOG.md).
-
-> **The deprecated `accessoryViews:` initializer.** A bare `ABPlayerControls(player: player)` / `ABVideoPlayerWithControls(player: player)` call resolves to the deprecated array-based initializer and warns. Add an empty trailing closure — `ABPlayerControls(player: player) {}` — to route to the current `@ViewBuilder accessories:` one. See the CHANGELOG's [`[0.3.0]` Migration notes](CHANGELOG.md#030---2026-08-05) for why there's no default that avoids this.
 
 ## Contributing
 

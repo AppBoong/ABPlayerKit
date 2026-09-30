@@ -70,7 +70,7 @@ An explicit `style:`/`configuration:` initializer argument always wins over the 
 
 ```swift
 VStack {
-    ABVideoPlayerWithControls(player: featuredPlayer, style: .tinted) {} // this player only
+    ABVideoPlayerWithControls(player: featuredPlayer, style: .tinted) // this player only
     ABVideoPlayerWithControls(url: secondURL)
 }
 .playerControlsStyle(.minimal) // every other player in the stack

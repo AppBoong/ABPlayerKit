@@ -21,7 +21,7 @@ public struct ABPlayerControls: UIViewRepresentable {
         player: ABPlayer,
         style: ABPlayerControlsStyle? = nil,
         configuration: ABPlayerControlsConfiguration? = nil,
-        accessoryViews: [UIView] = [],
+        accessoryViews: [UIView],
         onEvent: (@MainActor (ABControlsEvent) -> Void)? = nil
     ) {
         self.init(
@@ -66,6 +66,20 @@ public struct ABPlayerControls: UIViewRepresentable {
         self.accessoryViews = accessoryViews
         self.accessoriesContent = nil
         self.onEvent = onEvent
+    }
+
+    /// Controls with no accessories. `accessoryViews:` on the deprecated
+    /// initializer above has no default, so a call without accessories
+    /// resolves here rather than to it.
+    public init(
+        player: ABPlayer,
+        style: ABPlayerControlsStyle? = nil,
+        configuration: ABPlayerControlsConfiguration? = nil,
+        onEvent: (@MainActor (ABControlsEvent) -> Void)? = nil
+    ) {
+        self.init(player: player, style: style, configuration: configuration, onEvent: onEvent) {
+            EmptyView()
+        }
     }
 
     /// SwiftUI accessory overlay content, hosted via `ABAccessoryHostingBox`.

@@ -46,7 +46,7 @@ public struct ABVideoPlayerWithControls: View {
         videoGravity: AVLayerVideoGravity = .resizeAspectFill,
         style: ABPlayerControlsStyle? = nil,
         configuration: ABPlayerControlsConfiguration? = nil,
-        accessoryViews: [UIView] = []
+        accessoryViews: [UIView]
     ) {
         self.ownership = .explicit(
             player,
@@ -64,6 +64,20 @@ public struct ABVideoPlayerWithControls: View {
         self.style = style
         self.configuration = configuration
         self.accessoriesContent = nil
+    }
+
+    /// Video with the standard controls and no accessories. `accessoryViews:`
+    /// on the deprecated initializer above has no default, so a call without
+    /// accessories resolves here rather than to it.
+    public init(
+        player: ABPlayer,
+        videoGravity: AVLayerVideoGravity = .resizeAspectFill,
+        style: ABPlayerControlsStyle? = nil,
+        configuration: ABPlayerControlsConfiguration? = nil
+    ) {
+        self.init(player: player, videoGravity: videoGravity, style: style, configuration: configuration) {
+            EmptyView()
+        }
     }
 
     /// SwiftUI accessory overlay content — see `ABPlayerControls`'s matching
@@ -209,7 +223,7 @@ public struct ABVideoPlayerWithControls: View {
                 accessoriesContent()
             }
         } else {
-            ABPlayerControls(player: player, style: style, configuration: configuration) {}
+            ABPlayerControls(player: player, style: style, configuration: configuration)
         }
     }
 }
