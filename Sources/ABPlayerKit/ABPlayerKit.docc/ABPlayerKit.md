@@ -10,6 +10,30 @@ Render the same player with ``ABPlayerView`` in UIKit or ``ABVideoPlayer`` in Sw
 
 Time to first frame ends only when both the player layer is ready for display and the current item is ready to play.
 
+### Getting Started
+
+One line puts a video on screen. The view owns the player and releases it when SwiftUI discards the view:
+
+```swift
+import ABPlayerKit
+import SwiftUI
+
+ABVideoPlayer(url: url)
+    .aspectRatio(16 / 9, contentMode: .fit)
+```
+
+Own the player when a screen needs to pause it, observe it, or share it:
+
+```swift
+@State private var player = ABPlayer()
+
+ABVideoPlayer(player: player)
+    .task { player.load(ABMediaSource(url: url)) }  // a no-op on later appearances
+    .onDisappear { player.pause() }
+```
+
+<doc:ChoosingAnOwnershipModel> explains when to take each step, and how grades preload a feed.
+
 ### Scrubbing
 
 Call ``ABPlayer/beginScrubbing()`` when an interactive drag starts, send every new destination through ``ABPlayer/scrub(to:)``, and await ``ABPlayer/endScrubbing()`` when it ends. ABPlayerKit coalesces intermediate seeks so only the newest pending destination survives, then commits the final destination precisely.
@@ -23,6 +47,10 @@ Periodic time events pause during that session and resume with an immediate snap
 Treat ``ABPlayerEvent``, ``ABPlayerError``, and ``ABBackgroundPolicy`` as non-exhaustive. Minor releases may add cases, so switches outside ABPlayerKit should include a `default` branch.
 
 ## Topics
+
+### Essentials
+
+- <doc:ChoosingAnOwnershipModel>
 
 ### Playback
 
