@@ -215,11 +215,9 @@ struct VideoScreen: View {
         ABVideoPlayerWithControls(player: player, videoGravity: .resizeAspect)
             .aspectRatio(16 / 9, contentMode: .fit)
             .task {
-                // Runs on every appearance. Attach and autoplay only the first time,
-                // so coming back to this screen doesn't restart the video.
-                guard player.source == nil else { return }
-                player.set(source: ABMediaSource(url: url), grade: .current)
-                player.play()
+                // Safe on every appearance: loading the source that is already
+                // loaded is a no-op, so coming back never restarts the video.
+                player.load(ABMediaSource(url: url))
             }
             .onDisappear {
                 // Leaving the screen pauses; it doesn't release. The player — and its

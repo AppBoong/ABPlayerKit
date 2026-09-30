@@ -398,6 +398,29 @@ public final class ABPlayer {
         set(source: source, grade: grade)
     }
 
+    /// Loads `source` for playback — `set(source:grade:)` at `.current`,
+    /// followed by `play()` when `autoplay` is `true`.
+    ///
+    /// Idempotent for the source already loaded at `.current`: it neither
+    /// re-attaches nor calls `play()` again. That makes it safe to call from
+    /// `.task` or `onAppear`, which run on every appearance — coming back to
+    /// a screen never restarts the item or resumes a player the user
+    /// paused. A different source, or a player released or demoted in the
+    /// meantime, loads normally.
+    ///
+    /// Prefer this over passing a source to the player at creation time:
+    /// a SwiftUI `@State` initial value is re-evaluated on every
+    /// reconstruction of the view value and all but the first is thrown
+    /// away, so attaching an item there would build (and start loading)
+    /// throwaway `AVPlayerItem`s.
+    public func load(_ source: ABMediaSource, autoplay: Bool = true) {
+        guard self.source != source || grade != .current else { return }
+        set(source: source, grade: .current)
+        if autoplay {
+            play()
+        }
+    }
+
     /// Releases every resource. Safe to call from any grade — always routes
     /// through `.detachItem` when an item is held.
     public func release() {

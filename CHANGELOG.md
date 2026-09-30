@@ -6,6 +6,7 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ### Added
 
+- Added `ABPlayer.load(_:autoplay:)` — `set(source:grade: .current)` plus `play()`, and a no-op for the source already loaded at `.current`. It is the one line an explicit-ownership SwiftUI screen needs in `.task`: re-appearing neither restarts the item nor resumes a player the user paused, and the grade ladder stays out of the way until a feed actually needs it. It deliberately isn't an initializer argument — a `@State` initial value is re-evaluated on every reconstruction of the view value, so attaching there would build throwaway `AVPlayerItem`s.
 - Added `ABVideoPlayerWithControls.init(player:videoGravity:style:configuration:)` and `ABPlayerControls.init(player:style:configuration:onEvent:)` — the no-accessories form, with no trailing closure. `ABVideoPlayerWithControls(player: player)` now compiles warning-free; the `{}` that 0.3.0's migration notes asked for is no longer needed (it still compiles, to the same current initializer).
 - Added `ABHLSPrefetcher.invalidateSharedSession()` — the explicit, process-wide teardown of the one `AVAssetDownloadURLSession` every prefetcher shares (a background session identifier can be bound to only one live session per process). This is what `invalidate()` used to do implicitly.
 
