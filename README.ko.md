@@ -30,6 +30,7 @@ ABVideoPlayerWithControls(url: url)
 - **커스터마이즈 가능한 컨트롤** — 색상, 아이콘, 스킵 간격, 더블탭 시크, 액세서리 슬롯, 배속 메뉴. 뷰마다 지정하거나 view modifier로 화면 전체에 한 번에 적용합니다.
 - **백그라운드·PiP·AirPlay·잠금화면 재생**을 명시적인 옵트인 정책으로 제공합니다.
 - **선택형 메트릭과 캐시**를 별도 링크 타겟으로 분리했습니다. QoE 세션 요약, 프로그레시브 MP4 캐싱, 명시적 HLS 프리페치.
+- **SwiftUI에 맞는 상태 관찰.** `ABPlayer`는 `@Observable`이고, 재생 위치는 별도의 관찰 객체로 분리돼 있습니다. 그래서 시간이 흘러도 시간을 표시하는 뷰만 다시 그려집니다.
 - **Swift 6 언어 모드**, `@MainActor`로 격리된 UI, `Sendable` 설정 값.
 
 > **[Engineering Notes](docs/ENGINEERING-NOTES.md)** (영문) — 커버리지 91%의 테스트 743건이 전부 그린인 채로 놓친 AVFoundation 결함 3건. 그중 하나는 백그라운드 오디오 정책이 실기기에서 완전히 죽어 있던 것입니다. 셋 다 그 결함을 정면으로 겨냥한 테스트가 있었고 전부 통과했습니다 — 최종 상태만 단언하고 iOS가 실제로 보는 타이밍은 보지 않았기 때문입니다. 테스트가 대신 무엇을 재고 있었는지, 그리고 거기서 나온 다섯 가지 규칙.
@@ -69,13 +70,26 @@ ABVideoPlayerWithControls(url: url)
 
 이 라이브러리는 의도적으로 얇게 유지됩니다. AVFoundation을 추상화해 감추지 않고, 큐/재생목록 모델을 제공하지 않으며, 자막 선택 상태를 관리하지 않습니다 — [설계 근거](#설계-근거)를 참고하세요.
 
+## 설계 하이라이트
+
+소스를 열어 볼 만한 결정들과, 각각을 확인할 수 있는 곳입니다.
+
+- **관찰 범위를 바뀌는 것에만 한정합니다.** 재생 시간은 플레이어가 아니라 별도의 `@Observable` 객체인 `player.position`에 있습니다. 초당 네 번 틱이 와도 `isPlaying`만 읽는 뷰는 다시 평가되지 않습니다. 누군가 읽기 전까지는 주기 옵저버도 달지 않습니다. `ABPlaybackPositionTests`가 `withObservationTracking`으로 이 무효화 경계를 증명합니다. → [별도 객체인 이유](#재생-위치가-별도-객체인-이유)
+- **자원 소유권은 관례가 아니라 상태 머신입니다.** 등급은 넷이고, 모든 전이는 AVFoundation을 import하지 않는 순수 함수가 계획합니다. 16쌍 전부를 표 기반으로 테스트합니다. 강등하면 프리로드 튜닝을 다시 적용하므로 강등은 승격의 정확한 역연산입니다. → [등급과 프리로드](#고급--등급과-프리로드)
+- **프로세스 전역 자원은 전역 자원으로 다룹니다.** `AVAudioSession`은 코디네이터 하나를 거칩니다. 첫 플레이어가 세션을 바꾸기 전에 호스트 앱의 세션을 스냅샷해 두고, 마지막 플레이어가 떠날 때 복원합니다. 백그라운드 HLS 다운로드는 세션 identifier가 허용하는 단 하나의 `AVAssetDownloadURLSession`을 공유하며, 한 화면이 다른 화면의 다운로드를 내리지 못합니다. Now Playing의 소유자는 항상 하나입니다.
+- **"재생 중"과 "화면에 프레임이 떴다"는 다른 사건입니다.** 첫 프레임 표시 시간은 같은 아이템에 대해 `AVPlayerLayer.isReadyForDisplay`와 `AVPlayerItem.status == .readyToPlay`가 모두 참일 때만 끝납니다.
+- **CI만이 아니라 실기기에서 검증합니다.** 그린이던 테스트 743건이 AVFoundation 결함 3건을 놓쳤습니다. 2건은 실기기에서, 1건은 리뷰에서 잡혔습니다. 결함을 정면으로 겨냥한 테스트가 왜 통과했는지를 정리했습니다. → [Engineering Notes](docs/ENGINEERING-NOTES.md)(영문)
+- **공개 API는 문서화된 정책을 따릅니다.** 1.0 전에는 아무것도 제거하지 않습니다. 대체 API를 먼저 내고 기존 API는 deprecate합니다. 오버로드 해석은 경고를 에러로 처리하는 빌드에서 컴파일되는 테스트로 고정했고, 문서의 SwiftUI 예제도 테스트로 컴파일합니다. → [API 안정성](#api-안정성)
+
 ## 목차
 
 - [요구 사항](#요구-사항)
 - [설치](#설치)
+- [설계 하이라이트](#설계-하이라이트)
 - [빠른 시작](#빠른-시작)
   - [커스터마이징](#커스터마이징)
   - [플레이어를 직접 소유하기](#플레이어를-직접-소유하기)
+  - [재생 시간 표시하기](#재생-시간-표시하기)
   - [UIKit과 `ABPlayerView`](#uikit과-abplayerview)
   - [고급 — 등급과 프리로드](#고급--등급과-프리로드)
 - [타겟별 사용법](#타겟별-사용법)
@@ -228,7 +242,23 @@ struct VideoScreen: View {
 }
 ```
 
-Picture in Picture는 이 경로에서만 동작합니다 — [배경 정책과 Picture in Picture](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/backgroundandpictureinpicture/)를 참고하세요.
+`load(_:autoplay:)`는 `.current`로 붙이고 재생합니다. 이니셜라이저 인자로 두지 않은 데는 이유가 있습니다. SwiftUI는 뷰를 다시 만들 때마다 `@State` 초깃값을 다시 평가하고 첫 번째 것만 남기므로, 거기서 붙이면 버려질 `AVPlayerItem`이 만들어집니다.
+
+Picture in Picture, Now Playing, 메트릭은 모두 이 경로에서 시작합니다 — [배경 정책과 Picture in Picture](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/backgroundandpictureinpicture/)를 참고하세요. 어느 단계에서 무엇을 쓸지는 [Choosing an Ownership Model](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/choosinganownershipmodel/)(영문)에서 설명합니다.
+
+### 재생 시간 표시하기
+
+`player.position`은 SwiftUI가 바로 읽을 수 있는 `@Observable` 객체입니다.
+
+```swift
+VStack {
+    ABVideoPlayer(player: player)
+    ProgressView(value: player.position.time.progress ?? 0)
+    Text(player.position.time.currentTime.seconds, format: .number.precision(.fractionLength(0)))
+}
+```
+
+`positionUpdateInterval`(기본 0.25초)마다 갱신되며, 누군가 읽기 시작한 뒤에만 동작합니다. `player.currentTime`은 접근할 때마다 `AVPlayer`에서 다시 읽는 값이라 SwiftUI가 관찰할 수 없습니다.
 
 ### UIKit과 `ABPlayerView`
 
@@ -289,6 +319,7 @@ player.set(source: source, grade: .instanceOnly)
 - 아이템을 보유한 모든 해제 경로는 `detachItem`을 거칩니다.
 - `.preloaded`와 `.current` 사이를 이동할 때 대응하는 튜닝 역할을 다시 적용하므로 강등은 승격의 정확한 역연산입니다.
 - 재생 제어 호출은 `.current`에서만 받아들여집니다 — [실패·진단·거부된 호출](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/failuresanddiagnostics/)을 참고하세요.
+- 플레이어 하나만 `.current`로 두고, 이웃은 프리로드하고, 나머지는 해제하는 SwiftUI 피드 전체 예제는 [Choosing an Ownership Model](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/choosinganownershipmodel/)(영문)에 있습니다.
 - `ABMediaSource`의 `kind:`는 URL의 확장자에서 추론됩니다(`.m3u8` → `.hls`, 그 외 → `.progressive`). 이 추론이 틀릴 수 있는 서명된/확장자 없는 URL일 때만 명시적으로 지정하세요.
 
 ## 타겟별 사용법
@@ -399,7 +430,7 @@ player.set(source: source, grade: .preloaded) // preloadTuning 복원
 ## 문제 해결
 
 **영상 영역이 검은 화면이고 아무것도 재생되지 않습니다.**
-플레이어는 아이템을 보유해야만 미디어를 로드합니다. `player.set(source:grade:)`를 `.current`로(또는 `.preloaded` 후 승격으로) 호출했는지 확인하세요 — `.instanceOnly`에 머문 플레이어는 의도적으로 아이템을 보유하지 않고 네트워크 요청도 하지 않습니다. 그다음 `player.lastFailure`에서 종료성 실패를 확인하세요. `lastDiagnostic`에 `.itemErrorLogEntry`가 담기는 것은 정상 스트림에서도 흔한 일이며 원인이 아닙니다.
+플레이어는 아이템을 보유해야만 미디어를 로드합니다. `player.load(_:)`를 호출했는지, 또는 `player.set(source:grade:)`를 `.current`로(혹은 `.preloaded` 후 승격으로) 호출했는지 확인하세요 — `.instanceOnly`에 머문 플레이어는 의도적으로 아이템을 보유하지 않고 네트워크 요청도 하지 않습니다. 그다음 `player.lastFailure`에서 종료성 실패를 확인하세요. `lastDiagnostic`에 `.itemErrorLogEntry`가 담기는 것은 정상 스트림에서도 흔한 일이며 원인이 아닙니다.
 
 **`play()`, `pause()`, `seek()`가 아무 반응이 없습니다.**
 재생 제어 호출은 `grade != .current`인 동안 예외를 던지지 않고 무시됩니다. `.callRejected(ABRejectedCall, grade:)`를 관찰하면 어떤 호출이 어떤 등급에서 버려졌는지 알 수 있습니다.
@@ -466,6 +497,7 @@ flowchart TD
     VideoPlayer --> Player
     Controls --> Player
     Player --> Planner[ABGradePlanner<br/>순수 상태 머신]
+    Player --> Position[ABPlaybackPosition<br/>관찰 가능한 재생 시간]
     Player --> Target[ABPlaybackTarget<br/>internal 테스트 이음매]
     Target --> AVTarget[ABAVPlaybackTarget]
     Metrics[ABPlayerKitMetrics] -. 관찰 토큰 .-> Player
@@ -482,6 +514,10 @@ flowchart TD
 ### delegate나 `AsyncStream` 대신 옵저버와 토큰을 선택한 이유
 
 delegate 슬롯 하나를 사용하면 앱 동작과 메트릭이 소유권을 놓고 경쟁합니다. 다중 옵저버는 두 소비자가 독립적으로 연결되게 하고, `ABObservationToken`은 명시적 취소와 deinit 자동 취소를 보장합니다. `AsyncStream`은 팬아웃, 버퍼/드롭 정책, 백프레셔, `for await` 태스크 수명 결정을 추가합니다. 스케줄링 때문에 TTFF가 의존하는 콜백 경계 타임스탬프가 흐려질 수도 있습니다. 스트림은 나중에 토큰 API를 깨지 않고 추가할 수 있습니다.
+
+### 재생 위치가 별도 객체인 이유
+
+Observation은 객체 단위, 프로퍼티 단위로 접근을 추적합니다. 위치가 `ABPlayer`의 프로퍼티라면 틱마다 플레이어에 연결된 모든 뷰가 지켜보는 객체가 바뀝니다. 별도 객체로 두면 틱은 `position`을 읽은 뷰만 무효화합니다. 값이 같으면 대입하지 않으므로 일시정지한 플레이어는 아무것도 다시 그리지 않습니다. 또 지연 생성되므로 프리로드된 피드 셀은 주기 옵저버를 아예 돌리지 않습니다. `.periodicTime` 이벤트와 위치는 `AVPlayer` 주기 옵저버 하나를 두 간격 중 더 촘촘한 쪽으로 공유합니다. 자세한 근거는 [DESIGN-ABPlayerKit §5.4a](docs/DESIGN-ABPlayerKit.md)에 있습니다.
 
 ### DI 컨테이너를 사용하지 않는 이유
 

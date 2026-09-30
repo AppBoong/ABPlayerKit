@@ -30,6 +30,7 @@ ABVideoPlayerWithControls(url: url)
 - **Customizable controls** — colors, icons, skip intervals, double-tap seek, accessory slots, rate menu — set per view or once for a whole screen with view modifiers.
 - **Background, PiP, AirPlay, and lock-screen playback** as explicit, opt-in policies.
 - **Optional metrics and caching** in separately linked targets: QoE session summaries, progressive MP4 caching, and explicit HLS prefetch.
+- **SwiftUI-native state.** `ABPlayer` is `@Observable`, and the playback position is a separate observable object, so a time tick re-renders only the views that show time.
 - **Swift 6 language mode**, `@MainActor`-isolated UI, `Sendable` configuration values.
 
 > **[Engineering Notes](docs/ENGINEERING-NOTES.md)** — three AVFoundation defects that a green 743-test suite at 91% coverage did not catch, including a background-audio policy that was completely dead on hardware. Each had a test aimed directly at it that passed, because it measured the end state and never the timing iOS actually cares about. What the tests were measuring instead, and the five rules that came out of it.
@@ -69,13 +70,26 @@ The animation above and these screenshots are from the `Examples/ABPlayerKitDemo
 
 This library deliberately stays thin. It does not abstract AVFoundation away, does not provide a queue or playlist model, and does not manage subtitle selection state — see [Design Rationale](#design-rationale).
 
+## Design Highlights
+
+The decisions worth reading the source for, each with where to verify it:
+
+- **Observation is scoped to what changes.** Playback time lives in its own `@Observable` object, `player.position`, instead of on the player, so four ticks a second never re-evaluate a view that only reads `isPlaying`. It starts no periodic observer until something reads it. `ABPlaybackPositionTests` proves the invalidation boundary with `withObservationTracking`. → [Why a separate object](#why-is-the-playback-position-a-separate-object)
+- **Resource ownership is a state machine, not a convention.** Four grades, with every transition planned by a pure function that has no AVFoundation import and is table-tested over all 16 pairs. Demotion re-applies the preload tuning, so it is the exact inverse of promotion. → [Grades and Preloading](#advanced--grades-and-preloading)
+- **Process-wide resources are treated as process-wide.** `AVAudioSession` goes through one coordinator that snapshots the host app's session before the first player changes it, and restores it when the last player leaves. Background HLS downloads share the single `AVAssetDownloadURLSession` a session identifier allows, and one screen can't tear down another's downloads. Now Playing has exactly one owner at a time.
+- **"Playing" and "a frame is on screen" are different events.** Time-to-first-frame ends only when `AVPlayerLayer.isReadyForDisplay` and `AVPlayerItem.status == .readyToPlay` are both true for the same item.
+- **Tested on hardware, not only in CI.** A green 743-test suite missed three AVFoundation defects: two were found on a device and one in review. The write-up covers why each test aimed at the bug still passed. → [Engineering Notes](docs/ENGINEERING-NOTES.md)
+- **The public API is held to a written policy.** Nothing is removed before 1.0; replacements ship first and the old API is deprecated. Overload resolution is pinned by tests that compile under warnings-as-errors, and the documented SwiftUI samples are compiled as tests. → [API Stability](#api-stability)
+
 ## Table of Contents
 
 - [Requirements](#requirements)
 - [Installation](#installation)
+- [Design Highlights](#design-highlights)
 - [Quick Start](#quick-start)
   - [Customizing](#customizing)
   - [Owning the Player Yourself](#owning-the-player-yourself)
+  - [Showing Playback Time](#showing-playback-time)
   - [UIKit with `ABPlayerView`](#uikit-with-abplayerview)
   - [Advanced — Grades and Preloading](#advanced--grades-and-preloading)
 - [Usage by Target](#usage-by-target)
@@ -228,7 +242,23 @@ struct VideoScreen: View {
 }
 ```
 
-Picture in Picture requires this path — see [Background Policy and Picture in Picture](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/backgroundandpictureinpicture/).
+`load(_:autoplay:)` attaches at `.current` and plays. It deliberately isn't an initializer argument: SwiftUI re-evaluates a `@State` initial value on every rebuild of the view and discards all but the first, so attaching there would create throwaway `AVPlayerItem`s.
+
+Picture in Picture, Now Playing, and metrics all start from this path — see [Background Policy and Picture in Picture](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/backgroundandpictureinpicture/). [Choosing an Ownership Model](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/choosinganownershipmodel/) walks through when to take each step.
+
+### Showing Playback Time
+
+`player.position` is an `@Observable` object that SwiftUI reads directly:
+
+```swift
+VStack {
+    ABVideoPlayer(player: player)
+    ProgressView(value: player.position.time.progress ?? 0)
+    Text(player.position.time.currentTime.seconds, format: .number.precision(.fractionLength(0)))
+}
+```
+
+It refreshes every `positionUpdateInterval` (default 0.25 s) and only once something reads it. `player.currentTime` is re-read from `AVPlayer` on each access, so SwiftUI can't observe it.
 
 ### UIKit with `ABPlayerView`
 
@@ -289,6 +319,7 @@ player.set(source: source, grade: .instanceOnly)
 - Every release path that holds an item routes through `detachItem`.
 - Moving between `.preloaded` and `.current` reapplies the matching tuning role, so demotion is the exact inverse of promotion.
 - Playback control calls are accepted only at `.current` — see [Failures, Diagnostics, and Rejected Calls](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/failuresanddiagnostics/).
+- A full SwiftUI feed that keeps one player `.current`, preloads its neighbours, and releases the rest is in [Choosing an Ownership Model](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/choosinganownershipmodel/).
 - `ABMediaSource`'s `kind:` is inferred from the URL's extension (`.m3u8` → `.hls`, anything else → `.progressive`). Pass it explicitly only for a signed or extensionless URL where that inference would guess wrong.
 
 ## Usage by Target
@@ -399,7 +430,7 @@ This symmetry prevents a demoted item from retaining the unrestricted/current po
 ## Troubleshooting
 
 **The video area is black and nothing plays.**
-A player only loads media once it holds an item. Confirm `player.set(source:grade:)` was called with `.current` (or `.preloaded` followed by a promotion) — a player left at `.instanceOnly` deliberately holds no item and makes no network requests. Then check `player.lastFailure` for a terminal failure. Note that `lastDiagnostic` carrying an `.itemErrorLogEntry` is normal for a healthy stream and is not the cause.
+A player only loads media once it holds an item. Confirm `player.load(_:)` — or `player.set(source:grade:)` with `.current` — was called (or `.preloaded` followed by a promotion) — a player left at `.instanceOnly` deliberately holds no item and makes no network requests. Then check `player.lastFailure` for a terminal failure. Note that `lastDiagnostic` carrying an `.itemErrorLogEntry` is normal for a healthy stream and is not the cause.
 
 **`play()`, `pause()`, or `seek()` seem to do nothing.**
 Playback control calls are ignored — not thrown — while `grade != .current`. Observe `.callRejected(ABRejectedCall, grade:)` to see which call was dropped and at what grade.
@@ -466,6 +497,7 @@ flowchart TD
     VideoPlayer --> Player
     Controls --> Player
     Player --> Planner[ABGradePlanner<br/>pure state machine]
+    Player --> Position[ABPlaybackPosition<br/>observable time]
     Player --> Target[ABPlaybackTarget<br/>internal test seam]
     Target --> AVTarget[ABAVPlaybackTarget]
     Metrics[ABPlayerKitMetrics] -. observation token .-> Player
@@ -482,6 +514,10 @@ flowchart TD
 ### Why observers and tokens instead of a delegate or `AsyncStream`?
 
 A single delegate slot would force application behavior and metrics to compete for ownership. Multiple observers allow both to attach independently, while `ABObservationToken` guarantees explicit cancellation and automatic cancellation on deinitialization. An `AsyncStream` would add fan-out, buffering/drop policy, backpressure, and `for await` task-lifetime decisions; its scheduling can also blur the callback-boundary timestamp that TTFF depends on. A stream can be added later without breaking the token API.
+
+### Why is the playback position a separate object?
+
+Observation tracks access per object and per property. If the position were a property of `ABPlayer`, every tick would mutate the object that every player-bound view is watching. As its own object, a tick invalidates only the views that read `position`. It is also equality-gated, so a paused player never re-renders anything, and it is created lazily, so a preloaded feed cell never runs a periodic observer at all. `.periodicTime` events and the position share one `AVPlayer` periodic observer at the finer of their two intervals. The full reasoning is in [DESIGN-ABPlayerKit §5.4a](docs/DESIGN-ABPlayerKit.md).
 
 ### Why no dependency-injection container?
 
