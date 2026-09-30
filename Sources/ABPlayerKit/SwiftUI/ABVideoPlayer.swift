@@ -36,9 +36,9 @@ public struct ABVideoPlayer: UIViewRepresentable {
     }
 
     /// Creates and owns its own `ABPlayer` for the lifetime of this view's
-    /// identity — released when the identity's storage (this
-    /// representable's `Coordinator`) is torn down, never on
-    /// `dismantleUIView` alone (see `Coordinator`). Media type is inferred
+    /// identity — released synchronously in `dismantleUIView`, when SwiftUI
+    /// discards the view, and never on `onDisappear` (see `Coordinator`).
+    /// Media type is inferred
     /// from `url`'s extension; use the `source:` initializer to specify it
     /// explicitly or to carry HTTP headers.
     public init(

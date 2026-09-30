@@ -175,21 +175,30 @@ public struct ABVideoPlayerWithControls: View {
         }
     }
 
-    /// A plain (non-`@ViewBuilder`) function, unlike `body` and
-    /// `ownedControls(for:)` below — its `owner.apply(...)` call returns
-    /// `Void`, which a result builder would reject as a non-`View`
-    /// statement. An ordinary function body has no such restriction.
+    /// Creating the player here is safe — `ABOwnedPlayerBox` isn't
+    /// observable, and the first call is the only one that allocates. The
+    /// source is *applied* from `onAppear`/`onChange` instead: applying it
+    /// calls `set(source:)`/`play()`, which mutate `ABPlayer`'s observed
+    /// state and fire its event observers, and neither belongs inside a
+    /// view update. Both calls funnel into `apply`, which is a no-op for a
+    /// repeat of the same source, so appearing again never restarts a
+    /// player the user paused.
     private func ownedContent(
         source: ABMediaSource,
         autoplay: Bool,
         playerConfiguration: ABPlayerConfiguration
     ) -> some View {
         let player = owner.player(configuration: playerConfiguration, videoGravity: videoGravity)
-        owner.apply(source: source, autoplay: autoplay)
         return ABVideoPlayer(player: player, videoGravity: videoGravity)
             .overlay {
                 ownedControls(for: player)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .onAppear {
+                owner.apply(source: source, autoplay: autoplay)
+            }
+            .onChange(of: source) { _, newSource in
+                owner.apply(source: newSource, autoplay: autoplay)
             }
     }
 

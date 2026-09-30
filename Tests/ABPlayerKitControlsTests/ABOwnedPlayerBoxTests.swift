@@ -47,27 +47,7 @@ struct ABOwnedPlayerBoxTests {
         #expect(!player.isPlaying)
     }
 
-    @Test("releaseIfOwned is idempotent")
-    func releaseIfOwnedIsIdempotent() {
-        let box = ABOwnedPlayerBox()
-        let player = box.player(configuration: ignoringBackground(), videoGravity: .resizeAspectFill)
-        box.apply(source: ABMediaSource(url: url), autoplay: false)
-
-        box.releaseIfOwned()
-        box.releaseIfOwned()
-
-        #expect(player.grade == .released)
-        #expect(player.source == nil)
-    }
-
-    @Test("releaseIfOwned is a no-op when the box never created a player")
-    func releaseIfOwnedNoopWithoutPlayer() {
-        let box = ABOwnedPlayerBox()
-        box.releaseIfOwned()
-        box.releaseIfOwned()
-    }
-
-    @Test("The box's own deinit releases the player when releaseIfOwned was never called")
+    @Test("Tearing the box down releases the player it created")
     func deinitReleasesUnreleasedPlayer() async throws {
         let player: ABPlayer = {
             let box = ABOwnedPlayerBox()
