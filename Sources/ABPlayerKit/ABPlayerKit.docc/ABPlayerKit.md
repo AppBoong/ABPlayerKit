@@ -95,4 +95,10 @@ Treat ``ABPlayerEvent``, ``ABPlayerError``, and ``ABBackgroundPolicy`` as non-ex
 ### Extension Seams
 
 - ``ABAssetFactory``
+
+### Grade State Machine
+
+Public so the transition table can be read and tested on its own, not as an extension seam. See the API stability policy's "Public types that are not extension seams".
+
 - ``ABGradePlanner``
+- ``ABGradeAction``

@@ -3,6 +3,10 @@ import Foundation
 
 /// Locale-independent playback time formatting.
 public enum ABTimeFormatter {
+    /// Never returned by `string(from:)` (a non-finite value formats as
+    /// `"--:--"`) and not localized. `ABPlayerKitControls` shows its own
+    /// localized marker instead.
+    @available(*, deprecated, message: "Unused by this package and not localized — supply your own label. Scheduled for removal in 1.0.0.")
     public static let liveMarker = "LIVE"
 
     /// Formats seconds as `M:SS`, or `H:MM:SS` once the hours field is needed

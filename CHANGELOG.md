@@ -17,6 +17,11 @@ All notable changes to ABPlayerKit are documented in this file.
 - While `ABPlayer.position` is in use, `.periodicTime` events and the position share one `AVPlayer` periodic observer running at the finer of `periodicTimeInterval` and `positionUpdateInterval`, so `.periodicTime` can arrive more often than `periodicTimeInterval`. A player that never reads `position` is unaffected.
 - The deprecated `accessoryViews:` initializers of `ABPlayerControls` and `ABVideoPlayerWithControls` no longer default `accessoryViews` to `[]`. That default is what made a bare `(player:)` call resolve to them and warn. Calls that pass `accessoryViews:` explicitly are unaffected; calls that relied on the default now resolve to the new no-accessories initializer, without a warning.
 
+### Deprecated
+
+- `ABTimeFormatter.liveMarker` — never returned by `string(from:)`, never read anywhere in this package, and not localized (`ABPlayerKitControls` shows its own localized marker). Supply your own label. Scheduled for removal in 1.0.0.
+- `ABVideoPlayer`'s `configuration:` label — see the `playerConfiguration:` entry under Changed.
+
 ### Fixed
 
 - `ABHLSPrefetcher.invalidate()` no longer tears down the download session shared by every instance. It used to call `finishTasksAndInvalidate()` on that session, so one screen invalidating its own prefetcher in `onDisappear` failed every other screen's in-flight HLS downloads. It now cancels only that instance's downloads and retires the instance (later `prefetch` calls resolve `.failed`); completed downloads stay available through `localAsset(for:)`. Code that relied on the old process-wide effect should call `ABHLSPrefetcher.invalidateSharedSession()`.
