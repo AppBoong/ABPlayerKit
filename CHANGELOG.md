@@ -13,6 +13,7 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ### Changed
 
+- `ABVideoPlayer.init(url:videoGravity:autoplay:playerConfiguration:)` and `init(source:…playerConfiguration:)` replace the `configuration:` label, which is deprecated (removal in 1.0.0). On every view the labels now mean one thing: `playerConfiguration:` is an `ABPlayerConfiguration`, and `configuration:` is an `ABPlayerControlsConfiguration`. `ABVideoPlayer` was the one view where `configuration:` meant the player's. Bare calls that omit the argument are unaffected.
 - While `ABPlayer.position` is in use, `.periodicTime` events and the position share one `AVPlayer` periodic observer running at the finer of `periodicTimeInterval` and `positionUpdateInterval`, so `.periodicTime` can arrive more often than `periodicTimeInterval`. A player that never reads `position` is unaffected.
 - The deprecated `accessoryViews:` initializers of `ABPlayerControls` and `ABVideoPlayerWithControls` no longer default `accessoryViews` to `[]`. That default is what made a bare `(player:)` call resolve to them and warn. Calls that pass `accessoryViews:` explicitly are unaffected; calls that relied on the default now resolve to the new no-accessories initializer, without a warning.
 

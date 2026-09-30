@@ -38,34 +38,55 @@ public struct ABVideoPlayer: UIViewRepresentable {
     /// Creates and owns its own `ABPlayer` for the lifetime of this view's
     /// identity — released synchronously in `dismantleUIView`, when SwiftUI
     /// discards the view, and never on `onDisappear` (see `Coordinator`).
-    /// Media type is inferred
-    /// from `url`'s extension; use the `source:` initializer to specify it
-    /// explicitly or to carry HTTP headers.
+    /// Media type is inferred from `url`'s extension; use the `source:`
+    /// initializer to specify it explicitly or to carry HTTP headers.
     public init(
         url: URL,
         videoGravity: AVLayerVideoGravity = .resizeAspectFill,
         autoplay: Bool = true,
-        configuration: ABPlayerConfiguration = ABPlayerConfiguration()
+        playerConfiguration: ABPlayerConfiguration = ABPlayerConfiguration()
     ) {
         self.init(
             source: ABMediaSource(url: url),
             videoGravity: videoGravity,
             autoplay: autoplay,
-            configuration: configuration
+            playerConfiguration: playerConfiguration
         )
     }
 
-    /// Same ownership as `init(url:videoGravity:autoplay:configuration:)`,
+    /// Same ownership as `init(url:videoGravity:autoplay:playerConfiguration:)`,
     /// taking a pre-built `ABMediaSource` for explicit `kind`/`httpHeaders`.
     public init(
         source: ABMediaSource,
         videoGravity: AVLayerVideoGravity = .resizeAspectFill,
         autoplay: Bool = true,
-        configuration: ABPlayerConfiguration = ABPlayerConfiguration()
+        playerConfiguration: ABPlayerConfiguration = ABPlayerConfiguration()
     ) {
-        self.ownership = .owned(source, autoplay: autoplay, configuration)
+        self.ownership = .owned(source, autoplay: autoplay, playerConfiguration)
         self.videoGravity = videoGravity
         self.pictureInPicture = nil
+    }
+
+    // `configuration:` has no default here on purpose: a call that omits it
+    // must resolve to the initializers above, not become ambiguous.
+    @available(*, deprecated, renamed: "init(url:videoGravity:autoplay:playerConfiguration:)", message: "Renamed to playerConfiguration: so the label means the same thing on every view. Scheduled for removal in 1.0.0.")
+    public init(
+        url: URL,
+        videoGravity: AVLayerVideoGravity = .resizeAspectFill,
+        autoplay: Bool = true,
+        configuration: ABPlayerConfiguration
+    ) {
+        self.init(url: url, videoGravity: videoGravity, autoplay: autoplay, playerConfiguration: configuration)
+    }
+
+    @available(*, deprecated, renamed: "init(source:videoGravity:autoplay:playerConfiguration:)", message: "Renamed to playerConfiguration: so the label means the same thing on every view. Scheduled for removal in 1.0.0.")
+    public init(
+        source: ABMediaSource,
+        videoGravity: AVLayerVideoGravity = .resizeAspectFill,
+        autoplay: Bool = true,
+        configuration: ABPlayerConfiguration
+    ) {
+        self.init(source: source, videoGravity: videoGravity, autoplay: autoplay, playerConfiguration: configuration)
     }
 
     public func makeCoordinator() -> Coordinator {

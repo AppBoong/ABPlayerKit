@@ -182,3 +182,30 @@ struct ABVideoPlayerOwnershipTests {
         #expect(player.source?.httpHeaders == ["Authorization": "Bearer test"])
     }
 }
+
+/// Compile-only: the `playerConfiguration:` rename must leave every call
+/// shape unambiguous. Under SWIFT_TREAT_WARNINGS_AS_ERRORS the non-deprecated
+/// test below stops compiling if a bare call ever resolves to the old label.
+@Suite("ABVideoPlayer's url:/source: initializers resolve after the playerConfiguration: rename", .timeLimit(abScaledMinutes(3)))
+@MainActor
+struct ABVideoPlayerInitializerLabelTests {
+    private let url = URL(string: "https://example.com/label-test.mp4")!
+
+    @Test("Bare calls and the new label resolve to the current initializers")
+    func currentShapesCompile() {
+        var configuration = ABPlayerConfiguration()
+        configuration.isMuted = true
+
+        _ = ABVideoPlayer(url: url)
+        _ = ABVideoPlayer(url: url, autoplay: false)
+        _ = ABVideoPlayer(url: url, playerConfiguration: configuration)
+        _ = ABVideoPlayer(source: ABMediaSource(url: url), playerConfiguration: configuration)
+    }
+
+    @available(*, deprecated, message: "Intentionally exercises the deprecated configuration: label to prove it still compiles.")
+    @Test("The deprecated configuration: label still compiles")
+    func deprecatedLabelCompiles() {
+        _ = ABVideoPlayer(url: url, configuration: ABPlayerConfiguration())
+        _ = ABVideoPlayer(source: ABMediaSource(url: url), configuration: ABPlayerConfiguration())
+    }
+}
