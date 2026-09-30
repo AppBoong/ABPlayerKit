@@ -79,7 +79,7 @@ ABVideoPlayerWithControls(url: url)
 - **프로세스 전역 자원은 전역 자원으로 다룹니다.** `AVAudioSession`은 코디네이터 하나를 거칩니다. 첫 플레이어가 세션을 바꾸기 전에 호스트 앱의 세션을 스냅샷해 두고, 마지막 플레이어가 떠날 때 복원합니다. 백그라운드 HLS 다운로드는 세션 identifier가 허용하는 단 하나의 `AVAssetDownloadURLSession`을 공유하며, 한 화면이 다른 화면의 다운로드를 내리지 못합니다. Now Playing의 소유자는 항상 하나입니다.
 - **"재생 중"과 "화면에 프레임이 떴다"는 다른 사건입니다.** 첫 프레임 표시 시간은 같은 아이템에 대해 `AVPlayerLayer.isReadyForDisplay`와 `AVPlayerItem.status == .readyToPlay`가 모두 참일 때만 끝납니다.
 - **CI만이 아니라 실기기에서 검증합니다.** 그린이던 테스트 743건이 AVFoundation 결함 3건을 놓쳤습니다. 2건은 실기기에서, 1건은 리뷰에서 잡혔습니다. 결함을 정면으로 겨냥한 테스트가 왜 통과했는지를 정리했습니다. → [Engineering Notes](docs/ENGINEERING-NOTES.md)(영문)
-- **공개 API는 문서화된 정책을 따릅니다.** 1.0 전에는 아무것도 제거하지 않습니다. 대체 API를 먼저 내고 기존 API는 deprecate합니다. 오버로드 해석은 경고를 에러로 처리하는 빌드에서 컴파일되는 테스트로 고정했고, 문서의 SwiftUI 예제도 테스트로 컴파일합니다. → [API 안정성](#api-안정성)
+- **공개 API는 문서화된 정책을 따릅니다.** 1.0 전에는 아무것도 제거하지 않습니다. 대체 API를 먼저 내고 기존 API는 deprecate합니다. 오버로드 해석은 경고를 에러로 처리하는 빌드에서 컴파일되는 테스트로 고정했고, 소유 단계별 SwiftUI 예제도 테스트로 컴파일합니다. → [API 안정성](#api-안정성)
 
 ## 목차
 
@@ -258,7 +258,7 @@ VStack {
 }
 ```
 
-`positionUpdateInterval`(기본 0.25초)마다 갱신되며, 누군가 읽기 시작한 뒤에만 동작합니다. `player.currentTime`은 접근할 때마다 `AVPlayer`에서 다시 읽는 값이라 SwiftUI가 관찰할 수 없습니다.
+적어도 `positionUpdateInterval`(기본 0.25초)마다 갱신되며, 누군가 읽기 시작한 뒤에만 동작합니다. `player.currentTime`은 접근할 때마다 `AVPlayer`에서 다시 읽는 값이라 SwiftUI가 관찰할 수 없습니다.
 
 ### UIKit과 `ABPlayerView`
 
@@ -517,7 +517,7 @@ delegate 슬롯 하나를 사용하면 앱 동작과 메트릭이 소유권을 �
 
 ### 재생 위치가 별도 객체인 이유
 
-Observation은 객체 단위, 프로퍼티 단위로 접근을 추적합니다. 위치가 `ABPlayer`의 프로퍼티라면 틱마다 플레이어에 연결된 모든 뷰가 지켜보는 객체가 바뀝니다. 별도 객체로 두면 틱은 `position`을 읽은 뷰만 무효화합니다. 값이 같으면 대입하지 않으므로 일시정지한 플레이어는 아무것도 다시 그리지 않습니다. 또 지연 생성되므로 프리로드된 피드 셀은 주기 옵저버를 아예 돌리지 않습니다. `.periodicTime` 이벤트와 위치는 `AVPlayer` 주기 옵저버 하나를 두 간격 중 더 촘촘한 쪽으로 공유합니다. 자세한 근거는 [DESIGN-ABPlayerKit §5.4a](docs/DESIGN-ABPlayerKit.md)에 있습니다.
+Observation은 객체 단위, 프로퍼티 단위로 접근을 추적합니다. 위치가 `ABPlayer`의 프로퍼티라면 틱마다 플레이어에 연결된 모든 뷰가 지켜보는 객체가 바뀝니다. 별도 객체로 두면 틱은 `position`을 읽은 뷰만 무효화합니다. 값이 같으면 대입하지 않으므로 일시정지한 플레이어는 버퍼 범위나 길이가 바뀔 때만 읽는 뷰를 다시 그립니다. 또 지연 생성되므로 `position`을 읽지 않는 플레이어에는 주기 옵저버가 추가되지 않습니다. `.periodicTime` 이벤트와 위치는 `AVPlayer` 주기 옵저버 하나를 두 간격 중 더 촘촘한 쪽으로 공유합니다. 자세한 근거는 [DESIGN-ABPlayerKit §5.4a](docs/DESIGN-ABPlayerKit.md)에 있습니다.
 
 ### DI 컨테이너를 사용하지 않는 이유
 

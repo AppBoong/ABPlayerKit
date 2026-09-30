@@ -118,11 +118,11 @@ public final class ABPlayer {
     ///
     /// ``currentTime`` and ``playbackTime`` are re-read from `AVPlayer` on
     /// every access, so SwiftUI can't observe them; this can. It is created
-    /// on first access, and only from then on does the player keep an
-    /// `AVPlayer` periodic time observer running at
-    /// ``ABPlayerConfiguration/positionUpdateInterval`` — a player nobody
-    /// reads the position of pays nothing. See ``ABPlaybackPosition`` for why
-    /// this is a separate object rather than a property of the player.
+    /// on first access. Until then it adds no periodic time observer; from
+    /// then on, while `.current`, the player's `AVPlayer` periodic observer
+    /// runs at least every ``ABPlayerConfiguration/positionUpdateInterval``.
+    /// See ``ABPlaybackPosition`` for why this is a separate object rather
+    /// than a property of the player.
     public var position: ABPlaybackPosition {
         if let positionStorage {
             return positionStorage
@@ -430,7 +430,9 @@ public final class ABPlayer {
     /// `.task` or `onAppear`, which run on every appearance — coming back to
     /// a screen never restarts the item or resumes a player the user
     /// paused. A different source, or a player released or demoted in the
-    /// meantime, loads normally.
+    /// meantime, loads normally — and so does the same source after a
+    /// terminal failure: the failed item is detached and a fresh one
+    /// attached, so returning to a screen whose video failed retries it.
     ///
     /// Prefer this over passing a source to the player at creation time:
     /// a SwiftUI `@State` initial value is re-evaluated on every
@@ -438,7 +440,12 @@ public final class ABPlayer {
     /// away, so attaching an item there would build (and start loading)
     /// throwaway `AVPlayerItem`s.
     public func load(_ source: ABMediaSource, autoplay: Bool = true) {
-        guard self.source != source || grade != .current else { return }
+        if self.source == source, grade == .current {
+            guard lastFailure != nil else { return }
+            // `set` treats the same (source, grade) as a no-op, so drop the
+            // failed item first; the AVPlayer itself is kept.
+            set(source: source, grade: .instanceOnly)
+        }
         set(source: source, grade: .current)
         if autoplay {
             play()

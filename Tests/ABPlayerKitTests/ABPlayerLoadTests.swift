@@ -91,3 +91,25 @@ struct ABPlayerLoadTests {
         #expect(player.grade == .current)
     }
 }
+
+@Suite("load(_:autoplay:) retries a terminally failed item", .timeLimit(abScaledMinutes(3)))
+@MainActor
+struct ABPlayerLoadRetryTests {
+    private let source = ABMediaSource(url: URL(string: "https://example.com/retry.mp4")!)
+
+    @Test("Loading the same source after a terminal failure attaches a fresh item and clears the failure")
+    func retriesAfterFailure() {
+        let target = ABFakePlaybackTarget()
+        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore), target: target)
+        player.load(source)
+        target.emit(.failed(.init(kind: .itemFailed(description: "boom"))))
+        #expect(player.lastFailure != nil)
+
+        player.load(source)
+
+        let attaches = target.calls.filter { if case .attachItem = $0 { true } else { false } }
+        #expect(attaches.count == 2)
+        #expect(player.grade == .current)
+        #expect(player.lastFailure == nil)
+    }
+}

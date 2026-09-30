@@ -79,7 +79,7 @@ The decisions worth reading the source for, each with where to verify it:
 - **Process-wide resources are treated as process-wide.** `AVAudioSession` goes through one coordinator that snapshots the host app's session before the first player changes it, and restores it when the last player leaves. Background HLS downloads share the single `AVAssetDownloadURLSession` a session identifier allows, and one screen can't tear down another's downloads. Now Playing has exactly one owner at a time.
 - **"Playing" and "a frame is on screen" are different events.** Time-to-first-frame ends only when `AVPlayerLayer.isReadyForDisplay` and `AVPlayerItem.status == .readyToPlay` are both true for the same item.
 - **Tested on hardware, not only in CI.** A green 743-test suite missed three AVFoundation defects: two were found on a device and one in review. The write-up covers why each test aimed at the bug still passed. → [Engineering Notes](docs/ENGINEERING-NOTES.md)
-- **The public API is held to a written policy.** Nothing is removed before 1.0; replacements ship first and the old API is deprecated. Overload resolution is pinned by tests that compile under warnings-as-errors, and the documented SwiftUI samples are compiled as tests. → [API Stability](#api-stability)
+- **The public API is held to a written policy.** Nothing is removed before 1.0; replacements ship first and the old API is deprecated. Overload resolution is pinned by tests that compile under warnings-as-errors, and the SwiftUI samples for each ownership step are compiled as tests. → [API Stability](#api-stability)
 
 ## Table of Contents
 
@@ -258,7 +258,7 @@ VStack {
 }
 ```
 
-It refreshes every `positionUpdateInterval` (default 0.25 s) and only once something reads it. `player.currentTime` is re-read from `AVPlayer` on each access, so SwiftUI can't observe it.
+It refreshes at least every `positionUpdateInterval` (default 0.25 s), and starts only once something reads it. `player.currentTime` is re-read from `AVPlayer` on each access, so SwiftUI can't observe it.
 
 ### UIKit with `ABPlayerView`
 
@@ -517,7 +517,7 @@ A single delegate slot would force application behavior and metrics to compete f
 
 ### Why is the playback position a separate object?
 
-Observation tracks access per object and per property. If the position were a property of `ABPlayer`, every tick would mutate the object that every player-bound view is watching. As its own object, a tick invalidates only the views that read `position`. It is also equality-gated, so a paused player never re-renders anything, and it is created lazily, so a preloaded feed cell never runs a periodic observer at all. `.periodicTime` events and the position share one `AVPlayer` periodic observer at the finer of their two intervals. The full reasoning is in [DESIGN-ABPlayerKit §5.4a](docs/DESIGN-ABPlayerKit.md).
+Observation tracks access per object and per property. If the position were a property of `ABPlayer`, every tick would mutate the object that every player-bound view is watching. As its own object, a tick invalidates only the views that read `position`. It is also equality-gated, so a paused player re-renders its readers only when the buffered range or duration changes. And it is created lazily, so a player that never reads `position` adds no periodic observer. `.periodicTime` events and the position share one `AVPlayer` periodic observer at the finer of their two intervals. The full reasoning is in [DESIGN-ABPlayerKit §5.4a](docs/DESIGN-ABPlayerKit.md).
 
 ### Why no dependency-injection container?
 

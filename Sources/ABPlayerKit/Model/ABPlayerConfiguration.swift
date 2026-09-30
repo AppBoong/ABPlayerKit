@@ -28,12 +28,13 @@ public struct ABPlayerConfiguration: Sendable, Equatable {
     /// ``positionUpdateInterval``, so `.periodicTime` events can arrive more
     /// often than this value.
     public var periodicTimeInterval: TimeInterval?
-    /// How often ``ABPlayer/position`` refreshes during playback, in
-    /// seconds. Has no cost until `position` is first read.
+    /// The longest gap, in seconds, between ``ABPlayer/position`` refreshes
+    /// during playback. Has no cost until `position` is first read.
     ///
-    /// Controls the cadence of SwiftUI re-renders for any view reading
-    /// `position` — lower it for a smooth custom scrubber, raise it for a
-    /// time label that only needs whole seconds.
+    /// Lower it for a smoother custom scrubber. It is an upper bound, not an
+    /// exact cadence: the player keeps one periodic observer at the finer of
+    /// this and ``periodicTimeInterval``, and the standard controls set
+    /// `periodicTimeInterval` to 0.25 s while attached.
     public var positionUpdateInterval: TimeInterval
     /// `nil` means "do not preroll".
     public var prerollRate: Float?

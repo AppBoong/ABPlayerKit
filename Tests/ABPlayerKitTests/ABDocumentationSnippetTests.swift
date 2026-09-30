@@ -4,7 +4,9 @@ import SwiftUI
 import Testing
 @testable import ABPlayerKit
 
-// Verbatim copies of the SwiftUI samples in ChoosingAnOwnershipModel.md.
+// Verbatim copies of the SwiftUI samples in ChoosingAnOwnershipModel.md,
+// plus README's "Showing Playback Time" (the one README sample that needs
+// only the core target).
 // They exist to be compiled: an API change that breaks the documented
 // integration breaks this target instead of silently rotting the article.
 
@@ -62,6 +64,18 @@ private struct ReelsFeed: View {
     }
 }
 
+private struct PlaybackTimeSample: View {
+    let player: ABPlayer
+
+    var body: some View {
+        VStack {
+            ABVideoPlayer(player: player)
+            ProgressView(value: player.position.time.progress ?? 0)
+            Text(player.position.time.currentTime.seconds, format: .number.precision(.fractionLength(0)))
+        }
+    }
+}
+
 @Suite("Documentation samples compile against the current API", .timeLimit(abScaledMinutes(3)))
 @MainActor
 struct ABDocumentationSnippetTests {
@@ -70,5 +84,6 @@ struct ABDocumentationSnippetTests {
         let url = URL(string: "https://example.com/snippet.mp4")!
         _ = VideoScreen(url: url).body
         _ = ReelsFeed(sources: [ABMediaSource(url: url)]).body
+        _ = PlaybackTimeSample(player: ABPlayer()).body
     }
 }

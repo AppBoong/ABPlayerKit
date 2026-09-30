@@ -367,11 +367,12 @@ public final class ABObservationToken: Sendable {
 
 **결정 — 별도 `@Observable` 객체를 `player.position`으로 노출한다.**
 
-- **플레이어 프로퍼티로 두지 않는 이유.** Observation은 객체·프로퍼티 단위로 추적한다. 위치를 `ABPlayer`에 두면 초당 4회 틱마다 `ABPlayer`의 레지스트라가 움직이고, 위치를 읽지 않는 뷰까지 같은 객체를 보고 있다는 이유로 설계가 흐려진다. 별도 객체면 틱이 **위치를 읽은 뷰만** 무효화한다(`ABPlaybackPositionTests`가 `withObservationTracking`으로 이것을 증명한다).
+- **플레이어 프로퍼티로 두지 않는 이유.** Observation은 객체·프로퍼티 단위로 추적한다. 위치를 `ABPlayer`에 두면 초당 4회 틱마다 `ABPlayer`의 `ObservationRegistrar`가 움직이고, 위치를 읽지 않는 뷰까지 같은 객체를 보고 있다는 이유로 설계가 흐려진다. 별도 객체면 틱이 **위치를 읽은 뷰만** 무효화한다(`ABPlaybackPositionTests`가 `withObservationTracking`으로 이것을 증명한다).
 - **`AsyncStream`이 아닌 이유.** 5.4의 결정과 같다. 버퍼·드롭 정책과 `for await` 수명 관리를 소비자에게 떠넘기지 않는다. SwiftUI가 이미 가진 관찰 수단을 그대로 쓴다.
-- **첫 접근 시 생성.** 생성 전에는 주기 옵저버를 달지 않는다 — 위치를 아무도 읽지 않는 플레이어(피드의 프리로드 셀)는 비용이 0이다.
+- **첫 접근 시 생성.** 생성 전에는 위치 때문에 주기 옵저버를 달지 않는다 — 위치를 읽지 않는 플레이어는 비용이 0이다. (`.current`가 아닌 플레이어는 원래 옵저버가 없다.)
 - **옵저버 하나를 공유.** `.periodicTime` 이벤트와 위치는 `AVPlayer` 주기 옵저버 하나를 두 간격 중 더 촘촘한 쪽으로 공유한다. 그래서 위치를 쓰는 동안에는 이벤트가 `periodicTimeInterval`보다 자주 올 수 있다(문서화함).
-- **같은 값이면 대입하지 않는다.** 일시정지 중 틱이 와도 뷰가 다시 그려지지 않는다.
+- **같은 값이면 대입하지 않는다.** 일시정지 중에는 버퍼 범위나 길이가 바뀔 때만 다시 그려진다.
+- **`positionUpdateInterval`은 상한이다.** 옵저버를 공유하므로 `periodicTimeInterval`이 더 촘촘하면(표준 컨트롤은 0.25초) 그 주기로 갱신된다.
 - **스크러빙 중에는 갱신하지 않는다.** `.periodicTime`과 같은 규칙이다.
 
 ### 5.5 뷰

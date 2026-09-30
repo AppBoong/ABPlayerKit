@@ -15,16 +15,21 @@ import Observation
 /// `player.isPlaying` or `player.grade` is never re-evaluated by playback
 /// merely advancing.
 ///
-/// Get one from ``ABPlayer/position``; there is exactly one per player. It
-/// refreshes every ``ABPlayerConfiguration/positionUpdateInterval`` while
-/// the player is `.current` and playing, after a seek, and on every grade or
-/// source change. It is not updated during an interactive scrubbing
-/// session, the same as ``ABPlayerEvent/periodicTime(_:)``.
+/// Get one from ``ABPlayer/position``; there is exactly one per player. While
+/// the player is `.current` it refreshes on every tick of the player's
+/// periodic observer — at least every
+/// ``ABPlayerConfiguration/positionUpdateInterval``, more often when
+/// ``ABPlayerConfiguration/periodicTimeInterval`` is finer (the standard
+/// controls set it to 0.25 s). It also refreshes immediately on seeks,
+/// playback-state and buffering changes, and every grade or source change.
+/// It is not updated during an interactive scrubbing session, the same as
+/// ``ABPlayerEvent/periodicTime(_:)``.
 @MainActor
 @Observable
 public final class ABPlaybackPosition {
-    /// The latest snapshot. Reassigned only when a value actually changes,
-    /// so a paused player never invalidates the views reading it.
+    /// The latest snapshot. Reassigned only when a value actually changes:
+    /// while paused, readers re-render only if the buffered range or the
+    /// duration moves, not on every tick.
     public private(set) var time: ABPlaybackTime
 
     init(time: ABPlaybackTime) {
