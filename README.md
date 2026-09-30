@@ -211,17 +211,23 @@ Own an `ABPlayer` when several views share it, when playback must outlive one vi
 
 ```swift
 struct VideoScreen: View {
+    let url: URL
     @State private var player = ABPlayer()
 
     var body: some View {
         ABVideoPlayerWithControls(player: player, videoGravity: .resizeAspect) {}
             .aspectRatio(16 / 9, contentMode: .fit)
             .task {
+                // Runs on every appearance. Attach and autoplay only the first time,
+                // so coming back to this screen doesn't restart the video.
+                guard player.source == nil else { return }
                 player.set(source: ABMediaSource(url: url), grade: .current)
                 player.play()
             }
             .onDisappear {
-                player.release()
+                // Leaving the screen pauses; it doesn't release. The player — and its
+                // position — lives as long as this view's @State does.
+                player.pause()
             }
     }
 }

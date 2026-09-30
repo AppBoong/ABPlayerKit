@@ -211,17 +211,23 @@ ABVideoPlayerWithControls(url: url, playerConfiguration: configuration)
 
 ```swift
 struct VideoScreen: View {
+    let url: URL
     @State private var player = ABPlayer()
 
     var body: some View {
         ABVideoPlayerWithControls(player: player, videoGravity: .resizeAspect) {}
             .aspectRatio(16 / 9, contentMode: .fit)
             .task {
+                // 화면이 나타날 때마다 실행됩니다. 첫 번째에만 붙이고 재생해야
+                // 이 화면으로 돌아왔을 때 영상이 처음부터 다시 시작되지 않습니다.
+                guard player.source == nil else { return }
                 player.set(source: ABMediaSource(url: url), grade: .current)
                 player.play()
             }
             .onDisappear {
-                player.release()
+                // 화면을 떠날 때는 일시정지만 하고 해제하지 않습니다. 플레이어와
+                // 재생 위치는 이 뷰의 @State와 함께 유지됩니다.
+                player.pause()
             }
     }
 }
