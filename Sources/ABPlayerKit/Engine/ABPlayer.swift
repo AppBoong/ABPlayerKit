@@ -198,6 +198,10 @@ public final class ABPlayer {
     private var seekCoalescer = ABSeekCoalescer()
     @ObservationIgnored
     private nonisolated(unsafe) var seekWorkerTask: Task<Void, Never>?
+    /// `true` while `endScrubbing()` is awaiting its final commit, during
+    /// which `isScrubbing` is still `true` but the gesture has ended.
+    @ObservationIgnored
+    private var isCommittingScrub = false
     @ObservationIgnored
     private var seekGeneration = 0
     @ObservationIgnored
@@ -602,6 +606,10 @@ public final class ABPlayer {
             return
         }
 
+        // The drag is over once `endScrubbing()` starts committing; a late
+        // update must not replace the precise commit of the released
+        // position with a coarse seek somewhere else.
+        guard !isCommittingScrub else { return }
         lastScrubTime = time
         let decision = seekCoalescer.request(time, tolerance: configuration.scrubTolerance)
         startSeekWorker(for: decision)
@@ -609,16 +617,22 @@ public final class ABPlayer {
 
     /// Commits the newest scrub destination precisely before resuming normal updates.
     public func endScrubbing() async {
-        guard isScrubbing else { return }
+        guard isScrubbing, !isCommittingScrub else { return }
+        isCommittingScrub = true
+        defer { isCommittingScrub = false }
         var requiresStandaloneCommit = false
         if grade == .current {
             let flushDecision = seekCoalescer.flush(finalTolerance: .precise)
             requiresStandaloneCommit = flushDecision == .hold && seekCoalescer.inFlight == nil
             startSeekWorker(for: flushDecision)
         }
-        if let seekWorkerTask {
-            await seekWorkerTask.value
-            self.seekWorkerTask = nil
+        if let worker = seekWorkerTask {
+            await worker.value
+            // Only clear the worker this call waited for; one started
+            // during the await belongs to someone else.
+            if seekWorkerTask == worker {
+                seekWorkerTask = nil
+            }
         }
         if grade == .current, requiresStandaloneCommit, let lastScrubTime {
             let generation = seekGeneration
