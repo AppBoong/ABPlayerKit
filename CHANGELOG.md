@@ -4,6 +4,8 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-02
+
 ### Added
 
 - Added `ABPlayer.position` — an `@Observable` `ABPlaybackPosition` whose `time: ABPlaybackTime` SwiftUI can read directly for a time label, progress bar, or custom scrubber. `currentTime`/`playbackTime` are re-read from `AVPlayer` on every access and can't be observed. It is a separate object so that playback ticks invalidate only the views that read the position, never views reading `isPlaying`/`grade`/`isBuffering`. Created on first access; until then it adds no periodic observer. The new `ABPlayerConfiguration.positionUpdateInterval` (default `0.25`, added at the end of the initializer's parameter list) bounds the gap between refreshes; the shared observer runs at the finer of it and `periodicTimeInterval`.
@@ -233,6 +235,7 @@ If you need to keep passing raw `UIView`s, wrap each in `UIViewRepresentable` fi
 
 - Initial release with the four-grade playback state machine, UIKit and SwiftUI rendering, TTFF metrics, progressive media caching, and explicit HLS prefetch.
 
+[0.5.0]: https://github.com/AppBoong/ABPlayerKit/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/AppBoong/ABPlayerKit/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/AppBoong/ABPlayerKit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/AppBoong/ABPlayerKit/compare/v0.2.0...v0.3.0
