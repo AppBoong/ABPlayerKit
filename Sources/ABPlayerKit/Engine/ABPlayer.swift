@@ -48,11 +48,13 @@ public final class ABPlayer {
     public private(set) var source: ABMediaSource?
     /// The most recent terminal failure, or `nil` once it's been reset by a
     /// new attach/source change/detach/release. Non-terminal diagnostics
-    /// (`.itemErrorLogEntry`) never appear here — see ``lastDiagnostic``.
+    /// (`.itemErrorLogEntry`, `.prerollTimedOut`, `.prerollFailed` — see
+    /// ``ABPlayerError/isTerminal``) never appear here — see ``lastDiagnostic``.
     public private(set) var lastFailure: ABPlayerFailure?
-    /// The most recent non-terminal diagnostic (`.itemErrorLogEntry`) — a
-    /// still-loading or still-playing stream routinely surfaces one of
-    /// these on its own. Kept on a separate channel from ``lastFailure`` so
+    /// The most recent non-terminal diagnostic (`.itemErrorLogEntry`, or a
+    /// preroll timeout/failure — see ``ABPlayerError/isTerminal``). A
+    /// still-loading or still-playing stream routinely surfaces these on
+    /// its own. Kept on a separate channel from ``lastFailure`` so
     /// a healthy diagnostic never masquerades as a terminal failure.
     public private(set) var lastDiagnostic: ABPlayerFailure?
     /// A computed projection of ``lastFailure``'s classification, kept for
@@ -198,10 +200,15 @@ public final class ABPlayer {
     private var seekCoalescer = ABSeekCoalescer()
     @ObservationIgnored
     private nonisolated(unsafe) var seekWorkerTask: Task<Void, Never>?
-    /// `true` while `endScrubbing()` is awaiting its final commit, during
-    /// which `isScrubbing` is still `true` but the gesture has ended.
+    /// Numbers each drag. `endScrubbing()` awaits its final commit while
+    /// `isScrubbing` is still `true`, so the session that is committing
+    /// (`committingScrubSession`) must be told apart from a new drag that
+    /// started during that await: late updates from the former are
+    /// ignored, the latter is a real gesture and is honoured.
     @ObservationIgnored
-    private var isCommittingScrub = false
+    private var scrubSession = 0
+    @ObservationIgnored
+    private var committingScrubSession: Int?
     @ObservationIgnored
     private var seekGeneration = 0
     @ObservationIgnored
@@ -585,7 +592,15 @@ public final class ABPlayer {
             rejectCall(.beginScrubbing)
             return
         }
-        guard !isScrubbing else { return }
+        if isScrubbing {
+            // A duplicate begin, unless the previous drag is only
+            // committing — then this is a new drag that takes over.
+            guard committingScrubSession == scrubSession else { return }
+            scrubSession += 1
+            lastScrubTime = nil
+            return
+        }
+        scrubSession += 1
         isScrubbing = true
         lastScrubTime = nil
         broadcast(.scrubbingChanged(isScrubbing: true))
@@ -606,10 +621,10 @@ public final class ABPlayer {
             return
         }
 
-        // The drag is over once `endScrubbing()` starts committing; a late
-        // update must not replace the precise commit of the released
+        // The drag is over once `endScrubbing()` starts committing it; a
+        // late update must not replace the precise commit of the released
         // position with a coarse seek somewhere else.
-        guard !isCommittingScrub else { return }
+        guard committingScrubSession != scrubSession else { return }
         lastScrubTime = time
         let decision = seekCoalescer.request(time, tolerance: configuration.scrubTolerance)
         startSeekWorker(for: decision)
@@ -617,9 +632,10 @@ public final class ABPlayer {
 
     /// Commits the newest scrub destination precisely before resuming normal updates.
     public func endScrubbing() async {
-        guard isScrubbing, !isCommittingScrub else { return }
-        isCommittingScrub = true
-        defer { isCommittingScrub = false }
+        guard isScrubbing, committingScrubSession != scrubSession else { return }
+        let session = scrubSession
+        committingScrubSession = session
+        let releasedTime = lastScrubTime
         var requiresStandaloneCommit = false
         if grade == .current {
             let flushDecision = seekCoalescer.flush(finalTolerance: .precise)
@@ -634,15 +650,21 @@ public final class ABPlayer {
                 seekWorkerTask = nil
             }
         }
-        if grade == .current, requiresStandaloneCommit, let lastScrubTime {
+        // A new drag that began during the await owns the session now: it
+        // will commit its own position, and the end-of-session bookkeeping
+        // below is its to do.
+        guard scrubSession == session else { return }
+        if grade == .current, requiresStandaloneCommit, let releasedTime {
             let generation = seekGeneration
-            let landed = await target.seek(to: lastScrubTime, tolerance: .precise)
+            let landed = await target.seek(to: releasedTime, tolerance: .precise)
             if generation == seekGeneration {
                 broadcast(.seekCompleted(to: landed))
             }
         } else if grade != .current {
             rejectCall(.endScrubbing)
         }
+        guard scrubSession == session else { return }
+        committingScrubSession = nil
         let shouldBroadcastBoundary = isScrubbing
         seekCoalescer.reset()
         lastScrubTime = nil
@@ -1447,6 +1469,7 @@ public final class ABPlayer {
 
     private func resetSeeking() {
         seekGeneration += 1
+        committingScrubSession = nil
         seekWorkerTask?.cancel()
         seekWorkerTask = nil
         seekCoalescer.reset()

@@ -342,4 +342,36 @@ struct ABEndScrubbingReentrancyTests {
         #expect(boundaryEnds == 1)
         #expect(seeks(target).filter { $0 == .seek(released, .precise) }.count == 1)
     }
+
+    @Test("Re-grabbing the scrubber while the previous drag is committing starts a new drag, which commits where it is released")
+    func regrabDuringCommitIsHonored() async throws {
+        let (player, target) = makePlayer()
+        let firstRelease = CMTime(seconds: 10, preferredTimescale: 600)
+        let secondRelease = CMTime(seconds: 40, preferredTimescale: 600)
+        var boundaryEnds = 0
+        let token = player.addObserver { event in
+            if event == .scrubbingChanged(isScrubbing: false) { boundaryEnds += 1 }
+        }
+        defer { token.cancel() }
+        player.beginScrubbing()
+        player.scrub(to: firstRelease)
+        try await waitUntil { target.pendingSeekCount == 1 }
+
+        let firstEnd = Task { await player.endScrubbing() }
+        await Task.yield()
+        player.beginScrubbing()
+        player.scrub(to: secondRelease)
+        let secondEnd = Task { await player.endScrubbing() }
+        await Task.yield()
+        while player.isScrubbing || target.pendingSeekCount > 0 {
+            target.completeNextSeek()
+            await Task.yield()
+        }
+        await firstEnd.value
+        await secondEnd.value
+
+        #expect(seeks(target).last == .seek(secondRelease, .precise))
+        #expect(!player.isScrubbing)
+        #expect(boundaryEnds == 1)
+    }
 }
