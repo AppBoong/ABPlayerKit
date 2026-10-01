@@ -4,6 +4,10 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `ABPlayerError.prerollTimedOut` and `.prerollFailed` are now non-terminal (`isTerminal == false`), so they land in `lastDiagnostic` instead of `lastFailure`. Preroll warms a preloaded item's buffer, and a slow network or an interrupted preroll says nothing about whether the item can play. As terminal failures they stayed in `lastFailure` after the player was promoted and played normally, and the next `load(_:)` of the same source treated it as failed and re-attached it. **Migration:** code that read a preroll failure from `lastFailure`/`lastError` should read `lastDiagnostic`; an item that really cannot play still reports `.itemFailed`. In Metrics, preroll failures no longer count toward `terminalFailureCount` or close a buffering span as failed.
+
 ### Fixed
 
 - The standard controls no longer disable themselves on a non-terminal diagnostic. `ABControlsPresenter` disabled every control on any `.failed` event, and `.failed` is also broadcast for `.itemErrorLogEntry`: a stream that logs a recoverable error (a segment that 404s once, say) and keeps playing was left with dead controls. Only terminal failures disable them now. `ABPlayerEvent.failed`'s documentation now spells out that it carries non-terminal diagnostics too.

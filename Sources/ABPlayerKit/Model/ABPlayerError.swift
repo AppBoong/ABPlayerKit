@@ -34,17 +34,21 @@ public enum ABPlayerError: Error, Sendable, Equatable {
 }
 
 extension ABPlayerError {
-    /// Every case is a terminal failure except `.itemErrorLogEntry`, which
-    /// is a non-terminal diagnostic — a stream that's still loading or
-    /// still playing routinely surfaces one of these and recovers on its
-    /// own. Drives the ``ABPlayer/lastFailure``/``ABPlayer/lastDiagnostic``
-    /// routing split.
+    /// Drives the ``ABPlayer/lastFailure``/``ABPlayer/lastDiagnostic``
+    /// routing split. Non-terminal:
+    ///
+    /// - `.itemErrorLogEntry`: a stream that's still loading or still
+    ///   playing routinely surfaces one of these and recovers on its own.
+    /// - `.prerollTimedOut`, `.prerollFailed`: preroll warms a *preloaded*
+    ///   item's buffer. A slow network or an interrupted preroll says
+    ///   nothing about whether the item can play, and treating it as
+    ///   terminal left a failure on a player that went on to play fine.
+    ///   An item that really can't play reports `.itemFailed`.
     public var isTerminal: Bool {
         switch self {
-        case .itemErrorLogEntry:
+        case .itemErrorLogEntry, .prerollTimedOut, .prerollFailed:
             return false
-        case .itemFailed, .prerollTimedOut, .prerollFailed, .invalidGradeForSource,
-             .cacheUnavailable, .audioSessionOperationFailed:
+        case .itemFailed, .invalidGradeForSource, .cacheUnavailable, .audioSessionOperationFailed:
             return true
         }
     }

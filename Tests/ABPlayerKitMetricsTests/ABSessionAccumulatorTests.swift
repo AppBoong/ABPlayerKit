@@ -145,7 +145,7 @@ struct ABSessionAccumulatorTests {
             closeEvents = accumulator.ingest(.detached(reason: .release, access: nil), playerID: playerID, at: 8)
             expectedEnd = .detached
         case .failure:
-            closeEvents = accumulator.ingest(.failure(ABPlayerFailure(kind: .prerollFailed)), playerID: playerID, at: 8)
+            closeEvents = accumulator.ingest(.failure(ABPlayerFailure(kind: .itemFailed(description: "boom"))), playerID: playerID, at: 8)
             expectedEnd = .failed
         }
 
@@ -304,7 +304,7 @@ struct ABSessionAccumulatorTests {
     func terminalFailureClosesBufferingButKeepsSessionOpen() throws {
         var accumulator = openedAccumulator(at: 0)
         _ = accumulator.ingest(.bufferingChanged(true), playerID: playerID, at: 1)
-        let failureEvents = accumulator.ingest(.failure(ABPlayerFailure(kind: .prerollFailed)), playerID: playerID, at: 3)
+        let failureEvents = accumulator.ingest(.failure(ABPlayerFailure(kind: .itemFailed(description: "boom"))), playerID: playerID, at: 3)
         #expect(firstBuffering(in: failureEvents)?.end == .failed)
 
         let closeEvents = accumulator.ingest(.finalize(access: nil), playerID: playerID, at: 4)
