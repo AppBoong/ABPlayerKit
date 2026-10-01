@@ -265,3 +265,81 @@ struct ABScrubbingEngineTests {
         #expect(target.calls.filter { if case .seek = $0 { true } else { false } }.count == 1)
     }
 }
+
+/// `endScrubbing()` awaits the in-flight seek before committing the final
+/// position precisely. `isScrubbing` stays `true` across that await, so a
+/// `scrub(to:)` that arrives in the window (a late gesture update, a second
+/// overlay) used to replace the pending precise commit with a coarse seek
+/// somewhere else, and a second `endScrubbing()` re-entered the commit.
+@Suite("endScrubbing's final commit can't be overwritten while it is in flight", .timeLimit(abScaledMinutes(3)))
+@MainActor
+struct ABEndScrubbingReentrancyTests {
+    private let source = ABMediaSource(url: URL(string: "https://example.com/scrub-end.mp4")!)
+
+    private func makePlayer() -> (ABPlayer, ABFakePlaybackTarget) {
+        let target = ABFakePlaybackTarget()
+        target.waitsForSeekContinuation = true
+        target.duration = CMTime(seconds: 100, preferredTimescale: 600)
+        let player = ABPlayer(
+            configuration: ABPlayerConfiguration(prerollRate: nil, backgroundPolicy: .ignore),
+            target: target
+        )
+        player.set(source: source, grade: .current)
+        return (player, target)
+    }
+
+    private func seeks(_ target: ABFakePlaybackTarget) -> [ABFakePlaybackTarget.Call] {
+        target.calls.filter { if case .seek = $0 { true } else { false } }
+    }
+
+    @Test("A scrub that arrives while endScrubbing is committing is ignored, and the commit lands precisely on the released position")
+    func lateScrubDoesNotReplaceCommit() async throws {
+        let (player, target) = makePlayer()
+        let released = CMTime(seconds: 10, preferredTimescale: 600)
+        let late = CMTime(seconds: 30, preferredTimescale: 600)
+        player.beginScrubbing()
+        player.scrub(to: released)
+        try await waitUntil { target.pendingSeekCount == 1 }
+
+        let ending = Task { await player.endScrubbing() }
+        await Task.yield()
+        player.scrub(to: late)
+        while !Task.isCancelled {
+            target.completeNextSeek()
+            await Task.yield()
+            if !player.isScrubbing, target.pendingSeekCount == 0 { break }
+        }
+        await ending.value
+
+        #expect(!seeks(target).contains { if case .seek(late, _) = $0 { true } else { false } })
+        #expect(seeks(target).last == .seek(released, .precise))
+    }
+
+    @Test("A second endScrubbing while the first is committing does nothing")
+    func concurrentEndIsNoOp() async throws {
+        let (player, target) = makePlayer()
+        let released = CMTime(seconds: 10, preferredTimescale: 600)
+        var boundaryEnds = 0
+        let token = player.addObserver { event in
+            if event == .scrubbingChanged(isScrubbing: false) { boundaryEnds += 1 }
+        }
+        defer { token.cancel() }
+        player.beginScrubbing()
+        player.scrub(to: released)
+        try await waitUntil { target.pendingSeekCount == 1 }
+
+        let first = Task { await player.endScrubbing() }
+        await Task.yield()
+        let second = Task { await player.endScrubbing() }
+        await Task.yield()
+        while player.isScrubbing || target.pendingSeekCount > 0 {
+            target.completeNextSeek()
+            await Task.yield()
+        }
+        await first.value
+        await second.value
+
+        #expect(boundaryEnds == 1)
+        #expect(seeks(target).filter { $0 == .seek(released, .precise) }.count == 1)
+    }
+}
