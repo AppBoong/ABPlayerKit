@@ -106,3 +106,47 @@ struct ABLoopRestartTests {
         #expect(events.filter { $0 == .playedToEnd }.count == 1)
     }
 }
+
+/// The target restarts a looping item itself (seek to start + `play()`),
+/// without going through `ABPlayer.play()`. If `.playedToEnd` cleared the
+/// play intent anyway, every loop after the first would read as "not
+/// trying to play", and `ABBufferingEvaluator` would never report a stall
+/// again: no spinner, no QoE buffering interval.
+@Suite("A looping player keeps its play intent across the loop point", .timeLimit(abScaledMinutes(3)))
+@MainActor
+struct ABLoopPlayIntentTests {
+    private let source = ABMediaSource(url: URL(string: "https://example.com/loop.mp4")!)
+
+    private func playThroughEnd(looping: Bool) -> (ABPlayer, ABFakePlaybackTarget) {
+        let target = ABFakePlaybackTarget()
+        // `ABBufferingEvaluator` reports nothing without an item.
+        target.avPlayerItem = AVPlayerItem(url: URL(fileURLWithPath: "/private/tmp/abplayerkit-loop-intent-fixture.mp4"))
+        let player = ABPlayer(
+            configuration: ABPlayerConfiguration(isLooping: looping, backgroundPolicy: .ignore),
+            target: target
+        )
+        player.load(source)
+        target.emit(.playedToEnd)
+        return (player, target)
+    }
+
+    @Test("After a loop, a stall is still reported as buffering")
+    func loopingKeepsBufferingDetection() {
+        let (player, target) = playThroughEnd(looping: true)
+
+        target.timeControlStatus = .waitingToPlay
+        target.emit(.timeControlStatusChanged(.waitingToPlay))
+
+        #expect(player.isBuffering)
+    }
+
+    @Test("Without looping, reaching the end still clears the play intent")
+    func nonLoopingClearsIntent() {
+        let (player, target) = playThroughEnd(looping: false)
+
+        target.timeControlStatus = .waitingToPlay
+        target.emit(.timeControlStatusChanged(.waitingToPlay))
+
+        #expect(!player.isBuffering)
+    }
+}

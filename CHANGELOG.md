@@ -6,6 +6,7 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ### Fixed
 
+- A looping player keeps reporting buffering after the first loop. `.playedToEnd` cleared the play intent even though the target restarts a looping item on its own, so from the second loop on `isBuffering` stayed `false` through a stall — no buffering indicator in the controls and no buffering interval in the QoE session. That is the default shape of a reels feed.
 - Events from a replaced item no longer land on the item that replaced it. Detaching removes an item's observers, but not a main-actor hop one of them had already queued, so an item that failed, stalled, or finished just before a source change (a fast swipe in a feed) had that event reported against the new item: a failure in `lastFailure` (which made the next `load(_:)` tear a healthy item down to retry it), a stall in the QoE session, or an end that cleared the play intent. The status, stall, and played-to-end callbacks now check the item's identity after the hop, as the error-log and presentation-size callbacks already did.
 
 ## [0.5.0] - 2026-10-02
