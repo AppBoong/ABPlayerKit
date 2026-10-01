@@ -5,6 +5,11 @@ struct DemoRootView: View {
 
     var body: some View {
         TabView {
+            UsageScreen()
+                .tabItem {
+                    Label("Usage", systemImage: "list.number")
+                }
+
             PlaybackScreen(model: model)
                 .tabItem {
                     Label("Playback", systemImage: "play.rectangle")
