@@ -396,23 +396,35 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         }
     }
 
+    // Every item-scoped callback below hops to the main actor and then
+    // checks `avPlayerItem === item` before reporting. Detaching removes
+    // these observers, but not a hop that was already queued: an event
+    // posted for item A just before `attachItem(B)` would otherwise be
+    // reported against B (a failure in `lastFailure`, a stall in the QoE
+    // session, an end that clears the play intent). Callbacks that only
+    // prompt a re-read of current state (`.bufferStateChanged`,
+    // `.durationChanged`) don't need the check.
     private func observeItem(_ item: AVPlayerItem) {
-        let statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+        let statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self, weak item] observed, _ in
             let status: ABItemStatus
-            switch item.status {
+            switch observed.status {
             case .unknown: status = .unknown
             case .readyToPlay: status = .readyToPlay
             case .failed: status = .failed
             @unknown default: status = .unknown
             }
+            let failure = (observed.status == .failed ? observed.error : nil).map { error -> ABPlayerFailure in
+                let nsError = error as NSError
+                return ABPlayerFailure(
+                    kind: .itemFailed(description: nsError.localizedDescription),
+                    origin: ABErrorOrigin(domain: nsError.domain, code: nsError.code)
+                )
+            }
             Task { @MainActor in
-                self?.onEvent?(.itemStatusChanged(status))
-                if case .failed = item.status, let error = item.error {
-                    let nsError = error as NSError
-                    self?.onEvent?(.failed(ABPlayerFailure(
-                        kind: .itemFailed(description: nsError.localizedDescription),
-                        origin: ABErrorOrigin(domain: nsError.domain, code: nsError.code)
-                    )))
+                guard let self, let item, self.avPlayerItem === item else { return }
+                self.onEvent?(.itemStatusChanged(status))
+                if let failure {
+                    self.onEvent?(.failed(failure))
                 }
             }
         }
@@ -425,13 +437,13 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             queue: .main
         ) { [weak self, weak item] _ in
             Task { @MainActor in
-                self?.onEvent?(.playedToEnd)
+                guard let self, let item, self.avPlayerItem === item else { return }
+                self.onEvent?(.playedToEnd)
                 // Restarting is target-internal — no `.seekCompleted` here,
-                // since this isn't a seek `ABPlayer` itself issued. Guarded
-                // by the same stale-item check every other hop in this
-                // method uses, since the restart seek's `await` can outlive
-                // a detach/re-attach that happens in between.
-                guard let self, let item, self.isLooping, self.avPlayerItem === item else { return }
+                // since this isn't a seek `ABPlayer` itself issued. Checked
+                // again after the restart seek, whose `await` can outlive a
+                // detach/re-attach that happens in between.
+                guard self.isLooping else { return }
                 await self.seekToStart()
                 guard self.avPlayerItem === item else { return }
                 self.avPlayer?.play()
@@ -443,9 +455,10 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             forName: .AVPlayerItemPlaybackStalled,
             object: item,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self, weak item] _ in
             Task { @MainActor in
-                self?.onEvent?(.playbackStalled)
+                guard let self, let item, self.avPlayerItem === item else { return }
+                self.onEvent?(.playbackStalled)
             }
         }
         observations.add { center.removeObserver(stallToken) }
