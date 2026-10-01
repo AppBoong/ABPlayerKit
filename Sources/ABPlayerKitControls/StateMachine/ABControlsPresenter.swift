@@ -242,7 +242,13 @@ struct ABControlsPresenter: Equatable {
         case .itemStatusChanged(.unknown):
             return []
 
-        case .itemStatusChanged(.failed), .failed:
+        case .itemStatusChanged(.failed):
+            return [.setEnabled(false, allowsPromotionTap: false)]
+
+        // `.failed` also carries non-terminal diagnostics (an error-log
+        // entry from a stream that is still playing). Disabling the
+        // controls for those left a healthy stream with dead controls.
+        case .failed(let error) where error.isTerminal:
             return [.setEnabled(false, allowsPromotionTap: false)]
 
         case .playedToEnd:

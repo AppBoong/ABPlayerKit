@@ -65,6 +65,11 @@ public enum ABPlayerEvent: Sendable, Equatable {
     /// Legacy channel — kept for source compatibility, still broadcast
     /// alongside `.failureReported` for every failure. New code should
     /// prefer `.failureReported`, which carries provenance.
+    ///
+    /// "Every failure" includes non-terminal diagnostics such as
+    /// ``ABPlayerError/itemErrorLogEntry(description:)``, which a stream
+    /// that keeps playing routinely reports. Don't show an error screen on
+    /// this event alone; check ``ABPlayerError/isTerminal`` first.
     case failed(ABPlayerError)
     /// Broadcast immediately after `.failed`, at the same failure site,
     /// carrying the failure's classification and originating subsystem
