@@ -758,7 +758,13 @@ public final class ABPlayer {
             broadcast(.playbackStalled)
             refreshPlaybackMirrors()
         case .playedToEnd:
-            desiresPlayback = false
+            // A looping item is restarted by the target itself, without
+            // passing through `play()`, so the intent has to survive the
+            // loop point — otherwise every later stall reads as "not trying
+            // to play" and `isBuffering` stays false.
+            if !configuration.isLooping {
+                desiresPlayback = false
+            }
             broadcast(.playedToEnd)
             refreshPlaybackMirrors()
         case .timeControlStatusChanged(let status):
