@@ -4,13 +4,15 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-02
+
 ### Changed
 
 - `ABPlayerError.prerollTimedOut` and `.prerollFailed` are now non-terminal (`isTerminal == false`), so they land in `lastDiagnostic` instead of `lastFailure`. Preroll warms a preloaded item's buffer, and a slow network or an interrupted preroll says nothing about whether the item can play. As terminal failures they stayed in `lastFailure` after the player was promoted and played normally, and the next `load(_:)` of the same source treated it as failed and re-attached it. **Migration:** code that read a preroll failure from `lastFailure`/`lastError` should read `lastDiagnostic`; an item that really cannot play still reports `.itemFailed`. In Metrics, preroll failures no longer count toward `terminalFailureCount` or close a buffering span as failed.
 
 ### Fixed
 
-- `endScrubbing()` lands on the released position even if a `scrub(to:)` arrives while it is committing. `isScrubbing` stays `true` across the commit's await, so a late gesture update replaced the pending precise seek with a coarse one elsewhere and playback resumed somewhere the user never let go. Scrubs during the commit are now ignored, a second concurrent `endScrubbing()` is a no-op, and the commit no longer clears a seek worker started by someone else during its await.
+- `endScrubbing()` lands on the released position even if a `scrub(to:)` arrives while it is committing. `isScrubbing` stays `true` across the commit's await, so a late gesture update replaced the pending precise seek with a coarse one elsewhere and playback resumed somewhere the user never let go. Late updates from the drag being committed are now ignored (a new drag that begins during the commit is honoured and commits its own position), a second concurrent `endScrubbing()` is a no-op, and the commit no longer clears a seek worker started by someone else during its await.
 - The standard controls no longer disable themselves on a non-terminal diagnostic. `ABControlsPresenter` disabled every control on any `.failed` event, and `.failed` is also broadcast for `.itemErrorLogEntry`: a stream that logs a recoverable error (a segment that 404s once, say) and keeps playing was left with dead controls. Only terminal failures disable them now. `ABPlayerEvent.failed`'s documentation now spells out that it carries non-terminal diagnostics too.
 - `ABPlayerKitCache` no longer drops `ABMediaSource.httpHeaders` from the media it doesn't cache. Its factory built HLS streams (and URLs it couldn't rewrite) as a bare `AVURLAsset(url:)`, so an authenticated HLS stream that played with the default factory failed with 401/403 once caching was turned on; `ABHLSPrefetcher` downloads did the same. Both now build those assets the way `ABDefaultAssetFactory` does. `ABDefaultAssetFactory`'s documentation also claimed the cache was the way to get headers onto HLS sub-requests. It isn't: the cache intercepts progressive media only, and the documentation now says so.
 - A looping player keeps reporting buffering after the first loop. `.playedToEnd` cleared the play intent even though the target restarts a looping item on its own, so from the second loop on `isBuffering` stayed `false` through a stall — no buffering indicator in the controls and no buffering interval in the QoE session. That is the default shape of a reels feed.
@@ -247,6 +249,7 @@ If you need to keep passing raw `UIView`s, wrap each in `UIViewRepresentable` fi
 
 - Initial release with the four-grade playback state machine, UIKit and SwiftUI rendering, TTFF metrics, progressive media caching, and explicit HLS prefetch.
 
+[0.5.1]: https://github.com/AppBoong/ABPlayerKit/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/AppBoong/ABPlayerKit/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/AppBoong/ABPlayerKit/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/AppBoong/ABPlayerKit/compare/v0.3.0...v0.4.0
