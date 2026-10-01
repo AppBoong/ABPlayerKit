@@ -175,16 +175,20 @@ struct ABPlayerEventBroadcastTests {
         defer { token.cancel() }
 
         player.set(source: source, grade: .preloaded)
-        try await waitUntil { player.lastError != nil }
+        try await waitUntil { player.lastDiagnostic != nil }
 
+        // A preroll that times out says the network was slow to fill a
+        // preload buffer, not that the item is broken: a diagnostic, so it
+        // never sits in `lastFailure` for a player that later plays fine.
         let expectedError = ABPlayerError.prerollTimedOut(after: timeout)
-        #expect(player.lastError == expectedError)
+        #expect(player.lastDiagnostic?.kind == expectedError)
+        #expect(player.lastFailure == nil)
         #expect(events.contains(.failed(expectedError)))
         #expect(events.contains(.prerollCompleted(success: false)))
         #expect(target.recordedPrerollTimeout == 0.25)
     }
 
-    @Test("Preroll failure updates lastError and emits failure")
+    @Test("Preroll failure is reported as a diagnostic, not a terminal failure")
     func prerollFailureEmitsFailure() async throws {
         let target = ABFakePlaybackTarget()
         target.prerollResult = .failed
@@ -194,9 +198,10 @@ struct ABPlayerEventBroadcastTests {
         defer { token.cancel() }
 
         player.set(source: source, grade: .preloaded)
-        try await waitUntil { player.lastError != nil }
+        try await waitUntil { player.lastDiagnostic != nil }
 
-        #expect(player.lastError == .prerollFailed)
+        #expect(player.lastDiagnostic?.kind == .prerollFailed)
+        #expect(player.lastFailure == nil)
         #expect(events.contains(.failed(.prerollFailed)))
         #expect(events.contains(.prerollCompleted(success: false)))
     }

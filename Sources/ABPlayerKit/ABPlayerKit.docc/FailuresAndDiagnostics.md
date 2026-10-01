@@ -12,7 +12,7 @@ Three different things can go wrong, and they are deliberately kept apart so tha
 
 An ``ABPlayerFailure`` is the existing ``ABPlayerError`` classification plus an optional ``ABErrorOrigin`` — the underlying `NSError`'s `domain` and `code`, when known — for the cases where the classification alone does not say enough.
 
-The split exists because of one case in particular: a stream that is still loading, or still playing, routinely surfaces an `.itemErrorLogEntry` and recovers on its own. Reporting that as a failure would train consumers to ignore the failure channel.
+The split exists because of one case in particular: a stream that is still loading, or still playing, routinely surfaces an `.itemErrorLogEntry` and recovers on its own. Reporting that as a failure would train consumers to ignore the failure channel. Preroll timeouts and failures are diagnostics for the same reason: preroll warms a preloaded item's buffer, and a slow network says nothing about whether the item can play. An item that really cannot play reports `.itemFailed`.
 
 > Tip: Branch on ``ABPlayerError/isTerminal`` — projected as ``ABPlayerFailure/isTerminal`` — rather than matching cases by hand. A future release can then classify a new case without silently changing what your handler does.
 
