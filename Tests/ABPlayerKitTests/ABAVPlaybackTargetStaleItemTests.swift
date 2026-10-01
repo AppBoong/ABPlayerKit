@@ -81,3 +81,31 @@ struct ABAVPlaybackTargetStaleItemTests {
         #expect(stalls == 1)
     }
 }
+
+/// `deliver(_:from:)` is the single check every item-scoped callback goes
+/// through, including the status KVO path, whose stale `.failed` is the
+/// case that matters most (it lands in `lastFailure` and makes `load()`
+/// re-attach a healthy item) but which can't be triggered on demand.
+@Suite("ABAVPlaybackTarget.deliver reports only events from the attached item", .timeLimit(abScaledMinutes(3)))
+@MainActor
+struct ABAVPlaybackTargetDeliverTests {
+    @Test("A failed status from a replaced item is dropped; the same from the attached item is reported")
+    func deliverChecksIdentity() throws {
+        let target = ABAVPlaybackTarget()
+        target.makePlayer()
+        let url = try #require(Bundle.module.url(forResource: "tiny", withExtension: "mp4"))
+        target.attachItem(ABMediaSource(url: url), tuning: .unrestricted, assetFactory: ABDefaultAssetFactory())
+        let replaced = try #require(target.avPlayerItem)
+        target.attachItem(ABMediaSource(url: url), tuning: .unrestricted, assetFactory: ABDefaultAssetFactory())
+        let attached = try #require(target.avPlayerItem)
+        var received: [ABTargetEvent] = []
+        target.onEvent = { received.append($0) }
+        let failure = ABPlayerFailure(kind: .itemFailed(description: "boom"))
+
+        target.deliver([.itemStatusChanged(.failed), .failed(failure)], from: replaced)
+        #expect(received.isEmpty)
+
+        target.deliver([.itemStatusChanged(.failed), .failed(failure)], from: attached)
+        #expect(received == [.itemStatusChanged(.failed), .failed(failure)])
+    }
+}

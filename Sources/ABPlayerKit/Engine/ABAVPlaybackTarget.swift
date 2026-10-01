@@ -404,6 +404,16 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
     // session, an end that clears the play intent). Callbacks that only
     // prompt a re-read of current state (`.bufferStateChanged`,
     // `.durationChanged`) don't need the check.
+    /// The one post-hop check: reports `events` only if `item` is still the
+    /// attached item. Every item-scoped callback in `observeItem` goes
+    /// through this, so a new one can't forget the check.
+    func deliver(_ events: [ABTargetEvent], from item: AVPlayerItem) {
+        guard avPlayerItem === item else { return }
+        for event in events {
+            onEvent?(event)
+        }
+    }
+
     private func observeItem(_ item: AVPlayerItem) {
         let statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self, weak item] observed, _ in
             let status: ABItemStatus
@@ -421,11 +431,8 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
                 )
             }
             Task { @MainActor in
-                guard let self, let item, self.avPlayerItem === item else { return }
-                self.onEvent?(.itemStatusChanged(status))
-                if let failure {
-                    self.onEvent?(.failed(failure))
-                }
+                guard let self, let item else { return }
+                self.deliver([.itemStatusChanged(status)] + (failure.map { [.failed($0)] } ?? []), from: item)
             }
         }
         observations.add { statusObservation.invalidate() }
@@ -438,7 +445,7 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         ) { [weak self, weak item] _ in
             Task { @MainActor in
                 guard let self, let item, self.avPlayerItem === item else { return }
-                self.onEvent?(.playedToEnd)
+                self.deliver([.playedToEnd], from: item)
                 // Restarting is target-internal — no `.seekCompleted` here,
                 // since this isn't a seek `ABPlayer` itself issued. Checked
                 // again after the restart seek, whose `await` can outlive a
@@ -457,8 +464,8 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             queue: .main
         ) { [weak self, weak item] _ in
             Task { @MainActor in
-                guard let self, let item, self.avPlayerItem === item else { return }
-                self.onEvent?(.playbackStalled)
+                guard let self, let item else { return }
+                self.deliver([.playbackStalled], from: item)
             }
         }
         observations.add { center.removeObserver(stallToken) }
@@ -495,8 +502,8 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
                 ?? "Playback failed before reaching the end of the item"
             let origin = resolvedError.map { ABErrorOrigin(domain: $0.domain, code: $0.code) }
             Task { @MainActor in
-                guard let self, let item, self.avPlayerItem === item else { return }
-                self.onEvent?(.failed(ABPlayerFailure(kind: .itemFailed(description: description), origin: origin)))
+                guard let self, let item else { return }
+                self.deliver([.failed(ABPlayerFailure(kind: .itemFailed(description: description), origin: origin))], from: item)
             }
         }
         observations.add { center.removeObserver(failedToEndToken) }
@@ -509,8 +516,8 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
             guard let event = item?.errorLog()?.events.last else { return }
             let (description, origin) = Self.describe(errorLogEvent: event)
             Task { @MainActor in
-                guard let self, let item, self.avPlayerItem === item else { return }
-                self.onEvent?(.failed(ABPlayerFailure(kind: .itemErrorLogEntry(description: description), origin: origin)))
+                guard let self, let item else { return }
+                self.deliver([.failed(ABPlayerFailure(kind: .itemErrorLogEntry(description: description), origin: origin))], from: item)
             }
         }
         observations.add { center.removeObserver(newErrorLogEntryToken) }
@@ -560,8 +567,8 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         let presentationSizeObservation = item.observe(\.presentationSize, options: [.initial, .new]) { [weak self, weak item] _, _ in
             let size = item?.presentationSize ?? .zero
             Task { @MainActor in
-                guard let self, let item, self.avPlayerItem === item else { return }
-                self.onEvent?(.presentationSizeChanged(size))
+                guard let self, let item else { return }
+                self.deliver([.presentationSizeChanged(size)], from: item)
             }
         }
         observations.add { presentationSizeObservation.invalidate() }
