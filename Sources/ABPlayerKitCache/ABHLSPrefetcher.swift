@@ -87,20 +87,20 @@ public struct ABHLSPrefetchHandle: Sendable, Hashable {
 }
 
 // All mutable bookkeeping lives in the lock-protected state object; closures are Sendable.
+//
+// Every instance shares one `AVAssetDownloadURLSession`: a background session
+// identifier may be bound to only one live session per process, so per-instance
+// sessions are not an option. Instance methods therefore only ever touch the
+// instance's own jobs; tearing the shared session down is the separate,
+// explicitly process-wide `invalidateSharedSession()`.
 public final class ABHLSPrefetcher: @unchecked Sendable {
     private let state: ABHLSPrefetchState
     private let startDownload: ABHLSDownloadStart
-    private let invalidateDownload: @Sendable () -> Void
-    private let sessionOwner: AnyObject?
 
     public init(configuration: ABCacheConfiguration = .init()) {
         let state = ABHLSPrefetchState(configuration: configuration)
         let coordinator = ABHLSDownloadCoordinator.shared
         self.state = state
-        self.sessionOwner = coordinator
-        self.invalidateDownload = {
-            coordinator.invalidate()
-        }
         self.startDownload = { id, source, bitrate, completion in
             coordinator.start(
                 id: id,
@@ -113,13 +113,10 @@ public final class ABHLSPrefetcher: @unchecked Sendable {
 
     init(
         configuration: ABCacheConfiguration,
-        startDownload: @escaping ABHLSDownloadStart,
-        invalidateDownload: @escaping @Sendable () -> Void = {}
+        startDownload: @escaping ABHLSDownloadStart
     ) {
         self.state = ABHLSPrefetchState(configuration: configuration)
         self.startDownload = startDownload
-        self.invalidateDownload = invalidateDownload
-        self.sessionOwner = nil
     }
 
     @discardableResult
@@ -135,7 +132,10 @@ public final class ABHLSPrefetcher: @unchecked Sendable {
         }
 
         let key = ABCacheKey.derive(from: source)
-        state.reserve(id: id, key: key, resultState: resultState)
+        guard state.reserve(id: id, key: key, resultState: resultState) else {
+            resultState.resolve(.failed)
+            return ABHLSPrefetchHandle(id: id, resultState: resultState) { _ in }
+        }
         let cancellation = startDownload(id, source, minimumRequiredMediaBitrate) { [state] result in
             state.complete(id: id, result: result)
         }
@@ -154,9 +154,27 @@ public final class ABHLSPrefetcher: @unchecked Sendable {
         state.cancelAll()
     }
 
+    /// Cancels this prefetcher's active downloads and retires the instance:
+    /// later `prefetch(_:minimumRequiredMediaBitrate:)` calls resolve `.failed`
+    /// immediately. Downloads started by other `ABHLSPrefetcher` instances are
+    /// untouched, and already-downloaded assets stay available through
+    /// `localAsset(for:)`.
+    ///
+    /// To tear down the process-wide download session itself, use
+    /// ``invalidateSharedSession()``.
     public func invalidate() {
-        state.cancelAll()
-        invalidateDownload()
+        state.invalidate()
+    }
+
+    /// Finishes and invalidates the download session that **every**
+    /// `ABHLSPrefetcher` in the process shares.
+    ///
+    /// Downloads still running in any instance complete as `.failed`. New
+    /// prefetches fail while the invalidation is in flight and create a fresh
+    /// session afterwards. Call this only when the whole app is done
+    /// prefetching; to stop one screen's work, use ``invalidate()``.
+    public static func invalidateSharedSession() {
+        ABHLSDownloadCoordinator.shared.invalidate()
     }
 
     public func localAsset(for source: ABMediaSource) -> AVURLAsset? {
@@ -189,6 +207,7 @@ private final class ABHLSPrefetchState: @unchecked Sendable {
     private let homeDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
     private var activeTasks: [UUID: ActiveTask] = [:]
     private var localURLs: [String: URL]
+    private var isInvalidated = false
 
     init(configuration: ABCacheConfiguration) {
         let containerHomeDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
@@ -217,8 +236,13 @@ private final class ABHLSPrefetchState: @unchecked Sendable {
         return count
     }
 
-    func reserve(id: UUID, key: String, resultState: ABHLSPrefetchResultState) {
+    /// Returns `false` without reserving anything once the prefetcher is invalidated.
+    func reserve(id: UUID, key: String, resultState: ABHLSPrefetchResultState) -> Bool {
         lock.lock()
+        guard !isInvalidated else {
+            lock.unlock()
+            return false
+        }
         let duplicateIDs = activeTasks.filter { $0.value.key == key }.map(\.key)
         let duplicateTasks = duplicateIDs.compactMap { activeTasks.removeValue(forKey: $0) }
         activeTasks[id] = ActiveTask(
@@ -231,6 +255,7 @@ private final class ABHLSPrefetchState: @unchecked Sendable {
             task.cancellation?()
             task.resultState.resolve(.cancelled)
         }
+        return true
     }
 
     func installCancellation(_ cancellation: @escaping @Sendable () -> Void, for id: UUID) {
@@ -273,6 +298,13 @@ private final class ABHLSPrefetchState: @unchecked Sendable {
         lock.unlock()
         task?.cancellation?()
         task?.resultState.resolve(.cancelled)
+    }
+
+    func invalidate() {
+        lock.lock()
+        isInvalidated = true
+        lock.unlock()
+        cancelAll()
     }
 
     func cancelAll() {

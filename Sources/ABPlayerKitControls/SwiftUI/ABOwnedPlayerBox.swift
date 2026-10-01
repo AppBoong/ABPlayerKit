@@ -8,6 +8,13 @@ import ABPlayerKit
 /// view merely scrolling off-screen (this type is never wired to
 /// `onDisappear`).
 ///
+/// The release lives in `deinit`, not in a `dismantleUIView` hook like the
+/// core `ABVideoPlayer.Coordinator`'s. The difference is lifetime: a
+/// representable's coordinator dies with its UIKit view, but lazy
+/// containers can keep this `@State` alive across a dismantle/remake of
+/// the views below it. Releasing on dismantle would hand the remade view a
+/// released player that `apply` then refuses to restart.
+///
 /// The core target's `ABVideoPlayer.Coordinator` holds the same fields for
 /// the same reason; the two aren't shared because each is under 30 lines
 /// and each is independently tested, and a shared public type would put a
@@ -17,7 +24,6 @@ import ABPlayerKit
 final class ABOwnedPlayerBox {
     private var owned: ABPlayer?
     private var appliedSource: ABMediaSource?
-    private var didRelease = false
 
     /// `configuration` is applied only the first time this is called for a
     /// given box — a later call (from `body` re-evaluation, carrying
@@ -48,16 +54,11 @@ final class ABOwnedPlayerBox {
         }
     }
 
-    /// No-op when this box never created a player (the explicit `player:`
-    /// initializer path leaves it empty) or already released one.
-    func releaseIfOwned() {
-        guard !didRelease, let owned else { return }
-        didRelease = true
-        owned.release()
-    }
-
+    // Hops to the MainActor for the same reason `ABPlayerControls.Coordinator`'s
+    // deinit does: `deinit` isn't statically MainActor-isolated under
+    // tools-version 6.0, and `ABPlayer.release()` is.
     deinit {
-        guard !didRelease, let owned else { return }
+        guard let owned else { return }
         Task { @MainActor in
             owned.release()
         }

@@ -134,6 +134,24 @@ struct ABVideoPlayerWithControlsTests {
         #expect(controlsView?.player === videoView?.player)
     }
 
+    @Test("Given a url: mount, the source is applied once the view appears, not during body evaluation")
+    func urlMountAppliesSourceOnAppear() async throws {
+        let url = URL(string: "https://example.com/on-appear-test.mp4")!
+        let rootView = ABVideoPlayerWithControls(url: url, autoplay: false)
+            .frame(width: 320, height: 180)
+        let hostingController = UIHostingController(rootView: rootView)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
+        window.rootViewController = hostingController
+        window.isHidden = false
+        defer { window.isHidden = true }
+        hostingController.view.layoutIfNeeded()
+
+        let player = try #require(hostingController.view.firstDescendant(of: ABPlayerView.self)?.player)
+        try await waitUntil { player.source?.url == url }
+        #expect(player.grade == .current)
+        #expect(!player.isPlaying)
+    }
+
     @Test("Given a url: mount with .playerControlsStyle(_:) applied around it, the modifier reaches the mounted controls (it crosses the composed body)")
     func urlMountAppliesStyleModifier() {
         // autoplay: false — see the comment in urlMountSharesPlayerInstance

@@ -4,6 +4,29 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added `ABPlayer.position` — an `@Observable` `ABPlaybackPosition` whose `time: ABPlaybackTime` SwiftUI can read directly for a time label, progress bar, or custom scrubber. `currentTime`/`playbackTime` are re-read from `AVPlayer` on every access and can't be observed. It is a separate object so that playback ticks invalidate only the views that read the position, never views reading `isPlaying`/`grade`/`isBuffering`. Created on first access; until then it adds no periodic observer. The new `ABPlayerConfiguration.positionUpdateInterval` (default `0.25`, added at the end of the initializer's parameter list) bounds the gap between refreshes; the shared observer runs at the finer of it and `periodicTimeInterval`.
+- Added `ABPlayer.load(_:autoplay:)` — `set(source:grade: .current)` plus `play()`, and a no-op for the source already loaded at `.current` unless that item failed terminally, in which case it is re-attached. It is the one line an explicit-ownership SwiftUI screen needs in `.task`: re-appearing neither restarts the item nor resumes a player the user paused, and the grade ladder stays out of the way until a feed actually needs it. It deliberately isn't an initializer argument — a `@State` initial value is re-evaluated on every reconstruction of the view value, so attaching there would build throwaway `AVPlayerItem`s.
+- Added `ABVideoPlayerWithControls.init(player:videoGravity:style:configuration:)` and `ABPlayerControls.init(player:style:configuration:onEvent:)` — the no-accessories form, with no trailing closure. `ABVideoPlayerWithControls(player: player)` now compiles warning-free; the `{}` that 0.3.0's migration notes asked for is no longer needed (it still compiles, to the same current initializer).
+- Added `ABHLSPrefetcher.invalidateSharedSession()` — the explicit, process-wide teardown of the one `AVAssetDownloadURLSession` every prefetcher shares (a background session identifier can be bound to only one live session per process). This is what `invalidate()` used to do implicitly.
+
+### Changed
+
+- `ABVideoPlayer.init(url:videoGravity:autoplay:playerConfiguration:)` and `init(source:…playerConfiguration:)` replace the `configuration:` label, which is deprecated (removal in 1.0.0). On every view the labels now mean one thing: `playerConfiguration:` is an `ABPlayerConfiguration`, and `configuration:` is an `ABPlayerControlsConfiguration`. `ABVideoPlayer` was the one view where `configuration:` meant the player's. Bare calls that omit the argument are unaffected.
+- While `ABPlayer.position` is in use, `.periodicTime` events and the position share one `AVPlayer` periodic observer running at the finer of `periodicTimeInterval` and `positionUpdateInterval`, so `.periodicTime` can arrive more often than `periodicTimeInterval`. A player that never reads `position` is unaffected.
+- The deprecated `accessoryViews:` initializers of `ABPlayerControls` and `ABVideoPlayerWithControls` no longer default `accessoryViews` to `[]`. That default is what made a bare `(player:)` call resolve to them and warn. Calls that pass `accessoryViews:` explicitly are unaffected; calls that relied on the default now resolve to the new no-accessories initializer, without a warning.
+
+### Deprecated
+
+- `ABTimeFormatter.liveMarker` — never returned by `string(from:)`, never read anywhere in this package, and not localized (`ABPlayerKitControls` shows its own localized marker). Supply your own label. Scheduled for removal in 1.0.0.
+- `ABVideoPlayer`'s `configuration:` label — see the `playerConfiguration:` entry under Changed.
+
+### Fixed
+
+- `ABHLSPrefetcher.invalidate()` no longer tears down the download session shared by every instance. It used to call `finishTasksAndInvalidate()` on that session, so one screen invalidating its own prefetcher in `onDisappear` failed every other screen's in-flight HLS downloads. It now cancels only that instance's downloads and retires the instance (later `prefetch` calls resolve `.failed`); completed downloads stay available through `localAsset(for:)`. Code that relied on the old process-wide effect should call `ABHLSPrefetcher.invalidateSharedSession()`.
+- `ABVideoPlayerWithControls(url:)`/`(source:)` no longer call `set(source:)`/`play()` from inside `body`. Those calls mutate `ABPlayer`'s observed state and fire event observers in the middle of a SwiftUI view update; the source is now applied from `onAppear`/`onChange(of:)`. A repeat of the same source is still a no-op, so re-appearing never restarts a player the user paused.
+
 ## [0.4.1] - 2026-08-15
 
 ### Fixed

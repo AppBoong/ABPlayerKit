@@ -113,6 +113,26 @@ public final class ABPlayer {
     /// rate-evaluation wait with an actual rebuffer and misses the
     /// `automaticallyWaitsToMinimizeStalling == false` stall path.
     public private(set) var isBuffering = false
+    /// The playback position as an `@Observable` object — the value to read
+    /// from SwiftUI for a time label, progress bar, or custom scrubber.
+    ///
+    /// ``currentTime`` and ``playbackTime`` are re-read from `AVPlayer` on
+    /// every access, so SwiftUI can't observe them; this can. It is created
+    /// on first access. Until then it adds no periodic time observer; from
+    /// then on, while `.current`, the player's `AVPlayer` periodic observer
+    /// runs at least every ``ABPlayerConfiguration/positionUpdateInterval``.
+    /// See ``ABPlaybackPosition`` for why this is a separate object rather
+    /// than a property of the player.
+    public var position: ABPlaybackPosition {
+        if let positionStorage {
+            return positionStorage
+        }
+        let position = ABPlaybackPosition(time: playbackTime)
+        positionStorage = position
+        reconcilePeriodicTimeObserver()
+        return position
+    }
+
     /// A synchronous snapshot for initial rendering and state restoration.
     public var playbackTime: ABPlaybackTime {
         ABPlaybackTime(
@@ -123,6 +143,10 @@ public final class ABPlayer {
     }
 
     private let target: any ABPlaybackTarget
+    /// Backs `position`; `nil` until first read, which is what keeps the
+    /// periodic observer off for players nobody displays a position for.
+    @ObservationIgnored
+    private var positionStorage: ABPlaybackPosition?
     private let notificationCenter: NotificationCenter
     private let planner = ABGradePlanner()
     private let backgroundPolicyMachine = ABBackgroundPolicyMachine()
@@ -396,6 +420,36 @@ public final class ABPlayer {
     /// for both directions rather than assuming it is a one-way door.
     public func promote(to grade: ABPlaybackGrade) {
         set(source: source, grade: grade)
+    }
+
+    /// Loads `source` for playback — `set(source:grade:)` at `.current`,
+    /// followed by `play()` when `autoplay` is `true`.
+    ///
+    /// Idempotent for the source already loaded at `.current`: it neither
+    /// re-attaches nor calls `play()` again. That makes it safe to call from
+    /// `.task` or `onAppear`, which run on every appearance — coming back to
+    /// a screen never restarts the item or resumes a player the user
+    /// paused. A different source, or a player released or demoted in the
+    /// meantime, loads normally — and so does the same source after a
+    /// terminal failure: the failed item is detached and a fresh one
+    /// attached, so returning to a screen whose video failed retries it.
+    ///
+    /// Prefer this over passing a source to the player at creation time:
+    /// a SwiftUI `@State` initial value is re-evaluated on every
+    /// reconstruction of the view value and all but the first is thrown
+    /// away, so attaching an item there would build (and start loading)
+    /// throwaway `AVPlayerItem`s.
+    public func load(_ source: ABMediaSource, autoplay: Bool = true) {
+        if self.source == source, grade == .current {
+            guard lastFailure != nil else { return }
+            // `set` treats the same (source, grade) as a no-op, so drop the
+            // failed item first; the AVPlayer itself is kept.
+            set(source: source, grade: .instanceOnly)
+        }
+        set(source: source, grade: .current)
+        if autoplay {
+            play()
+        }
     }
 
     /// Releases every resource. Safe to call from any grade — always routes
@@ -735,6 +789,13 @@ public final class ABPlayer {
     /// Assignment always precedes its broadcast, so a re-entrant handler
     /// reading the mirror mid-broadcast sees the already-settled value.
     private func refreshPlaybackMirrors() {
+        // Grade/source transitions and KVO-driven state changes all land
+        // here, so `position` picks up a detach (back to zero), a newly
+        // known duration, or a pause without waiting for the next tick.
+        // Skipped while scrubbing, matching the periodic path.
+        if let positionStorage, !isScrubbing {
+            positionStorage.update(playbackTime)
+        }
         let newIsPlaying = target.isPlaying
         if newIsPlaying != isPlaying {
             isPlaying = newIsPlaying
@@ -994,7 +1055,8 @@ public final class ABPlayer {
             broadcast(.rateChanged(configuration.playbackRate))
             refreshPlaybackMirrors()
         }
-        if previousConfiguration.periodicTimeInterval != configuration.periodicTimeInterval {
+        if previousConfiguration.periodicTimeInterval != configuration.periodicTimeInterval
+            || previousConfiguration.positionUpdateInterval != configuration.positionUpdateInterval {
             reconcilePeriodicTimeObserver()
         }
         if previousConfiguration.audioSessionPolicy != configuration.audioSessionPolicy {
@@ -1378,11 +1440,22 @@ public final class ABPlayer {
         broadcast(.scrubbingChanged(isScrubbing: false))
     }
 
+    /// `AVPlayer` takes one periodic observer per interval, so the two
+    /// consumers — `.periodicTime` events and `position` — share one
+    /// observer at the finer of their intervals rather than each adding
+    /// their own.
+    private var effectivePeriodicInterval: TimeInterval? {
+        [
+            configuration.periodicTimeInterval,
+            positionStorage == nil ? nil : configuration.positionUpdateInterval
+        ]
+            .compactMap { $0 }
+            .filter { $0.isFinite && $0 > 0 }
+            .min()
+    }
+
     private func reconcilePeriodicTimeObserver() {
-        guard grade == .current,
-              let interval = configuration.periodicTimeInterval,
-              interval.isFinite,
-              interval > 0 else {
+        guard grade == .current, let interval = effectivePeriodicInterval else {
             target.setPeriodicTimeObserver(interval: nil, onTick: nil)
             return
         }
@@ -1392,14 +1465,16 @@ public final class ABPlayer {
     }
 
     private func broadcastPeriodicTime(at time: CMTime) {
-        guard grade == .current,
-              !isScrubbing,
-              configuration.periodicTimeInterval != nil else { return }
-        broadcast(.periodicTime(ABPlaybackTime(
+        guard grade == .current, !isScrubbing else { return }
+        let snapshot = ABPlaybackTime(
             currentTime: time,
             duration: target.duration,
             bufferedUntil: target.bufferedUntil
-        )))
+        )
+        positionStorage?.update(snapshot)
+        if configuration.periodicTimeInterval != nil {
+            broadcast(.periodicTime(snapshot))
+        }
     }
 
     private func setLayerAttachmentEnabled(_ enabled: Bool) {

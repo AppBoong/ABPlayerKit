@@ -52,36 +52,25 @@ struct ABPlayerControlsInitializerAmbiguityTests {
         _ = controls
     }
 
-    @available(*, deprecated, message: "Intentionally exercises the deprecated accessoryViews: initializer's all-defaults call shape.")
-    @Test("Given every parameter left at its default, both the legacy array form and the new accessories form still resolve without ambiguity")
-    func allDefaultsCompileForBothOverloads() {
+    // Deliberately *not* marked deprecated: CI builds with
+    // SWIFT_TREAT_WARNINGS_AS_ERRORS=YES, so if any bare call below resolved
+    // to a deprecated initializer, this file would stop compiling.
+    @Test("Given every parameter left at its default, a call with no closure resolves to the current initializer, not the deprecated array one")
+    func bareCallsResolveToCurrentInitializers() {
         let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
 
-        // Legacy overload, no trailing closure — resolves via `accessoryViews: [UIView] = []`.
-        let legacyDefaults = ABPlayerControls(player: player)
-        // New overload, `EmptyView` — resolves via `@ViewBuilder accessories:`, skips hosting entirely.
-        let accessoriesDefaults = ABPlayerControls(player: player) {}
+        let controls = ABPlayerControls(player: player)
+        let controlsWithEvent = ABPlayerControls(player: player, onEvent: { _ in })
+        let videoWithControls = ABVideoPlayerWithControls(player: player)
+        let videoWithGravity = ABVideoPlayerWithControls(player: player, videoGravity: .resizeAspect, style: .minimal)
+        // The 0.3.0 migration spelling keeps compiling, still to the current initializer.
+        let emptyClosure = ABVideoPlayerWithControls(player: player) {}
 
-        _ = legacyDefaults
-        _ = accessoriesDefaults
-    }
-
-    @available(*, deprecated, message: "Intentionally exercises ABVideoPlayerWithControls's deprecated accessoryViews: initializer's all-defaults call shape (round4 review mn-3).")
-    @Test("Given ABVideoPlayerWithControls with every parameter left at its default, the bare call resolves to the legacy (deprecated) initializer, and an empty trailing closure resolves to the new one — the exact pair CHANGELOG/README document as the migration for consumers who don't use accessories at all")
-    func videoPlayerWithControlsAllDefaultsCompileForBothOverloads() {
-        let player = ABPlayer(configuration: ABPlayerConfiguration(backgroundPolicy: .ignore))
-
-        // Legacy overload, no trailing closure — this is the call every
-        // pre-existing `ABVideoPlayerWithControls(player:)` consumer already
-        // has, and it now warns (round4 review mn-3) since it resolves here,
-        // to `accessoryViews: [UIView] = []`, not to the new initializer.
-        let legacyDefaults = ABVideoPlayerWithControls(player: player)
-        // The documented migration for those consumers: an empty trailing
-        // closure routes to the new, non-deprecated initializer instead.
-        let accessoriesDefaults = ABVideoPlayerWithControls(player: player) {}
-
-        _ = legacyDefaults
-        _ = accessoriesDefaults
+        _ = controls
+        _ = controlsWithEvent
+        _ = videoWithControls
+        _ = videoWithGravity
+        _ = emptyClosure
     }
 
     @Test("Given the new url: initializers, the bare form, a trailing-closure accessories form, an explicit playerConfiguration:, and a modifier chain all compile and resolve without ambiguity")

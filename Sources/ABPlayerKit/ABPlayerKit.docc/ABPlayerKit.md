@@ -10,6 +10,30 @@ Render the same player with ``ABPlayerView`` in UIKit or ``ABVideoPlayer`` in Sw
 
 Time to first frame ends only when both the player layer is ready for display and the current item is ready to play.
 
+### Getting Started
+
+One line puts a video on screen. The view owns the player and releases it when SwiftUI discards the view:
+
+```swift
+import ABPlayerKit
+import SwiftUI
+
+ABVideoPlayer(url: url)
+    .aspectRatio(16 / 9, contentMode: .fit)
+```
+
+Own the player when a screen needs to pause it, observe it, or share it:
+
+```swift
+@State private var player = ABPlayer()
+
+ABVideoPlayer(player: player)
+    .task { player.load(ABMediaSource(url: url)) }  // a no-op on later appearances
+    .onDisappear { player.pause() }
+```
+
+<doc:ChoosingAnOwnershipModel> explains when to take each step, and how grades preload a feed.
+
 ### Scrubbing
 
 Call ``ABPlayer/beginScrubbing()`` when an interactive drag starts, send every new destination through ``ABPlayer/scrub(to:)``, and await ``ABPlayer/endScrubbing()`` when it ends. ABPlayerKit coalesces intermediate seeks so only the newest pending destination survives, then commits the final destination precisely.
@@ -18,11 +42,15 @@ Periodic time events pause during that session and resume with an immediate snap
 
 ### Building Custom UI
 
-``ABSeekBarGeometry`` provides UIKit-independent coordinate and time conversion for custom timelines. ``ABTimeFormatter`` supplies stable `M:SS`/`H:MM:SS` media-time labels, omitting the hours field under one hour. Use ``ABPlaybackTime`` from ``ABPlayer/playbackTime`` or ``ABPlayerEvent/periodicTime(_:)`` to render current and buffered progress.
+``ABSeekBarGeometry`` provides UIKit-independent coordinate and time conversion for custom timelines. ``ABTimeFormatter`` supplies stable `M:SS`/`H:MM:SS` media-time labels, omitting the hours field under one hour. In SwiftUI, read ``ABPlayer/position`` — an `@Observable` ``ABPlaybackPosition`` that invalidates only the views reading it. Outside SwiftUI, use ``ABPlaybackTime`` from ``ABPlayer/playbackTime`` or ``ABPlayerEvent/periodicTime(_:)`` to render current and buffered progress.
 
 Treat ``ABPlayerEvent``, ``ABPlayerError``, and ``ABBackgroundPolicy`` as non-exhaustive. Minor releases may add cases, so switches outside ABPlayerKit should include a `default` branch.
 
 ## Topics
+
+### Essentials
+
+- <doc:ChoosingAnOwnershipModel>
 
 ### Playback
 
@@ -32,6 +60,7 @@ Treat ``ABPlayerEvent``, ``ABPlayerError``, and ``ABBackgroundPolicy`` as non-ex
 - ``ABPlayerConfiguration``
 - ``ABPlaybackTuning``
 - ``ABPlaybackTime``
+- ``ABPlaybackPosition``
 - ``ABSeekTolerance``
 - ``ABPlaybackRate``
 
@@ -94,4 +123,10 @@ Treat ``ABPlayerEvent``, ``ABPlayerError``, and ``ABBackgroundPolicy`` as non-ex
 ### Extension Seams
 
 - ``ABAssetFactory``
+
+### Grade State Machine
+
+Public so the transition table can be read and tested on its own, not as an extension seam. See the API stability policy's "Public types that are not extension seams".
+
 - ``ABGradePlanner``
+- ``ABGradeAction``

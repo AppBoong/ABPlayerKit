@@ -46,7 +46,7 @@ public struct ABVideoPlayerWithControls: View {
         videoGravity: AVLayerVideoGravity = .resizeAspectFill,
         style: ABPlayerControlsStyle? = nil,
         configuration: ABPlayerControlsConfiguration? = nil,
-        accessoryViews: [UIView] = []
+        accessoryViews: [UIView]
     ) {
         self.ownership = .explicit(
             player,
@@ -64,6 +64,20 @@ public struct ABVideoPlayerWithControls: View {
         self.style = style
         self.configuration = configuration
         self.accessoriesContent = nil
+    }
+
+    /// Video with the standard controls and no accessories. `accessoryViews:`
+    /// on the deprecated initializer above has no default, so a call without
+    /// accessories resolves here rather than to it.
+    public init(
+        player: ABPlayer,
+        videoGravity: AVLayerVideoGravity = .resizeAspectFill,
+        style: ABPlayerControlsStyle? = nil,
+        configuration: ABPlayerControlsConfiguration? = nil
+    ) {
+        self.init(player: player, videoGravity: videoGravity, style: style, configuration: configuration) {
+            EmptyView()
+        }
     }
 
     /// SwiftUI accessory overlay content — see `ABPlayerControls`'s matching
@@ -175,21 +189,30 @@ public struct ABVideoPlayerWithControls: View {
         }
     }
 
-    /// A plain (non-`@ViewBuilder`) function, unlike `body` and
-    /// `ownedControls(for:)` below — its `owner.apply(...)` call returns
-    /// `Void`, which a result builder would reject as a non-`View`
-    /// statement. An ordinary function body has no such restriction.
+    /// Creating the player here is safe — `ABOwnedPlayerBox` isn't
+    /// observable, and the first call is the only one that allocates. The
+    /// source is *applied* from `onAppear`/`onChange` instead: applying it
+    /// calls `set(source:)`/`play()`, which mutate `ABPlayer`'s observed
+    /// state and fire its event observers, and neither belongs inside a
+    /// view update. Both calls funnel into `apply`, which is a no-op for a
+    /// repeat of the same source, so appearing again never restarts a
+    /// player the user paused.
     private func ownedContent(
         source: ABMediaSource,
         autoplay: Bool,
         playerConfiguration: ABPlayerConfiguration
     ) -> some View {
         let player = owner.player(configuration: playerConfiguration, videoGravity: videoGravity)
-        owner.apply(source: source, autoplay: autoplay)
         return ABVideoPlayer(player: player, videoGravity: videoGravity)
             .overlay {
                 ownedControls(for: player)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .onAppear {
+                owner.apply(source: source, autoplay: autoplay)
+            }
+            .onChange(of: source) { _, newSource in
+                owner.apply(source: newSource, autoplay: autoplay)
             }
     }
 
@@ -200,7 +223,7 @@ public struct ABVideoPlayerWithControls: View {
                 accessoriesContent()
             }
         } else {
-            ABPlayerControls(player: player, style: style, configuration: configuration) {}
+            ABPlayerControls(player: player, style: style, configuration: configuration)
         }
     }
 }
