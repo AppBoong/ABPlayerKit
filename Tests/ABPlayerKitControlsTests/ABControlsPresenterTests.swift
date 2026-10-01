@@ -142,6 +142,13 @@ struct ABControlsPresenterTests {
         ])
     }
 
+    @Test("Given a non-terminal .failed (an error-log diagnostic), controls stay enabled — the stream is still playing")
+    func diagnosticFailureLeavesControlsEnabled() {
+        var presenter = ABControlsPresenter()
+
+        #expect(presenter.handle(.playerEvent(.failed(.itemErrorLogEntry(description: "segment 404")))) == [])
+    }
+
     @Test("Given playedToEnd, the icon reflects paused and isPlaying clears")
     func playedToEndSetsIconToPaused() {
         var presenter = ABControlsPresenter()
