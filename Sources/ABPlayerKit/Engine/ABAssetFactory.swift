@@ -14,9 +14,11 @@ public struct ABDefaultAssetFactory: ABAssetFactory, Sendable {
     /// when non-empty. This is a documented-by-convention `AVFoundation`
     /// key, not a formally documented public API, and it only covers the
     /// asset's *initial* request — HLS sub-requests (segments, keys,
-    /// alternate renditions) aren't guaranteed to carry it. `ABPlayerKitCache`'s
-    /// resource loader is the supported path for headers that must reach
-    /// every HLS sub-request.
+    /// alternate renditions) aren't guaranteed to carry it.
+    /// `ABPlayerKitCache` doesn't change that: it intercepts progressive
+    /// media only, and passes HLS through this factory unchanged. Headers
+    /// that must reach every HLS sub-request need them on the URLs
+    /// themselves (signed URLs or cookies).
     public func makeAsset(for source: ABMediaSource) -> AVURLAsset {
         guard !source.httpHeaders.isEmpty else {
             return AVURLAsset(url: source.url)

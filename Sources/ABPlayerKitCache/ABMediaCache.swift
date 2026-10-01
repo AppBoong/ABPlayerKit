@@ -12,7 +12,17 @@ public final class ABMediaCache: Sendable {
     public func makeAssetFactory(
         hlsPrefetcher: ABHLSPrefetcher? = nil
     ) -> any ABAssetFactory {
-        ABCacheAssetFactory(store: store, hlsPrefetcher: hlsPrefetcher)
+        makeAssetFactory(hlsPrefetcher: hlsPrefetcher, passthrough: ABDefaultAssetFactory())
+    }
+
+    /// `passthrough` builds every asset the cache doesn't intercept — HLS
+    /// streams that aren't downloaded, and URLs the cache can't rewrite.
+    /// Injectable so tests can observe what reaches it.
+    func makeAssetFactory(
+        hlsPrefetcher: ABHLSPrefetcher?,
+        passthrough: any ABAssetFactory
+    ) -> any ABAssetFactory {
+        ABCacheAssetFactory(store: store, hlsPrefetcher: hlsPrefetcher, passthrough: passthrough)
     }
 
     /// The cache's size as the index accounts for it — the sum of every
@@ -60,6 +70,10 @@ public final class ABMediaCache: Sendable {
 }
 
 // Factory mutation is protected by its lock and AVFoundation uses one shared serial delegate queue.
+//
+// Anything the cache doesn't intercept goes through `passthrough` (by default
+// `ABDefaultAssetFactory`), never a bare `AVURLAsset(url:)`: that is what
+// keeps `source.httpHeaders` on an HLS stream once caching is turned on.
 private final class ABCacheAssetFactory: ABAssetFactory, @unchecked Sendable {
     private struct RetainedDelegate {
         weak var asset: AVURLAsset?
@@ -68,25 +82,27 @@ private final class ABCacheAssetFactory: ABAssetFactory, @unchecked Sendable {
 
     private let store: ABCacheStore
     private let hlsPrefetcher: ABHLSPrefetcher?
+    private let passthrough: any ABAssetFactory
     private let delegateQueue = DispatchQueue(label: "ABPlayerKitCache.ResourceLoader")
     private let lock = NSLock()
     private var retainedDelegates: [RetainedDelegate] = []
 
-    init(store: ABCacheStore, hlsPrefetcher: ABHLSPrefetcher?) {
+    init(store: ABCacheStore, hlsPrefetcher: ABHLSPrefetcher?, passthrough: any ABAssetFactory) {
         self.store = store
         self.hlsPrefetcher = hlsPrefetcher
+        self.passthrough = passthrough
     }
 
     func makeAsset(for source: ABMediaSource) -> AVURLAsset {
         guard source.kind == .progressive else {
-            return hlsPrefetcher?.localAsset(for: source) ?? AVURLAsset(url: source.url)
+            return hlsPrefetcher?.localAsset(for: source) ?? passthrough.makeAsset(for: source)
         }
 
         guard var components = URLComponents(url: source.url, resolvingAgainstBaseURL: false) else {
-            return AVURLAsset(url: source.url)
+            return passthrough.makeAsset(for: source)
         }
         components.scheme = "ab-cache"
-        guard let cacheURL = components.url else { return AVURLAsset(url: source.url) }
+        guard let cacheURL = components.url else { return passthrough.makeAsset(for: source) }
 
         let asset = AVURLAsset(url: cacheURL)
         let delegate = ABResourceLoaderDelegate(source: source, store: store)

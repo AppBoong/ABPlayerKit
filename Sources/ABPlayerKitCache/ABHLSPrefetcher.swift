@@ -441,7 +441,9 @@ private final class ABHLSDownloadCoordinator: NSObject, AVAssetDownloadDelegate,
         minimumRequiredMediaBitrate: Double?,
         completion: @escaping @Sendable (ABHLSDownloadResult) -> Void
     ) -> (@Sendable () -> Void)? {
-        let asset = AVURLAsset(url: source.url)
+        // Same header handling as playback, so a download of an
+        // authenticated stream doesn't fail where playing it succeeds.
+        let asset = ABDefaultAssetFactory().makeAsset(for: source)
         let downloadConfiguration = AVAssetDownloadConfiguration(
             asset: asset,
             title: ABCacheKey.derive(from: source)

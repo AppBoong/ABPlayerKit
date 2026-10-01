@@ -247,3 +247,60 @@ struct ABHLSPrefetcherTests {
         #expect(ABHLSBackgroundSession.identifier == "ABPlayerKitCache.HLS")
     }
 }
+
+/// Records the sources that reach the passthrough factory.
+private final class ABRecordingAssetFactory: ABAssetFactory, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [ABMediaSource] = []
+
+    var sources: [ABMediaSource] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    func makeAsset(for source: ABMediaSource) -> AVURLAsset {
+        lock.lock()
+        recorded.append(source)
+        lock.unlock()
+        return AVURLAsset(url: source.url)
+    }
+}
+
+@Suite("The cache factory keeps a source's HTTP headers on the media it doesn't intercept", .timeLimit(abScaledMinutes(3)))
+struct ABMediaCachePassthroughTests {
+    @Test("An HLS stream goes through the passthrough factory with its headers, not a bare AVURLAsset")
+    func hlsKeepsHeaders() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = try ABMediaCache(configuration: .init(directory: directory))
+        let passthrough = ABRecordingAssetFactory()
+        let factory = cache.makeAssetFactory(hlsPrefetcher: nil, passthrough: passthrough)
+        let source = ABMediaSource(
+            url: URL(string: "https://example.com/master.m3u8")!,
+            httpHeaders: ["Authorization": "Bearer token"]
+        )
+
+        let asset = factory.makeAsset(for: source)
+
+        #expect(asset.url == source.url)
+        #expect(passthrough.sources == [source])
+        #expect(passthrough.sources.first?.httpHeaders == ["Authorization": "Bearer token"])
+    }
+
+    @Test("Progressive media is still intercepted and never reaches the passthrough factory")
+    func progressiveIsIntercepted() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = try ABMediaCache(configuration: .init(directory: directory))
+        let passthrough = ABRecordingAssetFactory()
+        let factory = cache.makeAssetFactory(hlsPrefetcher: nil, passthrough: passthrough)
+
+        let asset = factory.makeAsset(for: ABMediaSource(url: URL(string: "https://example.com/video.mp4")!))
+
+        #expect(asset.url.scheme == "ab-cache")
+        #expect(passthrough.sources.isEmpty)
+    }
+}
