@@ -33,7 +33,7 @@ ABVideoPlayerWithControls(url: url)
 - **SwiftUI-native state.** `ABPlayer` is `@Observable`, and the playback position is a separate observable object, so a time tick re-renders only the views that show time.
 - **Swift 6 language mode**, `@MainActor`-isolated UI, `Sendable` configuration values.
 
-> **[Engineering Notes](docs/ENGINEERING-NOTES.md)** — three AVFoundation defects that a green 743-test suite at 91% coverage did not catch, including a background-audio policy that was completely dead on hardware. Each had a test aimed directly at it that passed, because it measured the end state and never the timing iOS actually cares about. What the tests were measuring instead, and the five rules that came out of it.
+> **[Engineering Notes](docs/ENGINEERING-NOTES.md)** — three AVFoundation defects that a green suite of 743+ tests at 91% coverage did not catch, including a background-audio policy that was completely dead on hardware. Each had a test aimed directly at it that passed, because it measured the end state and never the timing iOS actually cares about. What the tests were measuring instead, and the five rules that came out of it.
 
 <table>
 <tr>
@@ -78,14 +78,13 @@ The decisions worth reading the source for, each with where to verify it:
 - **Resource ownership is a state machine, not a convention.** Four grades, with every transition planned by a pure function that has no AVFoundation import and is table-tested over all 16 pairs. Demotion re-applies the preload tuning, so it is the exact inverse of promotion. → [Grades and Preloading](#advanced--grades-and-preloading)
 - **Process-wide resources are treated as process-wide.** `AVAudioSession` goes through one coordinator that snapshots the host app's session before the first player changes it, and restores it when the last player leaves. Background HLS downloads share the single `AVAssetDownloadURLSession` a session identifier allows, and one screen can't tear down another's downloads. Now Playing has exactly one owner at a time.
 - **"Playing" and "a frame is on screen" are different events.** Time-to-first-frame ends only when `AVPlayerLayer.isReadyForDisplay` and `AVPlayerItem.status == .readyToPlay` are both true for the same item.
-- **Tested on hardware, not only in CI.** A green 743-test suite missed three AVFoundation defects: two were found on a device and one in review. The write-up covers why each test aimed at the bug still passed. → [Engineering Notes](docs/ENGINEERING-NOTES.md)
+- **Tested on hardware, not only in CI.** A green suite of 743+ tests missed three AVFoundation defects: two were found on a device and one in review. The write-up covers why each test aimed at the bug still passed. → [Engineering Notes](docs/ENGINEERING-NOTES.md)
 - **The public API is held to a written policy.** Nothing is removed before 1.0; replacements ship first and the old API is deprecated. Overload resolution is pinned by tests that compile under warnings-as-errors, and the SwiftUI samples for each ownership step are compiled as tests. → [API Stability](#api-stability)
 
 ## Table of Contents
 
 - [Requirements](#requirements)
 - [Installation](#installation)
-- [Design Highlights](#design-highlights)
 - [Quick Start](#quick-start)
   - [Customizing](#customizing)
   - [Owning the Player Yourself](#owning-the-player-yourself)
@@ -161,6 +160,25 @@ For unreleased development, replace `from: "0.4.1"` with `branch: "main"`. Appli
 Only `ABPlayerKit` is required. Each optional product's code is absent from your app unless you link it — see [Usage by Target](#usage-by-target).
 
 ## Quick Start
+
+Each step below runs in the demo app's **Usage** tab ([`UsageScreen.swift`](Examples/ABPlayerKitDemo/ABPlayerKitDemo/UsageScreen.swift)):
+
+<table>
+<tr>
+<td align="center" width="33%">
+<img src="docs/assets/usage-one-line.png" width="220" alt="ABVideoPlayerWithControls(url:) playing an HLS stream above its one-line source"><br>
+<sub>1. One line</sub>
+</td>
+<td align="center" width="33%">
+<img src="docs/assets/usage-own-player.png" width="220" alt="An owned ABPlayer with a progress bar and seconds label driven by player.position, and its grade, isPlaying and isBuffering state"><br>
+<sub>2. Own the player, show its position</sub>
+</td>
+<td align="center" width="33%">
+<img src="docs/assets/usage-feed.png" width="220" alt="A paging feed with one current player, both neighbours preloaded and the rest released"><br>
+<sub>3. A feed: one <code>.current</code>, neighbours <code>.preloaded</code></sub>
+</td>
+</tr>
+</table>
 
 Play a URL with the standard controls — this is the whole integration:
 
@@ -279,16 +297,14 @@ final class PlayerViewController: UIViewController {
         playerView.player = player
         view.addSubview(playerView)
 
-        let source = ABMediaSource(url: URL(string: "https://example.com/video.mp4")!)
-        player.set(source: source, grade: .current)
-        player.play()
+        player.load(ABMediaSource(url: URL(string: "https://example.com/video.mp4")!))
     }
 }
 ```
 
 ### Advanced — Grades and Preloading
 
-Create one player and drive all source/grade changes through `set(source:grade:)` when a screen needs to prepare media before it becomes visible — a feed cell a few rows away, for example:
+`load(_:)` is shorthand for `set(source:grade: .current)` followed by `play()`. Use `set(source:grade:)` directly once a screen needs the other grades. Create one player and drive all source/grade changes through it when a screen needs to prepare media before it becomes visible — a feed cell a few rows away, for example:
 
 ```swift
 import ABPlayerKit
@@ -400,7 +416,6 @@ This target bridges `ABPlayer` to `MPNowPlayingInfoCenter` and `MPRemoteCommandC
 
 Reference: [Remote Commands](https://appboong.github.io/ABPlayerKit/documentation/abplayerkitnowplaying/remotecommands/) — the activation table, ownership rules, and what each command additionally requires.
 
-
 ## Tuning
 
 ABPlayerKit models preload and current playback as two distinct tuning roles. Keep `preloadTuning` conservative, choose `currentTuning` for visible playback, and let every grade transition apply the correct role.
@@ -430,7 +445,7 @@ This symmetry prevents a demoted item from retaining the unrestricted/current po
 ## Troubleshooting
 
 **The video area is black and nothing plays.**
-A player only loads media once it holds an item. Confirm `player.load(_:)` — or `player.set(source:grade:)` with `.current` — was called (or `.preloaded` followed by a promotion) — a player left at `.instanceOnly` deliberately holds no item and makes no network requests. Then check `player.lastFailure` for a terminal failure. Note that `lastDiagnostic` carrying an `.itemErrorLogEntry` is normal for a healthy stream and is not the cause.
+A player only loads media once it holds an item. Confirm the player holds an item: call `load(_:)`, or `set(source:grade:)` at `.current` or `.preloaded`. At `.instanceOnly` a player deliberately holds no item and makes no network requests. Then check `player.lastFailure` for a terminal failure. Note that `lastDiagnostic` carrying an `.itemErrorLogEntry` is normal for a healthy stream and is not the cause.
 
 **`play()`, `pause()`, or `seek()` seem to do nothing.**
 Playback control calls are ignored — not thrown — while `grade != .current`. Observe `.callRejected(ABRejectedCall, grade:)` to see which call was dropped and at what grade.
@@ -451,7 +466,7 @@ That's intended if `pause()` was called while backgrounded — an explicit pause
 Check `ABPictureInPictureSession.isSupported` (usually `false` in the simulator — test on a device) and `session.isPossible`, which requires the bound layer to be ready for display. PiP also needs `audioSessionPolicy != .unmanaged`, and works **only** on the `player:` explicit-ownership initializers.
 
 **Lock screen controls don't appear, or some buttons are missing.**
-Link `ABPlayerKitNowPlaying` and call `attach`, retaining the returned token. Only a `.current` player is eligible. Change-rate and next/previous-track are **not** in `ABRemoteCommandSet.default` and need explicit opt-in — see the command table above.
+Link `ABPlayerKitNowPlaying` and call `attach`, retaining the returned token. Only a `.current` player is eligible. Change-rate and next/previous-track are **not** in `ABRemoteCommandSet.default` and need explicit opt-in — see [Remote Commands](https://appboong.github.io/ABPlayerKit/documentation/abplayerkitnowplaying/remotecommands/).
 
 **A `switch` over `ABPlayerEvent`, `ABMetricEvent`, or `ABBackgroundPolicy` stopped compiling after an update.**
 These are non-exhaustive by policy; minor releases may add cases. Add a `default` branch.
@@ -464,7 +479,7 @@ Keep off-screen cells at `.preloaded` or `.instanceOnly` rather than `.current`,
 
 ## Demo App
 
-The standalone iOS 17 demo exercises HLS/MP4 playback, all four grades, tuning roles, TTFF statistics, progressive caching, explicit HLS prefetch, Picture in Picture, and background audio.
+The standalone iOS 17 demo opens on a **Usage** tab that runs each Quick Start step, then exercises HLS/MP4 playback, all four grades, tuning roles, TTFF statistics, progressive caching, explicit HLS prefetch, Picture in Picture, and background audio.
 
 ```bash
 open Examples/ABPlayerKitDemo/ABPlayerKitDemo.xcodeproj
@@ -484,7 +499,7 @@ xcodebuild \
 
 Picture in Picture, background audio, lock-screen controls, and AirPlay cannot be verified in the simulator. [`docs/CHECKLIST-device-verification.md`](docs/CHECKLIST-device-verification.md) is the manual checklist used on a real device before each release.
 
-For a vertical short-form feed and preload-window orchestration, see [ABShortsKit](https://github.com/AppBoong/ABShortsKit).
+For a vertical feed that preloads its neighbours, see the Usage tab's third step and the recipe in [Choosing an Ownership Model](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/choosinganownershipmodel/).
 
 ## Architecture
 

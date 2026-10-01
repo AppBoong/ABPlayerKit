@@ -33,7 +33,7 @@ ABVideoPlayerWithControls(url: url)
 - **SwiftUI에 맞는 상태 관찰.** `ABPlayer`는 `@Observable`이고, 재생 위치는 별도의 관찰 객체로 분리돼 있습니다. 그래서 시간이 흘러도 시간을 표시하는 뷰만 다시 그려집니다.
 - **Swift 6 언어 모드**, `@MainActor`로 격리된 UI, `Sendable` 설정 값.
 
-> **[Engineering Notes](docs/ENGINEERING-NOTES.md)** (영문) — 커버리지 91%의 테스트 743건이 전부 그린인 채로 놓친 AVFoundation 결함 3건. 그중 하나는 백그라운드 오디오 정책이 실기기에서 완전히 죽어 있던 것입니다. 셋 다 그 결함을 정면으로 겨냥한 테스트가 있었고 전부 통과했습니다 — 최종 상태만 단언하고 iOS가 실제로 보는 타이밍은 보지 않았기 때문입니다. 테스트가 대신 무엇을 재고 있었는지, 그리고 거기서 나온 다섯 가지 규칙.
+> **[Engineering Notes](docs/ENGINEERING-NOTES.md)** (영문) — 커버리지 91%의 테스트 743건 이상이 전부 그린인 채로 놓친 AVFoundation 결함 3건. 그중 하나는 백그라운드 오디오 정책이 실기기에서 완전히 죽어 있던 것입니다. 셋 다 그 결함을 정면으로 겨냥한 테스트가 있었고 전부 통과했습니다 — 최종 상태만 단언하고 iOS가 실제로 보는 타이밍은 보지 않았기 때문입니다. 테스트가 대신 무엇을 재고 있었는지, 그리고 거기서 나온 다섯 가지 규칙.
 
 <table>
 <tr>
@@ -78,14 +78,13 @@ ABVideoPlayerWithControls(url: url)
 - **자원 소유권은 관례가 아니라 상태 머신입니다.** 등급은 넷이고, 모든 전이는 AVFoundation을 import하지 않는 순수 함수가 계획합니다. 16쌍 전부를 표 기반으로 테스트합니다. 강등하면 프리로드 튜닝을 다시 적용하므로 강등은 승격의 정확한 역연산입니다. → [등급과 프리로드](#고급--등급과-프리로드)
 - **프로세스 전역 자원은 전역 자원으로 다룹니다.** `AVAudioSession`은 코디네이터 하나를 거칩니다. 첫 플레이어가 세션을 바꾸기 전에 호스트 앱의 세션을 스냅샷해 두고, 마지막 플레이어가 떠날 때 복원합니다. 백그라운드 HLS 다운로드는 세션 identifier가 허용하는 단 하나의 `AVAssetDownloadURLSession`을 공유하며, 한 화면이 다른 화면의 다운로드를 내리지 못합니다. Now Playing의 소유자는 항상 하나입니다.
 - **"재생 중"과 "화면에 프레임이 떴다"는 다른 사건입니다.** 첫 프레임 표시 시간은 같은 아이템에 대해 `AVPlayerLayer.isReadyForDisplay`와 `AVPlayerItem.status == .readyToPlay`가 모두 참일 때만 끝납니다.
-- **CI만이 아니라 실기기에서 검증합니다.** 그린이던 테스트 743건이 AVFoundation 결함 3건을 놓쳤습니다. 2건은 실기기에서, 1건은 리뷰에서 잡혔습니다. 결함을 정면으로 겨냥한 테스트가 왜 통과했는지를 정리했습니다. → [Engineering Notes](docs/ENGINEERING-NOTES.md)(영문)
+- **CI만이 아니라 실기기에서 검증합니다.** 그린이던 테스트 743건 이상이 AVFoundation 결함 3건을 놓쳤습니다. 2건은 실기기에서, 1건은 리뷰에서 잡혔습니다. 결함을 정면으로 겨냥한 테스트가 왜 통과했는지를 정리했습니다. → [Engineering Notes](docs/ENGINEERING-NOTES.md)(영문)
 - **공개 API는 문서화된 정책을 따릅니다.** 1.0 전에는 아무것도 제거하지 않습니다. 대체 API를 먼저 내고 기존 API는 deprecate합니다. 오버로드 해석은 경고를 에러로 처리하는 빌드에서 컴파일되는 테스트로 고정했고, 소유 단계별 SwiftUI 예제도 테스트로 컴파일합니다. → [API 안정성](#api-안정성)
 
 ## 목차
 
 - [요구 사항](#요구-사항)
 - [설치](#설치)
-- [설계 하이라이트](#설계-하이라이트)
 - [빠른 시작](#빠른-시작)
   - [커스터마이징](#커스터마이징)
   - [플레이어를 직접 소유하기](#플레이어를-직접-소유하기)
@@ -161,6 +160,25 @@ targets: [
 필수는 `ABPlayerKit` 하나뿐입니다. 나머지 선택 제품은 링크하지 않으면 코드 자체가 앱에 포함되지 않습니다 — [타겟별 사용법](#타겟별-사용법)을 참고하세요.
 
 ## 빠른 시작
+
+아래 단계는 데모 앱의 **Usage** 탭에서 실행됩니다([`UsageScreen.swift`](Examples/ABPlayerKitDemo/ABPlayerKitDemo/UsageScreen.swift)).
+
+<table>
+<tr>
+<td align="center" width="33%">
+<img src="docs/assets/usage-one-line.png" width="220" alt="ABVideoPlayerWithControls(url:) playing an HLS stream above its one-line source"><br>
+<sub>1. 한 줄</sub>
+</td>
+<td align="center" width="33%">
+<img src="docs/assets/usage-own-player.png" width="220" alt="An owned ABPlayer with a progress bar and seconds label driven by player.position, and its grade, isPlaying and isBuffering state"><br>
+<sub>2. 플레이어 소유, 재생 위치 표시</sub>
+</td>
+<td align="center" width="33%">
+<img src="docs/assets/usage-feed.png" width="220" alt="A paging feed with one current player, both neighbours preloaded and the rest released"><br>
+<sub>3. 피드: <code>.current</code> 하나, 이웃은 <code>.preloaded</code></sub>
+</td>
+</tr>
+</table>
 
 URL 하나로 표준 컨트롤까지 재생합니다 — 이게 통합의 전부입니다.
 
@@ -279,16 +297,14 @@ final class PlayerViewController: UIViewController {
         playerView.player = player
         view.addSubview(playerView)
 
-        let source = ABMediaSource(url: URL(string: "https://example.com/video.mp4")!)
-        player.set(source: source, grade: .current)
-        player.play()
+        player.load(ABMediaSource(url: URL(string: "https://example.com/video.mp4")!))
     }
 }
 ```
 
 ### 고급 — 등급과 프리로드
 
-화면이 아직 보이지 않는 미디어를 미리 준비해야 할 때(예: 몇 줄 아래 있는 피드 셀) 플레이어 하나를 만들고 모든 소스/등급 변경을 `set(source:grade:)`로 처리합니다.
+`load(_:)`는 `set(source:grade: .current)` 뒤에 `play()`를 부르는 축약입니다. 다른 등급이 필요해지면 `set(source:grade:)`를 직접 씁니다. 화면이 아직 보이지 않는 미디어를 미리 준비해야 할 때(예: 몇 줄 아래 있는 피드 셀) 플레이어 하나를 만들고 모든 소스/등급 변경을 `set(source:grade:)`로 처리합니다.
 
 ```swift
 import ABPlayerKit
@@ -400,7 +416,6 @@ player.configuration = configuration
 
 레퍼런스: [원격 커맨드](https://appboong.github.io/ABPlayerKit/documentation/abplayerkitnowplaying/remotecommands/) — 활성화 표, 소유권 규칙, 각 커맨드가 추가로 요구하는 것.
 
-
 ## 튜닝
 
 ABPlayerKit은 프리로드와 현재 재생을 서로 다른 두 튜닝 역할로 모델링합니다. `preloadTuning`은 보수적으로 유지하고, 화면에 보이는 재생에는 `currentTuning`을 선택한 뒤 모든 등급 전환에서 올바른 역할이 적용되도록 합니다.
@@ -430,7 +445,7 @@ player.set(source: source, grade: .preloaded) // preloadTuning 복원
 ## 문제 해결
 
 **영상 영역이 검은 화면이고 아무것도 재생되지 않습니다.**
-플레이어는 아이템을 보유해야만 미디어를 로드합니다. `player.load(_:)`를 호출했는지, 또는 `player.set(source:grade:)`를 `.current`로(혹은 `.preloaded` 후 승격으로) 호출했는지 확인하세요 — `.instanceOnly`에 머문 플레이어는 의도적으로 아이템을 보유하지 않고 네트워크 요청도 하지 않습니다. 그다음 `player.lastFailure`에서 종료성 실패를 확인하세요. `lastDiagnostic`에 `.itemErrorLogEntry`가 담기는 것은 정상 스트림에서도 흔한 일이며 원인이 아닙니다.
+플레이어는 아이템을 보유해야만 미디어를 로드합니다. 플레이어가 아이템을 보유하고 있는지 확인하세요. `load(_:)`를 호출하거나 `set(source:grade:)`를 `.current` 또는 `.preloaded`로 호출해야 합니다. `.instanceOnly`인 플레이어는 의도적으로 아이템을 보유하지 않고 네트워크 요청도 하지 않습니다. 그다음 `player.lastFailure`에서 종료성 실패를 확인하세요. `lastDiagnostic`에 `.itemErrorLogEntry`가 담기는 것은 정상 스트림에서도 흔한 일이며 원인이 아닙니다.
 
 **`play()`, `pause()`, `seek()`가 아무 반응이 없습니다.**
 재생 제어 호출은 `grade != .current`인 동안 예외를 던지지 않고 무시됩니다. `.callRejected(ABRejectedCall, grade:)`를 관찰하면 어떤 호출이 어떤 등급에서 버려졌는지 알 수 있습니다.
@@ -451,7 +466,7 @@ player.set(source: source, grade: .preloaded) // preloadTuning 복원
 `ABPictureInPictureSession.isSupported`(시뮬레이터에서는 대체로 `false` — 실기기에서 확인하세요)와, 바인딩된 레이어가 표시 준비되어야 하는 `session.isPossible`을 확인하세요. PiP는 `audioSessionPolicy != .unmanaged`도 필요하며, `player:` 명시 소유 이니셜라이저에서**만** 동작합니다.
 
 **잠금화면 컨트롤이 안 뜨거나 일부 버튼이 없습니다.**
-`ABPlayerKitNowPlaying`을 링크하고 `attach`를 호출한 뒤 반환된 토큰을 보관해야 합니다. `.current` 플레이어만 자격이 있습니다. 배속 변경과 다음/이전 트랙은 `ABRemoteCommandSet.default`에 **포함되지 않아** 명시적 옵트인이 필요합니다 — 위의 커맨드 표를 참고하세요.
+`ABPlayerKitNowPlaying`을 링크하고 `attach`를 호출한 뒤 반환된 토큰을 보관해야 합니다. `.current` 플레이어만 자격이 있습니다. 배속 변경과 다음/이전 트랙은 `ABRemoteCommandSet.default`에 **포함되지 않아** 명시적 옵트인이 필요합니다 — [Remote Commands](https://appboong.github.io/ABPlayerKit/documentation/abplayerkitnowplaying/remotecommands/)를 참고하세요.
 
 **업데이트 후 `ABPlayerEvent`·`ABMetricEvent`·`ABBackgroundPolicy`에 대한 `switch`가 컴파일되지 않습니다.**
 이 타입들은 정책상 비전수(non-exhaustive)이며 마이너 릴리스에서 케이스가 추가될 수 있습니다. `default` 분기를 추가하세요.
@@ -464,7 +479,7 @@ player.set(source: source, grade: .preloaded) // preloadTuning 복원
 
 ## 데모 앱
 
-독립 iOS 17 데모는 HLS/MP4 재생, 네 등급, 튜닝 역할, TTFF 통계, 프로그레시브 캐싱, 명시적 HLS 프리페치, Picture in Picture, 백그라운드 오디오를 실행합니다.
+독립 iOS 17 데모는 빠른 시작의 각 단계를 실행하는 **Usage** 탭에서 시작하며, HLS/MP4 재생, 네 등급, 튜닝 역할, TTFF 통계, 프로그레시브 캐싱, 명시적 HLS 프리페치, Picture in Picture, 백그라운드 오디오를 실행합니다.
 
 ```bash
 open Examples/ABPlayerKitDemo/ABPlayerKitDemo.xcodeproj
@@ -484,7 +499,7 @@ xcodebuild \
 
 Picture in Picture, 백그라운드 오디오, 잠금화면 컨트롤, AirPlay는 시뮬레이터에서 검증할 수 없습니다. [`docs/CHECKLIST-device-verification.md`](docs/CHECKLIST-device-verification.md)가 릴리스 전 실기기에서 수행하는 수동 확인 목록입니다.
 
-세로 숏폼 피드와 프리로드 윈도우 오케스트레이션은 [ABShortsKit](https://github.com/AppBoong/ABShortsKit)을 참고하세요.
+이웃을 프리로드하는 세로 피드는 Usage 탭의 세 번째 단계와 [Choosing an Ownership Model](https://appboong.github.io/ABPlayerKit/documentation/abplayerkit/choosinganownershipmodel/)(영문)의 레시피를 참고하세요.
 
 ## 아키텍처
 
