@@ -4,6 +4,10 @@ All notable changes to ABPlayerKit are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Pausing a looping player at the loop point now sticks. The target restarts a looping item itself (seek to start, then `AVPlayer.play()`), and that `play()` ran even when `pause()` had been called in between, from a `.playedToEnd` observer or a tap during the restart seek, so playback resumed on its own. The restart now resumes only if no pause happened since the item ended. Verified against real AVFoundation with a 0.6 s looping fixture; the same suite confirms that the controls keep showing the pause icon across loops (a suspected icon bug that turned out not to exist).
+
 ## [0.5.1] - 2026-10-02
 
 ### Changed

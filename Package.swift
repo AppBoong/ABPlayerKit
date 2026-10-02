@@ -54,7 +54,8 @@ let package = Package(
         ),
         .testTarget(
             name: "ABPlayerKitControlsTests",
-            dependencies: ["ABPlayerKitControls", "ABPlayerKit", "ABTestSupport"]
+            dependencies: ["ABPlayerKitControls", "ABPlayerKit", "ABTestSupport"],
+            resources: [.process("Resources")]
         ),
         .testTarget(
             name: "ABPlayerKitMetricsTests",

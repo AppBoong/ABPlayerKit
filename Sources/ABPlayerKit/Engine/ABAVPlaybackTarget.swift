@@ -12,6 +12,11 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
 
     private let observations = ABObservationBag()
     private var isLooping = false
+    /// Bumped by every `pause()`. The loop restart compares it across its
+    /// `await`, so a pause that lands at the loop point (from an observer
+    /// of `.playedToEnd`, or a tap during the restart seek) isn't undone by
+    /// the restart's `play()`.
+    private var pauseCount = 0
     private var desiredRate: Float = 1.0
     /// Lock-protected rather than `nonisolated(unsafe)` stored properties:
     /// a raw `nonisolated(unsafe)` would remove isolation checking from
@@ -130,6 +135,7 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
     }
 
     func pause() {
+        pauseCount += 1
         avPlayer?.pause()
     }
 
@@ -445,14 +451,15 @@ final class ABAVPlaybackTarget: ABPlaybackTarget {
         ) { [weak self, weak item] _ in
             Task { @MainActor in
                 guard let self, let item, self.avPlayerItem === item else { return }
+                let pausesBeforeEnd = self.pauseCount
                 self.deliver([.playedToEnd], from: item)
                 // Restarting is target-internal — no `.seekCompleted` here,
                 // since this isn't a seek `ABPlayer` itself issued. Checked
                 // again after the restart seek, whose `await` can outlive a
-                // detach/re-attach that happens in between.
+                // detach/re-attach or a pause that happens in between.
                 guard self.isLooping else { return }
                 await self.seekToStart()
-                guard self.avPlayerItem === item else { return }
+                guard self.avPlayerItem === item, self.pauseCount == pausesBeforeEnd else { return }
                 self.avPlayer?.play()
             }
         }
