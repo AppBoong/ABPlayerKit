@@ -34,6 +34,43 @@ ABVideoPlayer(player: player)
 
 <doc:ChoosingAnOwnershipModel> explains when to take each step, and how grades preload a feed.
 
+In UIKit, render a player with ``ABPlayerView``:
+
+```swift
+import ABPlayerKit
+import UIKit
+
+@MainActor
+final class PlayerViewController: UIViewController {
+    private let player = ABPlayer()
+    private let playerView = ABPlayerView()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        playerView.frame = view.bounds
+        playerView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        playerView.player = player
+        view.addSubview(playerView)
+
+        player.load(ABMediaSource(url: URL(string: "https://example.com/video.mp4")!))
+    }
+}
+```
+
+Events support multiple independent consumers. The returned token is what keeps the subscription alive — discard it and observation stops:
+
+```swift
+let token = player.addObserver { event in
+    if case .firstFrameDisplayed(let timestamp) = event {
+        print("First frame displayed at \(timestamp)")
+    }
+}
+
+// Retain token for as long as observation is needed.
+token.cancel()
+```
+
 ### Scrubbing
 
 Call ``ABPlayer/beginScrubbing()`` when an interactive drag starts, send every new destination through ``ABPlayer/scrub(to:)``, and await ``ABPlayer/endScrubbing()`` when it ends. ABPlayerKit coalesces intermediate seeks so only the newest pending destination survives, then commits the final destination precisely.
@@ -51,6 +88,8 @@ Treat ``ABPlayerEvent``, ``ABPlayerError``, and ``ABBackgroundPolicy`` as non-ex
 ### Essentials
 
 - <doc:ChoosingAnOwnershipModel>
+- <doc:TuningPlayback>
+- <doc:Troubleshooting>
 
 ### Playback
 
