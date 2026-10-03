@@ -2,7 +2,7 @@
 
 [`ENGINEERING-NOTES.md`](ENGINEERING-NOTES.md) is the exception to everything below: it's written to be read from outside. Three defects that a green 743-test suite did not catch, what the tests were measuring instead, and the five testing rules that came out of it.
 
-[`ROADMAP.md`](ROADMAP.md) is the other outward-facing document: what comes after the current release, in what order, and what is deliberately left out.
+[`ARCHITECTURE.md`](ARCHITECTURE.md) is the other one written for outside readers: why the package is shaped the way it is, for anyone curious about the design rather than the usage.
 
 Everything else under `docs/` — `DESIGN-*.md`, `BRIEF-*.md`, `PLANNING.md`, `IMPL-*.md`, `CHECKLIST-*.md` — is a maintainer-facing design and implementation record: open questions and the decisions made on them, and the results reported back. It documents *how* and *why* the library reached its current shape, for whoever maintains it next.
 
