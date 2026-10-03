@@ -108,6 +108,41 @@ When the user swipes to a neighbour, `load` promotes an item that is already att
 
 This recipe needs iOS 17's `scrollPosition(id:)`, which is this package's deployment target.
 
+### Driving grades by hand
+
+`load(_:)` is shorthand for `set(source:grade: .current)` followed by `play()`. Use `set(source:grade:)` directly once a screen needs the other grades. Create one player and drive all source/grade changes through it when a screen needs to prepare media before it becomes visible — a feed cell a few rows away, for example:
+
+```swift
+import ABPlayerKit
+
+let source = ABMediaSource(
+    url: URL(string: "https://example.com/video.m3u8")!,
+    kind: .hls
+)
+
+let player = ABPlayer()
+player.set(source: source, grade: .preloaded)
+
+// When the media becomes visible:
+player.set(source: source, grade: .current)
+player.play()
+
+// When it leaves the preload window:
+player.set(source: source, grade: .instanceOnly)
+```
+
+| Grade | Resources held | Intended use |
+|---|---|---|
+| `.released` | Nothing | Return all playback resources |
+| `.instanceOnly` | `AVPlayer`, no item | Keep identity while guaranteeing zero item network activity |
+| `.preloaded` | Player + item, preload tuning | Prepare nearby media without allowing `play()` |
+| `.current` | Player + item, current tuning | Visible media; playback controls are accepted |
+
+- Every release path that holds an item routes through `detachItem`.
+- Moving between `.preloaded` and `.current` reapplies the matching tuning role, so demotion is the exact inverse of promotion.
+- Playback control calls are accepted only at `.current` — see <doc:FailuresAndDiagnostics>.
+- `ABMediaSource`'s `kind:` is inferred from the URL's extension (`.m3u8` → `.hls`, anything else → `.progressive`). Pass it explicitly only for a signed or extensionless URL where that inference would guess wrong.
+
 ## See Also
 
 - <doc:BackgroundAndPictureInPicture>

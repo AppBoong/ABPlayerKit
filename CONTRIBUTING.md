@@ -10,6 +10,10 @@ Thanks for your interest in contributing!
 ## Development
 
 - Requirements: Xcode 16+, iOS 17+ simulator.
+- The package is iOS-only, so `swift build` (which targets the host, macOS) stops with an explanation. Build with Xcode instead:
+  ```bash
+  xcodebuild -scheme ABPlayerKit-Package -destination 'generic/platform=iOS' build
+  ```
 - Run the full test suite before opening a PR:
   ```bash
   xcodebuild -scheme ABPlayerKit-Package -destination 'platform=iOS Simulator,name=iPhone 16 Pro' test
