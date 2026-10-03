@@ -550,7 +550,7 @@ While this package is `0.x`, replacement APIs are always added additively and de
 
 ## Contributing
 
-Issues and pull requests are welcome. What is planned next, and in what order, is in the [Roadmap](docs/ROADMAP.md). [CONTRIBUTING.md](CONTRIBUTING.md) covers the development setup, the code and commit conventions, and the pull-request rules — every change goes through a PR with maintainer approval and green CI, and the build must be zero-warning.
+Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers the development setup, the code and commit conventions, and the pull-request rules — every change goes through a PR with maintainer approval and green CI, and the build must be zero-warning.
 
 Run the full test suite before opening a PR:
 
